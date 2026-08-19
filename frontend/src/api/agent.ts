@@ -13,6 +13,25 @@ export interface AgentPayload {
   skill_ids?: number[]
 }
 
+export interface AgentTemplate {
+  id: string
+  name: string
+  description: string
+  role: string
+  task: string
+  constraints: string
+  output: string
+  model_name: string
+  rag_enabled: number
+  memory_enabled: number
+  temperature: number
+  skill_names: string[]
+  source?: 'builtin' | 'custom'
+  editable?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 export interface AgentInfo extends AgentPayload {
   id: number
   user_id: number
@@ -123,6 +142,21 @@ export async function listAgents(): Promise<AgentInfo[]> {
   return data as AgentInfo[]
 }
 
+export async function listAgentTemplates(): Promise<AgentTemplate[]> {
+  const { data } = await request.get('/agent/templates')
+  return data as AgentTemplate[]
+}
+
+export async function createAgentTemplate(payload: Omit<AgentTemplate, 'id' | 'source' | 'editable' | 'created_at' | 'updated_at'>): Promise<AgentTemplate> {
+  const { data } = await request.post('/agent/templates', payload)
+  return data as AgentTemplate
+}
+
+export async function deleteAgentTemplate(templateId: string) {
+  const { data } = await request.delete(`/agent/templates/${templateId}`)
+  return data
+}
+
 export async function getSelectedAgent(): Promise<AgentInfo | null> {
   try {
     const { data } = await request.get('/agent/selected/me')
@@ -152,6 +186,11 @@ export async function dryRunAgent(agentId: number, payload: {
 
 export async function createAgent(payload: AgentPayload): Promise<{ agent_id: number }> {
   const { data } = await request.post('/agent', payload)
+  return data as { agent_id: number }
+}
+
+export async function cloneAgent(agentId: number, payload: { name?: string | null } = {}): Promise<{ agent_id: number }> {
+  const { data } = await request.post(`/agent/${agentId}/clone`, payload)
   return data as { agent_id: number }
 }
 

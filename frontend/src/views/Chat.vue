@@ -49,10 +49,33 @@
         </button>
       </div>
 
+      <div class="border-b border-gray-100 px-3 py-3">
+        <div class="relative">
+          <Search class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" :size="14" />
+          <input
+            v-model="conversationQuery"
+            type="text"
+            class="h-9 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 text-sm text-gray-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            placeholder="搜索会话"
+          />
+        </div>
+        <div class="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1 text-xs">
+          <button
+            v-for="item in conversationFilters"
+            :key="item.value"
+            @click="conversationFilter = item.value"
+            :class="conversationFilter === item.value ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+            class="h-7 rounded-md transition"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </div>
+
             <!-- 会话列表 -->
       <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5 pt-1">
         <div
-          v-for="c in conversations"
+          v-for="c in filteredConversations"
           :key="c.id"
           class="group relative rounded-lg"
         >
@@ -146,8 +169,8 @@
           </div>
         </div>
 
-        <div v-if="conversations.length === 0" class="text-sm text-gray-400 text-center py-8 px-4">
-          暂无会话，发送第一条消息会自动创建
+        <div v-if="filteredConversations.length === 0" class="text-sm text-gray-400 text-center py-8 px-4">
+          {{ conversations.length === 0 ? '暂无会话，发送第一条消息会自动创建' : '没有匹配的会话' }}
         </div>
       </div>
     </aside>
@@ -468,7 +491,7 @@ import type { LlmConfig } from '../api/llmConfig'
 import type { AgentRun, RunDetail } from '../api/run'
 import {
   BookOpen, PlusCircle, MoreHorizontal, Pencil, Trash2, Pin, Archive,
-  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download
+  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search
 } from 'lucide-vue-next'
 import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
@@ -479,6 +502,8 @@ const agentId = computed(() => Number(route.params.agentId))
 const currentAgent = ref<any>(null)
 const configs = ref<LlmConfig[]>([])
 const conversations = ref<any[]>([])
+const conversationQuery = ref('')
+const conversationFilter = ref<'all' | 'active' | 'archived'>('active')
 const currentConversationId = ref<number | null>(null)
 const messages = ref<any[]>([])
 const inputText = ref('')
@@ -580,6 +605,20 @@ const chatBlockedReason = computed(() => {
   return ''
 })
 const chatReady = computed(() => !chatBlockedReason.value)
+const conversationFilters: Array<{ label: string; value: 'all' | 'active' | 'archived' }> = [
+  { label: '正常', value: 'active' },
+  { label: '全部', value: 'all' },
+  { label: '归档', value: 'archived' },
+]
+const filteredConversations = computed(() => {
+  const query = conversationQuery.value.trim().toLowerCase()
+  return conversations.value.filter((conversation) => {
+    if (conversationFilter.value === 'active' && conversation.is_archived === 1) return false
+    if (conversationFilter.value === 'archived' && conversation.is_archived !== 1) return false
+    if (!query) return true
+    return String(conversation.title || '').toLowerCase().includes(query)
+  })
+})
 
 const renderMarkdown = (text: string) => marked.parse(text || '') as string
 const short = (s: string, n: number) => {
@@ -684,7 +723,7 @@ const toggleArchive = async (c: any) => {
     if (idx !== -1) conversations.value[idx] = { ...conversations.value[idx], ...updated }
     resortConversations()
     if (currentConversationId.value === c.id && next === 1) {
-      const nextConv = conversations.value.find(x => !isArchived(x.id))
+      const nextConv = filteredConversations.value.find(x => x.id !== c.id && !isArchived(x.id))
       nextConv ? selectConversation(nextConv.id) : createNewConversation()
     }
   } catch (e: any) {

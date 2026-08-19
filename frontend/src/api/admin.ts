@@ -40,6 +40,48 @@ export interface AdminTask {
   finished_at?: string | null
 }
 
+export interface AdminUsageDaily {
+  date: string
+  runs: number
+  tokens: number
+  messages: number
+}
+
+export interface AdminUsageTopUser {
+  user_id: number
+  name: string
+  run_count: number
+  tokens: number
+}
+
+export interface AdminUsage {
+  summary: {
+    total_runs: number
+    finished_runs: number
+    failed_runs: number
+    success_rate: number
+    total_tokens: number
+    total_messages: number
+  }
+  daily: AdminUsageDaily[]
+  task_status: Record<string, number>
+  top_users: AdminUsageTopUser[]
+}
+
+export interface AdminLog {
+  id: number
+  user_id?: number | null
+  username?: string | null
+  method: string
+  path: string
+  status_code: number
+  latency_ms: number
+  client_ip?: string | null
+  user_agent?: string | null
+  error_msg?: string | null
+  created_at?: string | null
+}
+
 export async function getAdminOverview(): Promise<AdminOverview> {
   const { data } = await request.get('/admin/overview')
   return data as AdminOverview
@@ -78,4 +120,21 @@ export async function deleteAdminUser(userId: number) {
 export async function listAdminTasks(limit = 50): Promise<AdminTask[]> {
   const { data } = await request.get('/admin/tasks', { params: { limit } })
   return data as AdminTask[]
+}
+
+export async function getAdminUsage(days = 14): Promise<AdminUsage> {
+  const { data } = await request.get('/admin/usage', { params: { days } })
+  return data as AdminUsage
+}
+
+export async function listAdminLogs(params: {
+  limit?: number
+  days?: number
+  keyword?: string
+  method?: string
+  status_group?: string
+  user_id?: number
+} = {}): Promise<AdminLog[]> {
+  const { data } = await request.get('/admin/logs', { params })
+  return data as AdminLog[]
 }

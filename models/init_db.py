@@ -119,6 +119,7 @@ class Knowledge(Base):
     file_size = Column(Integer,default=0) # 字节数
     chunk_count =Column(Integer,default=0) # 切块数（解析后回填）
     status = Column(String(20), default="pending")         # pending/processing/done/failed
+    is_enabled = Column(Integer, default=1)                 # 0=禁用 1=启用，控制是否参与RAG检索
     error_msg = Column(Text, nullable=True)                 # 失败原因
     created_at = Column(DateTime,default=datetime.utcnow, nullable=False)
 # 知识块表（文档切分后的块，含向量库id引用）
@@ -183,6 +184,21 @@ class BackgroundTask(Base):
     # 重试机制：retry_count 记录本任务被重试过几次；parent_task_id 指向触发本次重试的原任务
     retry_count = Column(Integer, default=0, nullable=False)
     parent_task_id = Column(Integer, ForeignKey("background_task.id", name="fk_task_parent"), nullable=True)
+
+
+class OperationLog(Base):
+    __tablename__ = "operation_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_operation_log_user"), nullable=True)
+    username = Column(String(255), nullable=True)
+    method = Column(String(10), nullable=False)
+    path = Column(String(500), nullable=False)
+    status_code = Column(Integer, default=0)
+    latency_ms = Column(Integer, default=0)
+    client_ip = Column(String(100), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    error_msg = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Skill(Base):
@@ -266,6 +282,8 @@ def _run_migrations():
          "ALTER TABLE agent_run ADD COLUMN conversation_id INT NULL, ADD CONSTRAINT fk_run_conv FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL"),
         ("knowledge", "error_msg",
          "ALTER TABLE knowledge ADD COLUMN error_msg TEXT NULL COMMENT '知识库处理失败原因'"),
+        ("knowledge", "is_enabled",
+         "ALTER TABLE knowledge ADD COLUMN is_enabled INT DEFAULT 1 COMMENT '0=禁用 1=启用 是否参与RAG检索'"),
         ("conversation", "is_pinned",
          "ALTER TABLE conversation ADD COLUMN is_pinned INT DEFAULT 0 COMMENT '0=普通 1=置顶'"),
         ("conversation", "is_archived",

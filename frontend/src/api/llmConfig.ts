@@ -21,6 +21,17 @@ export interface SupportedModel {
   kind: 'chat' | 'embedding'
 }
 
+export interface LlmConfigTestResult {
+  ok: boolean
+  model_name: string
+  kind?: 'chat' | 'embedding' | string
+  message: string
+  elapsed_ms?: number
+  dimension?: number
+  preview?: string
+  error?: string
+}
+
 export async function listConfigs(): Promise<LlmConfig[]> {
   const { data } = await request.get('/llm_config/list')
   return data as LlmConfig[]
@@ -34,6 +45,11 @@ export async function saveConfig(payload: LlmConfigPayload) {
 export async function deleteConfig(modelName: string) {
   const { data } = await request.delete(`/llm_config/${encodeURIComponent(modelName)}`)
   return data
+}
+
+export async function testConfig(modelName: string): Promise<LlmConfigTestResult> {
+  const { data } = await request.post(`/llm_config/${encodeURIComponent(modelName)}/test`)
+  return data as LlmConfigTestResult
 }
 
 export async function listSupportedModels(): Promise<string[]> {

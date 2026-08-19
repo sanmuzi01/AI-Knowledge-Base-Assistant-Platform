@@ -15,9 +15,11 @@ from FasdtApi.memory import router as memory_router
 from FasdtApi.background_task import router as background_task_router
 from FasdtApi.admin import router as admin_router
 from models.init_db import SessionLocal
+from service.operation_log_middleware import OperationLogMiddleware
 from utils.cache import config_cache, skill_cache
 
 app = FastAPI()
+app.add_middleware(OperationLogMiddleware)
 
 # 用绝对路径挂载 static 目录，避免依赖启动时的工作目录
 BASE_DIR = Path(__file__).resolve().parent.parent

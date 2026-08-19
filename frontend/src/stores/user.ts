@@ -57,6 +57,13 @@ export const useUserStore = defineStore('user', {
       const { data } = await request.post('/user/register', { name, password, age })
       return data
     },
+    async changePassword(oldPassword: string, newPassword: string) {
+      const { data } = await request.post('/user/change-password', {
+        old_password: oldPassword,
+        new_password: newPassword,
+      })
+      return data
+    },
     logout() {
       this.token = ''
       this.user = null

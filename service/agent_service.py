@@ -91,6 +91,45 @@ def create(db,user,name:str,role:str = None, task: str = None,
     except SQLAlchemyError as e:
         db.rollback()
         raise e
+
+
+def clone(db, user, agent_id: int, name: str = None) -> Optional[Dict[str, Any]]:
+    """复制一个已有 Agent 的配置，生成新的 Agent。"""
+    source = get_agent_by_id(db, agent_id)
+    if not source or source.user_id != user.id:
+        return None
+
+    prompt = read_prompt_file(source.id) or {}
+    clone_name = (name or f"{source.name} 副本").strip()
+    result = create(
+        db=db,
+        user=user,
+        name=clone_name,
+        role=prompt.get("role"),
+        task=prompt.get("task"),
+        constraints=prompt.get("constraints"),
+        output=prompt.get("output"),
+        model_name=source.model_name,
+        rag_enabled=source.rag_enabled,
+        memory_enabled=source.memory_enabled,
+        temperature=source.temperature,
+    )
+    if "agent_id" not in result:
+        return result
+
+    from service.skill_service import list_agent_skills, update_agent_skills
+
+    skill_ids = [skill["id"] for skill in list_agent_skills(db, source.id, user_id=user.id)]
+    if skill_ids:
+        update_agent_skills(db, result["agent_id"], skill_ids, user_id=user.id)
+    db.commit()
+    logger.info(f"克隆 Agent 成功: source={source.id}, cloned={result['agent_id']}, user={user.id}")
+    return {
+        "message": "克隆成功",
+        "agent_id": result["agent_id"],
+        "name": clone_name,
+        "source_agent_id": source.id,
+    }
 # 4. 更新智能体（只能改自己的）
 def update(db, user, agent_id: int, name: str = None,role: str = None,
            task: str = None, constraints: str = None, output: str = None,

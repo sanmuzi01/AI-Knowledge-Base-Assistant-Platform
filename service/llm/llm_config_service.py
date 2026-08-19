@@ -107,3 +107,70 @@ def get_first_embedding_config(db, user_id: int):
             }
         return None
     return config_cache.get_or_set(("embedding_api_config", user_id), load)
+
+
+def test_config(db, user, model_name: str) -> Dict[str, Any]:
+    """测试当前用户已保存的模型配置是否可用。"""
+    import time
+
+    model_name = normalize_model_name(model_name)
+    api_config = get_api_config(db, user.id, model_name)
+    if not api_config:
+        return {
+            "ok": False,
+            "model_name": model_name,
+            "message": "配置不存在或已停用",
+        }
+
+    started = time.time()
+    kind = model_type(model_name)
+    try:
+        if kind == "embedding":
+            from service.rag.embedding.factory import EmbeddingFactory
+
+            client = EmbeddingFactory.create(
+                model_name=api_config["model_name"],
+                api_key=api_config["api_key"],
+                api_url=api_config.get("api_url"),
+            )
+            vector = client.embed_query("连接测试")
+            elapsed_ms = int((time.time() - started) * 1000)
+            return {
+                "ok": True,
+                "model_name": model_name,
+                "kind": "embedding",
+                "message": "向量模型连接正常",
+                "elapsed_ms": elapsed_ms,
+                "dimension": len(vector),
+            }
+
+        from service.llm.factory import LLMFactory
+
+        client = LLMFactory.create(
+            model_name=api_config["model_name"],
+            api_key=api_config["api_key"],
+            api_url=api_config.get("api_url"),
+        )
+        answer = client.chat([
+            {"role": "system", "content": "你只需要用中文简短回复。"},
+            {"role": "user", "content": "请回复：连接正常"},
+        ], temperature=0)
+        elapsed_ms = int((time.time() - started) * 1000)
+        return {
+            "ok": True,
+            "model_name": model_name,
+            "kind": "chat",
+            "message": "聊天模型连接正常",
+            "elapsed_ms": elapsed_ms,
+            "preview": (answer or "")[:100],
+        }
+    except Exception as e:
+        elapsed_ms = int((time.time() - started) * 1000)
+        return {
+            "ok": False,
+            "model_name": model_name,
+            "kind": kind,
+            "message": "连接测试失败",
+            "elapsed_ms": elapsed_ms,
+            "error": str(e)[:500],
+        }

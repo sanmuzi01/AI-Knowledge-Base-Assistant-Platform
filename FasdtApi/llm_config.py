@@ -39,6 +39,20 @@ def save_config(
         current_user : User = Depends(get_current_user)
 ):
     return llm_config_service.save_config(db, current_user,config.model_name, config.api_key, config.api_url)
+
+
+@router.post("/{model_name}/test", summary="测试模型配置")
+def test_config(
+        model_name: str,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    result = llm_config_service.test_config(db, current_user, model_name)
+    if not result.get("ok"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result)
+    return result
+
+
 @router.delete("/{model_name}",summary="删除模型配置")
 def delete_config(
         model_name:str,

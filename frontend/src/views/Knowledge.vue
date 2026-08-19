@@ -33,7 +33,7 @@
               ]"
               class="cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors"
             >
-              <input ref="fileInput" type="file" class="hidden" accept=".txt,.md,.pdf,.docx" :disabled="!canUseRag" @change="handleFileSelect" />
+              <input ref="fileInput" type="file" class="hidden" accept=".txt,.md,.pdf,.docx" multiple :disabled="!canUseRag" @change="handleFileSelect" />
               <UploadCloud :size="30" class="mx-auto mb-3 text-slate-400" />
               <p class="text-sm font-medium text-slate-700">{{ uploadTitle }}</p>
               <p class="mt-1 text-xs text-slate-500">{{ uploading ? uploadProgress : uploadHint }}</p>
@@ -103,6 +103,15 @@
                   </span>
                 </div>
                 <div class="mt-3 flex justify-end">
+                  <button
+                    @click="handleToggleEnabled(doc)"
+                    :disabled="togglingEnabledId === doc.id"
+                    :class="doc.is_enabled === 1 ? 'border-amber-100 text-amber-700 hover:bg-amber-50' : 'border-emerald-100 text-emerald-700 hover:bg-emerald-50'"
+                    class="mr-2 rounded border px-3 py-1.5 text-xs disabled:text-slate-300"
+                    :title="doc.is_enabled === 1 ? '禁用后不参与RAG检索' : '启用后参与RAG检索'"
+                  >
+                    {{ togglingEnabledId === doc.id ? '更新中...' : doc.is_enabled === 1 ? '禁用' : '启用' }}
+                  </button>
                   <button
                     @click="handleReindex(doc)"
                     :disabled="!canUseRag || reindexingId === doc.id"
@@ -274,12 +283,13 @@ const chunksLoading = ref(false)
 const chunks = ref<KnowledgeChunk[]>([])
 const chunkDoc = ref<KnowledgeDoc | null>(null)
 const reindexingId = ref<number | null>(null)
+const togglingEnabledId = ref<number | null>(null)
 const tasks = ref<BackgroundTask[]>([])
 let pollTimer: number | undefined
 let searchSlowTimer: number | undefined
 let taskPollTimer: number | undefined
 
-const searchableDocs = computed(() => docs.value.filter((doc) => doc.status === 'done' && doc.chunk_count > 0))
+const searchableDocs = computed(() => docs.value.filter((doc) => doc.status === 'done' && doc.chunk_count > 0 && doc.is_enabled !== 0))
 const hasEmbeddingKey = computed(() => configs.value.some((config) => {
   const model = config.model_name.toLowerCase()
   return model.includes('embedding') || model.startsWith('baai/') || model === 'glm-4'
@@ -291,11 +301,11 @@ const ragBlockedReason = computed(() => {
 })
 const canUseRag = computed(() => !ragBlockedReason.value)
 const uploadTitle = computed(() => {
-  if (uploading.value) return '正在入库...'
+  if (uploading.value) return '正在创建入库任务...'
   if (!canUseRag.value) return '请先配置向量模型 Key'
   return '点击或拖拽文件到这里'
 })
-const uploadHint = computed(() => canUseRag.value ? '支持 txt / md / pdf / docx' : '配置后才能上传、切块和检索')
+const uploadHint = computed(() => canUseRag.value ? '支持批量选择 txt / md / pdf / docx' : '配置后才能上传、切块和检索')
 
 const loadCurrentAgent = async () => {
   try {
@@ -365,26 +375,34 @@ const loadTasks = async () => {
   }
 }
 
-const uploadFile = async (file: File) => {
+const uploadFiles = async (files: File[]) => {
   if (!canUseRag.value) {
     uploadError.value = ragBlockedReason.value
     return
   }
+  const uploadList = files.filter(Boolean)
+  if (uploadList.length === 0) return
   uploading.value = true
   uploadError.value = ''
-  uploadProgress.value = file.name
+  uploadProgress.value = uploadList.length === 1 ? uploadList[0].name : `${uploadList.length} 个文件`
   try {
-    const result = await knowledgeApi.uploadDocument(agentId.value, file)
-    if (result?.task_id) {
-      tasks.value.unshift({
-        id: result.task_id,
+    const result = uploadList.length === 1
+      ? {
+          items: [{
+            file_name: uploadList[0].name,
+            ...(await knowledgeApi.uploadDocument(agentId.value, uploadList[0])),
+          }],
+        }
+      : await knowledgeApi.uploadDocuments(agentId.value, uploadList)
+    const newTasks = (result.items || []).map((item: any) => ({
+        id: item.task_id,
         user_id: 0,
         agent_id: agentId.value,
         task_type: 'knowledge_index',
-        status: result.status || 'queued',
-        title: `文档入库: ${file.name}`,
+        status: item.status || 'queued',
+        title: `文档入库: ${item.file_name}`,
         target_type: 'knowledge',
-        target_id: result.knowledge_id,
+        target_id: item.knowledge_id,
         progress: 0,
         result: null,
         error_msg: null,
@@ -393,8 +411,8 @@ const uploadFile = async (file: File) => {
         created_at: null,
         started_at: null,
         finished_at: null,
-      })
-    }
+    }))
+    tasks.value.unshift(...newTasks)
     await loadDocs()
     updatePolling()
   } catch (e: any) {
@@ -407,16 +425,16 @@ const uploadFile = async (file: File) => {
 
 const handleFileSelect = (e: Event) => {
   const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (file) uploadFile(file)
+  const files = Array.from(target.files || [])
+  if (files.length) uploadFiles(files)
   target.value = ''
 }
 
 const handleDrop = (e: DragEvent) => {
   dragOver.value = false
   if (!canUseRag.value) return
-  const file = e.dataTransfer?.files?.[0]
-  if (file) uploadFile(file)
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length) uploadFiles(files)
 }
 
 const handleDelete = async (doc: KnowledgeDoc) => {
@@ -462,6 +480,23 @@ const handleReindex = async (doc: KnowledgeDoc) => {
     await loadDocs()
   } finally {
     reindexingId.value = null
+  }
+}
+
+const handleToggleEnabled = async (doc: KnowledgeDoc) => {
+  const next = doc.is_enabled === 1 ? 0 : 1
+  togglingEnabledId.value = doc.id
+  uploadError.value = ''
+  try {
+    await knowledgeApi.updateDocumentEnabled(agentId.value, doc.id, next)
+    doc.is_enabled = next
+    if (selectedKnowledgeId.value === doc.id && next === 0) {
+      selectedKnowledgeId.value = 0
+    }
+  } catch (e: any) {
+    uploadError.value = getErrorMessage(e, '更新文档状态失败')
+  } finally {
+    togglingEnabledId.value = null
   }
 }
 

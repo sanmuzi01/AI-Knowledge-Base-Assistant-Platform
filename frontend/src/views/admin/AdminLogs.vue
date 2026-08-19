@@ -1,14 +1,206 @@
 <template>
   <div class="p-6">
-    <p class="text-xs text-slate-500 mb-4">操作日志查询：用户操作、API 调用、错误记录</p>
-    <div class="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
-      <ScrollText :size="36" class="mx-auto text-slate-300 mb-3" />
-      <p class="text-base font-medium text-slate-700 mb-1">操作日志</p>
-      <p class="text-xs text-slate-400">M7 阶段实现：OperationLog 表 + 采集中间件 + 按用户/时间/类型筛选</p>
+    <div class="mb-5 flex items-center justify-between">
+      <p class="text-xs text-slate-500">查看接口访问、错误响应、慢请求和管理员操作轨迹</p>
+      <button
+        @click="loadLogs"
+        :disabled="loading"
+        class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+      >
+        <RefreshCcw :size="14" :class="loading ? 'animate-spin' : ''" />
+        刷新
+      </button>
     </div>
+
+    <p v-if="errorMsg" class="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMsg }}</p>
+
+    <section class="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search :size="15" class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            v-model="keyword"
+            type="search"
+            placeholder="搜索路径、用户、IP 或错误"
+            class="h-8 w-full rounded border border-slate-200 bg-white pl-8 pr-2 text-xs outline-none focus:border-blue-500"
+            @keyup.enter="loadLogs"
+          />
+        </div>
+        <select v-model.number="days" class="h-8 rounded border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-500">
+          <option :value="1">今天</option>
+          <option :value="7">近 7 天</option>
+          <option :value="14">近 14 天</option>
+          <option :value="30">近 30 天</option>
+          <option :value="90">近 90 天</option>
+        </select>
+        <select v-model.number="userId" class="h-8 rounded border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-500">
+          <option :value="0">全部用户</option>
+          <option v-for="user in users" :key="user.id" :value="user.id">{{ user.name }} #{{ user.id }}</option>
+        </select>
+        <select v-model="method" class="h-8 rounded border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-500">
+          <option value="">全部方法</option>
+          <option v-for="item in methods" :key="item" :value="item">{{ item }}</option>
+        </select>
+        <div class="flex flex-wrap gap-1">
+          <button
+            v-for="item in statusFilters"
+            :key="item.value"
+            @click="statusGroup = item.value"
+            :class="statusGroup === item.value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+            class="rounded px-2.5 py-1 text-xs transition-colors"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <span class="ml-auto text-xs text-slate-400">共 {{ logs.length }} 条</span>
+      </div>
+    </section>
+
+    <section class="rounded-lg border border-slate-200 bg-white">
+      <div class="grid grid-cols-[150px_90px_1fr_92px_90px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+        <span>时间</span>
+        <span>用户</span>
+        <span>请求</span>
+        <span>状态</span>
+        <span>耗时</span>
+        <span>来源</span>
+      </div>
+
+      <div>
+        <section v-for="group in groupedLogs" :key="group.key" class="border-b border-slate-100 last:border-b-0">
+          <div class="flex items-center justify-between bg-slate-50/70 px-4 py-2">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium text-slate-800">{{ group.label }}</p>
+              <p class="text-xs text-slate-400">{{ group.count }} 条日志</p>
+            </div>
+            <span v-if="group.errorCount" class="rounded bg-red-50 px-2 py-1 text-xs text-red-700">{{ group.errorCount }} 条错误</span>
+          </div>
+
+          <article v-for="log in group.items" :key="log.id" class="grid grid-cols-[150px_90px_1fr_92px_90px_120px] gap-3 px-4 py-3 text-sm hover:bg-slate-50/60">
+            <span class="text-xs text-slate-500">{{ log.created_at || '-' }}</span>
+            <div class="min-w-0">
+              <p class="truncate text-slate-700">{{ log.username || '-' }}</p>
+              <p v-if="log.user_id" class="text-xs text-slate-400">#{{ log.user_id }}</p>
+            </div>
+            <div class="min-w-0">
+              <div class="flex min-w-0 items-center gap-2">
+                <span :class="methodClass(log.method)" class="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium">{{ log.method }}</span>
+                <p class="truncate font-medium text-slate-900">{{ log.path }}</p>
+              </div>
+              <p v-if="log.error_msg" class="mt-1 line-clamp-2 rounded border border-red-100 bg-red-50 px-2 py-1 text-xs text-red-700">
+                {{ log.error_msg }}
+              </p>
+            </div>
+            <div class="flex items-start">
+              <span :class="statusClass(log.status_code)" class="rounded px-2 py-1 text-xs">{{ log.status_code }}</span>
+            </div>
+            <span :class="log.latency_ms >= 1000 ? 'text-amber-700' : 'text-slate-500'" class="text-xs">{{ log.latency_ms }} ms</span>
+            <div class="min-w-0 text-xs text-slate-500">
+              <p class="truncate">{{ log.client_ip || '-' }}</p>
+              <p class="truncate text-slate-400" :title="log.user_agent || ''">{{ log.user_agent || '-' }}</p>
+            </div>
+          </article>
+        </section>
+
+        <div v-if="!logs.length && !loading" class="py-14 text-center text-sm text-slate-500">暂无操作日志。</div>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ScrollText } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import { RefreshCcw, Search } from 'lucide-vue-next'
+import * as adminApi from '../../api/admin'
+import type { AdminLog, AdminUser } from '../../api/admin'
+import { getErrorMessage } from '../../utils/request'
+
+const logs = ref<AdminLog[]>([])
+const users = ref<AdminUser[]>([])
+const loading = ref(false)
+const errorMsg = ref('')
+const keyword = ref('')
+const days = ref(7)
+const userId = ref(0)
+const method = ref('')
+const statusGroup = ref('')
+
+const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+const statusFilters = [
+  { label: '全部', value: '' },
+  { label: '成功', value: 'success' },
+  { label: '错误', value: 'error' },
+  { label: '慢请求', value: 'slow' },
+]
+
+let searchTimer: number | undefined
+
+const groupedLogs = computed(() => {
+  const groups = new Map<string, { key: string; label: string; items: AdminLog[]; count: number; errorCount: number }>()
+  for (const log of logs.value) {
+    const key = log.user_id ? `user-${log.user_id}` : 'anonymous'
+    const label = log.user_id ? `${log.username || '未知用户'} #${log.user_id}` : '未登录/系统请求'
+    if (!groups.has(key)) {
+      groups.set(key, { key, label, items: [], count: 0, errorCount: 0 })
+    }
+    const group = groups.get(key)!
+    group.items.push(log)
+    group.count += 1
+    if (log.status_code >= 400) group.errorCount += 1
+  }
+  return Array.from(groups.values())
+})
+
+const loadLogs = async () => {
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    logs.value = await adminApi.listAdminLogs({
+      limit: 200,
+      days: days.value,
+      keyword: keyword.value.trim() || undefined,
+      user_id: userId.value || undefined,
+      method: method.value || undefined,
+      status_group: statusGroup.value || undefined,
+    })
+  } catch (e: any) {
+    errorMsg.value = getErrorMessage(e, '读取操作日志失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadUsers = async () => {
+  try {
+    users.value = await adminApi.listAdminUsers()
+  } catch {
+    users.value = []
+  }
+}
+
+watch([days, userId, method, statusGroup], loadLogs)
+watch(keyword, () => {
+  if (searchTimer !== undefined) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(loadLogs, 300)
+})
+
+const methodClass = (value: string) => ({
+  GET: 'bg-blue-50 text-blue-700',
+  POST: 'bg-emerald-50 text-emerald-700',
+  PUT: 'bg-amber-50 text-amber-700',
+  PATCH: 'bg-purple-50 text-purple-700',
+  DELETE: 'bg-red-50 text-red-700',
+}[value] || 'bg-slate-100 text-slate-600')
+
+const statusClass = (value: number) => {
+  if (value >= 500) return 'bg-red-50 text-red-700'
+  if (value >= 400) return 'bg-amber-50 text-amber-700'
+  if (value >= 300) return 'bg-slate-100 text-slate-600'
+  return 'bg-emerald-50 text-emerald-700'
+}
+
+onMounted(() => {
+  loadUsers()
+  loadLogs()
+})
 </script>

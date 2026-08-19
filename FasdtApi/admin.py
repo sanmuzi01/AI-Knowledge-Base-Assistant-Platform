@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from models.init_db import User, get_db
 from service import admin_service
 from service.dependencies import get_current_admin_user
+from service.operation_log_service import list_operation_logs
 
 router = APIRouter(prefix="/admin", tags=["管理员后台"])
 
@@ -118,3 +119,34 @@ def admin_tasks(
         current_user: User = Depends(get_current_admin_user),
 ):
     return admin_service.list_recent_tasks(db, limit=limit)
+
+
+@router.get("/usage", summary="查询系统使用情况")
+def admin_usage(
+        days: int = Query(default=14, ge=1, le=90),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user),
+):
+    return admin_service.usage_stats(db, days=days)
+
+
+@router.get("/logs", summary="查询操作日志")
+def admin_logs(
+        limit: int = Query(default=100, ge=1, le=500),
+        days: int = Query(default=7, ge=1, le=90),
+        keyword: str = Query(default=None),
+        method: str = Query(default=None),
+        status_group: str = Query(default=None),
+        user_id: int = Query(default=None),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user),
+):
+    return list_operation_logs(
+        db,
+        limit=limit,
+        days=days,
+        keyword=keyword,
+        method=method,
+        status_group=status_group,
+        user_id=user_id,
+    )

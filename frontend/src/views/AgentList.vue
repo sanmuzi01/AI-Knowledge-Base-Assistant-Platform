@@ -167,6 +167,14 @@
                   <Pencil :size="15" />
                 </button>
                 <button
+                  @click="cloneAgent(agent)"
+                  :disabled="cloningId === agent.id"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-indigo-50 hover:text-indigo-700 disabled:text-slate-300"
+                  title="复制"
+                >
+                  <Copy :size="15" />
+                </button>
+                <button
                   @click="handleDelete(agent)"
                   class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600"
                   title="删除"
@@ -201,7 +209,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  BookOpen, Bot, Bug, Cpu, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, Trash2, Zap,
+  BookOpen, Bot, Bug, Copy, Cpu, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, Trash2, Zap,
 } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'
@@ -224,6 +232,7 @@ const editingAgent = ref<AgentInfo | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 const selectingId = ref<number | null>(null)
+const cloningId = ref<number | null>(null)
 
 const selectedAgentName = computed(() => agents.value.find(a => a.is_selected)?.name || '')
 const configuredModelNames = computed(() => new Set(configs.value.map((config) => config.model_name.toLowerCase())))
@@ -311,6 +320,27 @@ const selectAgent = async (agent: AgentInfo) => {
     toastError(getErrorMessage(e, '设置默认 Agent 失败'))
   } finally {
     selectingId.value = null
+  }
+}
+
+const cloneAgent = async (agent: AgentInfo) => {
+  const defaultName = `${agent.name} 副本`
+  const inputName = prompt('新 Agent 名称', defaultName)
+  if (inputName === null) return
+  const name = inputName.trim() || defaultName
+  cloningId.value = agent.id
+  try {
+    const result = await agentApi.cloneAgent(agent.id, { name })
+    await agentApi.selectAgent(result.agent_id)
+    if (userStore.user) {
+      userStore.user.selected_agent_id = result.agent_id
+      localStorage.setItem('user', JSON.stringify(userStore.user))
+    }
+    await reload()
+  } catch (e: any) {
+    toastError(getErrorMessage(e, '复制 Agent 失败'))
+  } finally {
+    cloningId.value = null
   }
 }
 

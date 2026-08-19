@@ -15,6 +15,10 @@ class RegisterUser(BaseModel):
     name: str = Field(min_length=3, max_length=20)
     password: str = Field(min_length=6)
     age: int = Field(ge=0, le=150)
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6, max_length=72)
 #登录
 @router.post("/login",summary="用户登录")
 def login(user:LoginUser,db: Session = Depends(get_db)):
@@ -28,3 +32,15 @@ def register(user:RegisterUser, db: Session = Depends(get_db)):
 @router.get("/me", summary="查询当前登录用户信息")
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user_payload(current_user)
+
+@router.post("/change-password", summary="修改当前用户密码")
+def change_password(
+        data: ChangePasswordRequest,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    result = auth_service.change_password(db, current_user, data.old_password, data.new_password)
+    if result["message"] != "修改成功":
+        from fastapi import HTTPException, status
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    return result

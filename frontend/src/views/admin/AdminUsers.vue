@@ -15,9 +15,33 @@
     <p v-if="errorMsg" class="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMsg }}</p>
 
     <section class="rounded-lg border border-slate-200 bg-white">
-      <div class="flex h-12 items-center justify-between border-b border-slate-200 px-4">
-        <h2 class="text-sm font-semibold text-slate-900">用户列表</h2>
-        <span class="text-xs text-slate-400">{{ users.length }} 个用户</span>
+      <div class="border-b border-slate-200 px-4 py-3">
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold text-slate-900">用户列表</h2>
+          <span class="text-xs text-slate-400">{{ filteredUsers.length }} / {{ users.length }} 个用户</span>
+        </div>
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
+          <div class="relative">
+            <Search class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" :size="14" />
+            <input
+              v-model="userQuery"
+              type="text"
+              class="h-9 w-full rounded border border-slate-300 pl-8 pr-3 text-sm outline-none focus:border-indigo-500"
+              placeholder="搜索用户名或 ID"
+            />
+          </div>
+          <div class="grid grid-cols-5 gap-1 rounded bg-slate-100 p-1 text-xs">
+            <button
+              v-for="item in userFilters"
+              :key="item.value"
+              @click="userFilter = item.value"
+              :class="userFilter === item.value ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              class="h-7 rounded px-2 transition"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full min-w-[820px] text-left text-sm">
@@ -31,7 +55,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="user in users" :key="user.id" class="border-b border-slate-100 hover:bg-slate-50/50">
+            <tr v-for="user in filteredUsers" :key="user.id" class="border-b border-slate-100 hover:bg-slate-50/50">
               <td class="px-4 py-3">
                 <p class="font-medium text-slate-900">{{ user.name }}</p>
                 <p class="text-xs text-slate-400">ID {{ user.id }} · 年龄 {{ user.age ?? '-' }}</p>
@@ -113,7 +137,9 @@
             </tr>
           </tbody>
         </table>
-        <div v-if="!users.length && !loading" class="py-12 text-center text-sm text-slate-500">暂无用户。</div>
+        <div v-if="!filteredUsers.length && !loading" class="py-12 text-center text-sm text-slate-500">
+          {{ users.length ? '没有匹配的用户。' : '暂无用户。' }}
+        </div>
       </div>
     </section>
 
@@ -184,12 +210,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RefreshCcw } from 'lucide-vue-next'
+import { RefreshCcw, Search } from 'lucide-vue-next'
 import * as adminApi from '../../api/admin'
 import type { AdminUser } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
 
 const users = ref<AdminUser[]>([])
+const userQuery = ref('')
+const userFilter = ref<'all' | 'active' | 'disabled' | 'online' | 'admin'>('all')
 const loading = ref(false)
 const errorMsg = ref('')
 const acting = ref(false)
@@ -223,6 +251,26 @@ const detailCounts = computed(() => Object.entries(detailLabels).map(([key, labe
   label,
   value: detailDialog.value.user?.counts?.[key] ?? 0,
 })))
+
+const userFilters: Array<{ label: string; value: 'all' | 'active' | 'disabled' | 'online' | 'admin' }> = [
+  { label: '全部', value: 'all' },
+  { label: '正常', value: 'active' },
+  { label: '禁用', value: 'disabled' },
+  { label: '在线', value: 'online' },
+  { label: '管理员', value: 'admin' },
+]
+
+const filteredUsers = computed(() => {
+  const query = userQuery.value.trim().toLowerCase()
+  return users.value.filter((user) => {
+    if (userFilter.value === 'active' && user.is_disabled === 1) return false
+    if (userFilter.value === 'disabled' && user.is_disabled !== 1) return false
+    if (userFilter.value === 'online' && !user.is_online) return false
+    if (userFilter.value === 'admin' && !user.roles.includes('admin')) return false
+    if (!query) return true
+    return user.name.toLowerCase().includes(query) || String(user.id).includes(query)
+  })
+})
 
 const loadUsers = async () => {
   loading.value = true

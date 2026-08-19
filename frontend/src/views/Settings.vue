@@ -4,7 +4,7 @@
       <header class="mb-5 flex items-center justify-between">
         <div>
           <h1 class="text-base font-semibold text-slate-900">系统设置</h1>
-          <p class="text-xs text-slate-500">查看后端运行环境、关键配置和目录状态</p>
+          <p class="text-xs text-slate-500">账号安全、后端运行环境、关键配置和目录状态</p>
         </div>
         <button
           @click="loadHealth"
@@ -15,6 +15,40 @@
           刷新
         </button>
       </header>
+
+      <section class="mb-5 rounded-lg border border-slate-200 bg-white p-5">
+        <div class="mb-4 flex items-center gap-3">
+          <span class="flex h-10 w-10 items-center justify-center rounded bg-slate-100 text-slate-600">
+            <KeyRound :size="18" />
+          </span>
+          <div>
+            <h2 class="text-sm font-semibold text-slate-900">修改密码</h2>
+            <p class="text-xs text-slate-500">修改成功后需要重新登录</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <input
+            v-model="passwordForm.oldPassword"
+            type="password"
+            class="h-10 rounded border border-slate-300 px-3 text-sm outline-none focus:border-slate-500"
+            placeholder="当前密码"
+          />
+          <input
+            v-model="passwordForm.newPassword"
+            type="password"
+            class="h-10 rounded border border-slate-300 px-3 text-sm outline-none focus:border-slate-500"
+            placeholder="新密码，至少6位"
+          />
+          <button
+            @click="changePassword"
+            :disabled="changingPassword || !passwordForm.oldPassword || passwordForm.newPassword.length < 6"
+            class="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
+          >
+            {{ changingPassword ? '修改中...' : '确认修改' }}
+          </button>
+        </div>
+        <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
+      </section>
 
       <section class="mb-5 rounded-lg border bg-white p-5" :class="health?.ok ? 'border-emerald-200' : 'border-amber-200'">
         <div class="flex items-center gap-3">
@@ -74,14 +108,23 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { AlertTriangle, CheckCircle2, RefreshCcw } from 'lucide-vue-next'
+import { AlertTriangle, CheckCircle2, KeyRound, RefreshCcw } from 'lucide-vue-next'
 import * as systemApi from '../api/system'
 import type { HealthStatus } from '../api/system'
 import { getErrorMessage } from '../utils/request'
+import { useUserStore } from '../stores/user'
+import { toastSuccess } from '../utils/toast'
 
+const userStore = useUserStore()
 const health = ref<HealthStatus | null>(null)
 const loading = ref(false)
 const errorMsg = ref('')
+const changingPassword = ref(false)
+const passwordError = ref('')
+const passwordForm = ref({
+  oldPassword: '',
+  newPassword: '',
+})
 
 const loadHealth = async () => {
   loading.value = true
@@ -92,6 +135,21 @@ const loadHealth = async () => {
     errorMsg.value = getErrorMessage(e, '健康检查失败')
   } finally {
     loading.value = false
+  }
+}
+
+const changePassword = async () => {
+  if (!passwordForm.value.oldPassword || passwordForm.value.newPassword.length < 6) return
+  changingPassword.value = true
+  passwordError.value = ''
+  try {
+    await userStore.changePassword(passwordForm.value.oldPassword, passwordForm.value.newPassword)
+    toastSuccess('密码已修改，请重新登录')
+    userStore.logout()
+  } catch (e: any) {
+    passwordError.value = getErrorMessage(e, '修改密码失败')
+  } finally {
+    changingPassword.value = false
   }
 }
 

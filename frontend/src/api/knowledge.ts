@@ -7,6 +7,7 @@ export interface KnowledgeDoc {
   file_size: number
   chunk_count: number
   status: string        // pending / processing / done / failed
+  is_enabled: number    // 0 / 1，是否参与RAG检索
   error_msg?: string | null
   created_at: string | null
 }
@@ -44,6 +45,25 @@ export async function uploadDocument(agentId: number, file: File): Promise<any> 
   return data
 }
 
+/** 批量上传文档（multipart/form-data） */
+export async function uploadDocuments(agentId: number, files: File[]): Promise<{
+  message: string
+  count: number
+  items: Array<{
+    file_name: string
+    knowledge_id: number
+    task_id: number
+    status: string
+  }>
+}> {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('files', file))
+  const { data } = await request.post(`/knowledge/${agentId}/upload-batch`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
 /** 文档列表 */
 export async function listDocuments(agentId: number): Promise<KnowledgeDoc[]> {
   const { data } = await request.get(`/knowledge/${agentId}/list`)
@@ -72,6 +92,13 @@ export async function listChunks(agentId: number, knowledgeId: number): Promise<
 
 export async function reindexDocument(agentId: number, knowledgeId: number): Promise<any> {
   const { data } = await request.post(`/knowledge/${agentId}/${knowledgeId}/reindex`)
+  return data
+}
+
+export async function updateDocumentEnabled(agentId: number, knowledgeId: number, isEnabled: number): Promise<any> {
+  const { data } = await request.patch(`/knowledge/${agentId}/${knowledgeId}/enabled`, {
+    is_enabled: isEnabled,
+  })
   return data
 }
 

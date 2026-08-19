@@ -22,6 +22,15 @@
 
     <section class="mb-4 rounded-lg border border-slate-200 bg-white p-4">
       <div class="flex flex-wrap items-center gap-3">
+        <div class="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search :size="15" class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            v-model="taskQuery"
+            type="search"
+            placeholder="搜索任务、用户或 Agent"
+            class="h-8 w-full rounded border border-slate-200 bg-white pl-8 pr-2 text-xs outline-none focus:border-blue-500"
+          />
+        </div>
         <div class="flex items-center gap-2">
           <span class="text-xs text-slate-500">状态</span>
           <div class="flex flex-wrap gap-1">
@@ -43,7 +52,7 @@
             <option v-for="type in typeOptions" :key="type" :value="type">{{ type }}</option>
           </select>
         </div>
-        <span class="ml-auto text-xs text-slate-400">共 {{ tasks.length }} 条</span>
+        <span class="ml-auto text-xs text-slate-400">{{ filteredTasks.length }} / {{ tasks.length }} 条</span>
       </div>
     </section>
 
@@ -56,7 +65,7 @@
       </div>
 
       <div class="divide-y divide-slate-100">
-        <article v-for="task in tasks" :key="task.id" class="grid grid-cols-[1fr_120px_110px_120px] gap-3 px-4 py-3 text-sm hover:bg-slate-50/60">
+        <article v-for="task in filteredTasks" :key="task.id" class="grid grid-cols-[1fr_120px_110px_120px] gap-3 px-4 py-3 text-sm hover:bg-slate-50/60">
           <div class="min-w-0">
             <div class="flex min-w-0 items-center gap-2">
               <p class="truncate font-medium text-slate-900">{{ task.title }}</p>
@@ -112,7 +121,9 @@
           </div>
         </article>
 
-        <div v-if="!tasks.length && !loading" class="py-14 text-center text-sm text-slate-500">暂无后台任务。</div>
+        <div v-if="!filteredTasks.length && !loading" class="py-14 text-center text-sm text-slate-500">
+          {{ tasks.length ? '没有匹配的后台任务。' : '暂无后台任务。' }}
+        </div>
       </div>
     </section>
   </div>
@@ -120,7 +131,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { RefreshCcw, RotateCcw, X } from 'lucide-vue-next'
+import { RefreshCcw, RotateCcw, Search, X } from 'lucide-vue-next'
 import * as taskApi from '../../api/task'
 import type { Task, TaskStatus } from '../../api/task'
 import { getErrorMessage } from '../../utils/request'
@@ -129,6 +140,7 @@ const tasks = ref<Task[]>([])
 const loading = ref(false)
 const actingId = ref<number | null>(null)
 const errorMsg = ref('')
+const taskQuery = ref('')
 const filterStatus = ref<TaskStatus | ''>('')
 const filterType = ref('')
 const autoRefresh = ref(true)
@@ -145,6 +157,24 @@ const statusOptions = [
 
 const typeOptions = computed(() => [...new Set(tasks.value.map((task) => task.task_type))].sort())
 const hasWorking = computed(() => tasks.value.some((task) => task.status === 'queued' || task.status === 'running'))
+const filteredTasks = computed(() => {
+  const query = taskQuery.value.trim().toLowerCase()
+  if (!query) return tasks.value
+  return tasks.value.filter((task) => {
+    const fields = [
+      task.title,
+      task.task_type,
+      task.status,
+      task.error_msg || '',
+      String(task.id),
+      String(task.user_id),
+      task.agent_id ? String(task.agent_id) : '',
+      task.target_type || '',
+      task.target_id ? String(task.target_id) : '',
+    ]
+    return fields.some((field) => field.toLowerCase().includes(query))
+  })
+})
 
 const reload = async (silent = false) => {
   loading.value = !silent

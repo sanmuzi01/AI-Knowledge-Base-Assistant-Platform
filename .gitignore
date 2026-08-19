@@ -8,6 +8,7 @@ logs/
 vector_db/
 knowledge_files/
 static/charts/
+agent_templates/
 
 .env.*
 !.env.example

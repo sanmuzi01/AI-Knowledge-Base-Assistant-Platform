@@ -264,3 +264,87 @@ def list_recent_tasks(db, limit: int = 50) -> List[Dict]:
         }
         for task in tasks
     ]
+
+
+def usage_stats(db, days: int = 14, top_limit: int = 8) -> Dict:
+    days = max(1, min(days, 90))
+    top_limit = max(1, min(top_limit, 20))
+    start_dt = datetime.utcnow() - timedelta(days=days - 1)
+    start_day = start_dt.date()
+
+    run_rows = (
+        db.query(
+            func.date(AgentRun.started_at),
+            func.count(AgentRun.id),
+            func.coalesce(func.sum(AgentRun.total_tokens), 0),
+        )
+        .filter(AgentRun.started_at >= start_dt)
+        .group_by(func.date(AgentRun.started_at))
+        .all()
+    )
+    message_rows = (
+        db.query(func.date(Message.create_time), func.count(Message.id))
+        .filter(Message.create_time >= start_dt)
+        .group_by(func.date(Message.create_time))
+        .all()
+    )
+    task_rows = (
+        db.query(BackgroundTask.status, func.count(BackgroundTask.id))
+        .group_by(BackgroundTask.status)
+        .all()
+    )
+    top_run_rows = (
+        db.query(
+            User.id,
+            User.name,
+            func.count(AgentRun.id),
+            func.coalesce(func.sum(AgentRun.total_tokens), 0),
+        )
+        .join(AgentRun, AgentRun.user_id == User.id)
+        .group_by(User.id, User.name)
+        .order_by(func.count(AgentRun.id).desc())
+        .limit(top_limit)
+        .all()
+    )
+
+    run_map = {str(day): {"runs": int(count or 0), "tokens": int(tokens or 0)} for day, count, tokens in run_rows}
+    message_map = {str(day): int(count or 0) for day, count in message_rows}
+    daily = []
+    for offset in range(days):
+        day = start_day + timedelta(days=offset)
+        key = day.isoformat()
+        run_item = run_map.get(key, {"runs": 0, "tokens": 0})
+        daily.append({
+            "date": key,
+            "runs": run_item["runs"],
+            "tokens": run_item["tokens"],
+            "messages": message_map.get(key, 0),
+        })
+
+    total_runs = db.query(func.count(AgentRun.id)).scalar() or 0
+    finished_runs = db.query(func.count(AgentRun.id)).filter(AgentRun.status == "finished").scalar() or 0
+    failed_runs = db.query(func.count(AgentRun.id)).filter(AgentRun.status == "failed").scalar() or 0
+    total_tokens = db.query(func.coalesce(func.sum(AgentRun.total_tokens), 0)).scalar() or 0
+    total_messages = db.query(func.count(Message.id)).scalar() or 0
+
+    return {
+        "summary": {
+            "total_runs": total_runs,
+            "finished_runs": finished_runs,
+            "failed_runs": failed_runs,
+            "success_rate": round((finished_runs / total_runs * 100), 1) if total_runs else 0,
+            "total_tokens": int(total_tokens or 0),
+            "total_messages": total_messages,
+        },
+        "daily": daily,
+        "task_status": {status or "unknown": int(count or 0) for status, count in task_rows},
+        "top_users": [
+            {
+                "user_id": user_id,
+                "name": name,
+                "run_count": int(run_count or 0),
+                "tokens": int(tokens or 0),
+            }
+            for user_id, name, run_count, tokens in top_run_rows
+        ],
+    }

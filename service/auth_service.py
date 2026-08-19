@@ -99,3 +99,20 @@ def register(db,name: str,password: str,age: int):
         "user_id": new_user.id,
         "username": new_user.name
     }
+
+
+def change_password(db, user, old_password: str, new_password: str):
+    """当前登录用户修改密码。"""
+    if user.password.startswith("$2b$"):
+        ok = verify_password(old_password, user.password)
+    else:
+        ok = user.password == old_password
+    if not ok:
+        logger.warning(f"修改密码失败-旧密码错误: user_id={user.id}")
+        return {"message": "旧密码错误"}
+    if old_password == new_password:
+        return {"message": "新密码不能和旧密码相同"}
+    update_user_password(db, user, hash_password(new_password))
+    db.commit()
+    logger.info(f"修改密码成功: user_id={user.id}")
+    return {"message": "修改成功"}

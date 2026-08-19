@@ -44,6 +44,13 @@ def update_knowledge_status(db,knowledge:Knowledge,status:str,chunk_count:int=No
     return knowledge
 
 
+def update_knowledge_enabled(db, knowledge: Knowledge, is_enabled: int) -> Knowledge:
+    """更新文档是否参与RAG检索。"""
+    knowledge.is_enabled = 1 if is_enabled else 0
+    db.flush()
+    return knowledge
+
+
 def delete_knowledge(db,knowledge :Knowledge)->None:
     """删除知识库文档记录"""
     db.delete(knowledge)

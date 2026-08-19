@@ -5,6 +5,7 @@ from typing import Optional, List
 from models.init_db import get_db, User
 from service.dependencies import get_current_user
 from service import agent_service
+from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
 router = APIRouter(prefix="/agent", tags=["agent管理"])
 class AgentResponse(BaseModel):
     id: int
@@ -49,6 +50,44 @@ class AgentUpdate(BaseModel):
 class AgentDryRunRequest(BaseModel):
     message: str = Field(min_length=1, max_length=5000)
     conversation_id: Optional[int] = Field(default=None, ge=1)
+
+class AgentCloneRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+
+class AgentTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=500)
+    model_name: str = Field(default="glm-4", max_length=100)
+    role: Optional[str] = Field(default="")
+    task: Optional[str] = Field(default="")
+    constraints: Optional[str] = Field(default="")
+    output: Optional[str] = Field(default="")
+    rag_enabled: int = Field(default=0, ge=0, le=1)
+    memory_enabled: int = Field(default=1, ge=0, le=1)
+    temperature: int = Field(default=70, ge=0, le=100)
+    skill_names: List[str] = Field(default=[])
+
+@router.get("/templates", summary="查询内置Agent模板")
+def list_templates(
+        current_user: User = Depends(get_current_user)):
+    """返回内置和用户自定义Agent模板，前端用于一键预填创建表单。"""
+    return list_templates_for_user(current_user.id)
+
+@router.post("/templates", summary="保存自定义Agent模板")
+def create_template(
+        data: AgentTemplateCreate,
+        current_user: User = Depends(get_current_user)):
+    return create_user_template(current_user.id, data.model_dump())
+
+@router.delete("/templates/{template_id}", summary="删除自定义Agent模板")
+def delete_template(
+        template_id: str,
+        current_user: User = Depends(get_current_user)):
+    if not template_id.startswith("custom_"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="内置模板不能删除")
+    if not delete_user_template(current_user.id, template_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在或无权限")
+    return {"message": "删除成功", "template_id": template_id}
 
 @router.get("/list",summary="查询用户的智能体列表",response_model=List[AgentWithSelectedResponse])
 def list_agents(
@@ -102,6 +141,19 @@ def dry_run_agent(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+    return result
+
+@router.post("/{agent_id:int}/clone", summary="复制Agent")
+def clone_agent(
+        agent_id: int,
+        data: AgentCloneRequest = AgentCloneRequest(),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)):
+    result = agent_service.clone(db, current_user, agent_id, name=data.name)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限复制")
+    if "agent_id" not in result:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.get("message", "复制失败"))
     return result
 
 @router.post("",summary="创建智能体")

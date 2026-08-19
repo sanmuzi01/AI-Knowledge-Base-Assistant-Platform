@@ -4,7 +4,38 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="23602a6e-2a62-4831-98b2-a2d3da7fd322" name="更改" comment="平台前后端进一步完善" />
+    <list default="true" id="23602a6e-2a62-4831-98b2-a2d3da7fd322" name="更改" comment="平台前后端进一步完善">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/admin.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/knowledge.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/knowledge.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/llm_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/llm_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/login.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/login.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/FasdtApi/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/admin.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/admin.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/agent.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/agent.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/knowledge.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/knowledge.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/api/llmConfig.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/api/llmConfig.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/components/AgentCreateDialog.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/components/AgentCreateDialog.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/stores/user.ts" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/stores/user.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/AgentList.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/AgentList.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/Chat.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/Chat.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/Knowledge.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/Knowledge.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/LlmConfig.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/LlmConfig.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/Settings.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/Settings.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/admin/AdminLogs.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/admin/AdminLogs.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/admin/AdminTasks.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/admin/AdminTasks.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/admin/AdminUsage.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/admin/AdminUsage.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/src/views/admin/AdminUsers.vue" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/src/views/admin/AdminUsers.vue" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/init_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/init_db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/knowledge_dao.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/knowledge_dao.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/admin_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/admin_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/agent_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/agent_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/auth_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/auth_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/llm/llm_config_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/llm/llm_config_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/service/rag/rag_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/rag/rag_service.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -260,7 +291,7 @@
       <workItem from="1786501113786" duration="47307000" />
       <workItem from="1786677012916" duration="32695000" />
       <workItem from="1787023956180" duration="8666000" />
-      <workItem from="1787115883091" duration="1003000" />
+      <workItem from="1787115883091" duration="4105000" />
     </task>
     <task id="LOCAL-00001" summary="功能完善中">
       <option name="closed" value="true" />

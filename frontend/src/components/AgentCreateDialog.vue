@@ -13,6 +13,71 @@
       </header>
 
       <main class="flex-1 overflow-y-auto px-5 py-4">
+        <section v-if="!agent" class="mb-4 rounded-lg border border-slate-200 p-4">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <Sparkles :size="16" class="text-slate-500" />
+              <h3 class="text-sm font-semibold text-slate-800">创建方式</h3>
+            </div>
+            <button
+              @click="startBlank"
+              type="button"
+              :class="[
+                'rounded border px-2 py-1 text-xs',
+                selectedTemplateId === '' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+              ]"
+            >
+              空白自定义
+            </button>
+          </div>
+          <div v-if="templateLoading" class="rounded border border-slate-100 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+            模板加载中...
+          </div>
+          <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              v-for="template in templates"
+              :key="template.id"
+              @click="applyTemplate(template)"
+              type="button"
+              :class="[
+                'min-h-24 rounded border p-3 text-left transition',
+                selectedTemplateId === template.id
+                  ? 'border-blue-300 bg-blue-50 shadow-sm'
+                  : 'border-slate-200 hover:border-blue-200 hover:bg-slate-50',
+              ]"
+            >
+              <span class="flex items-start justify-between gap-2">
+                <span class="min-w-0">
+                  <span class="block truncate text-sm font-semibold text-slate-900">{{ template.name }}</span>
+                  <span
+                    :class="template.source === 'custom' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'"
+                    class="mt-1 inline-flex rounded px-1.5 py-0.5 text-[11px]"
+                  >
+                    {{ template.source === 'custom' ? '自定义' : '内置' }}
+                  </span>
+                </span>
+                <span
+                  v-if="template.editable"
+                  @click.stop="removeTemplate(template)"
+                  class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  title="删除模板"
+                >
+                  <Trash2 :size="14" />
+                </span>
+              </span>
+              <span class="mt-1 block text-xs leading-5 text-slate-500">{{ template.description }}</span>
+              <span class="mt-2 flex flex-wrap gap-1">
+                <span v-if="template.rag_enabled === 1" class="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">RAG</span>
+                <span v-if="template.memory_enabled === 1" class="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">记忆</span>
+                <span v-if="template.skill_names.length" class="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">Skill</span>
+              </span>
+            </button>
+          </div>
+          <p v-if="selectedTemplateId && missingTemplateSkillNames.length" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            模板建议绑定的 Skill 未找到：{{ missingTemplateSkillNames.join('、') }}。可以先保存 Agent，之后在 Skill 管理中补充。
+          </p>
+        </section>
+
         <div class="mb-4 grid grid-cols-3 gap-2 text-xs">
           <div :class="stepClass(Boolean(form.name.trim()))">
             <span class="flex h-6 w-6 items-center justify-center rounded bg-white">
@@ -225,6 +290,15 @@
           <span v-else class="text-xs text-slate-400">保存后会同步更新 Agent 的提示词文件和 Skill 绑定</span>
           <div class="flex shrink-0 justify-end gap-2">
             <button
+              v-if="!agent"
+              @click="saveCurrentAsTemplate"
+              :disabled="!form.name.trim() || savingTemplate"
+              class="inline-flex items-center gap-1 rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:text-slate-300"
+            >
+              <BookmarkPlus :size="14" />
+              {{ savingTemplate ? '保存模板中...' : '保存为模板' }}
+            </button>
+            <button
               @click="$emit('close')"
               class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
             >
@@ -281,13 +355,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, Database, FileText, Info, KeyRound, Settings, X, Zap } from 'lucide-vue-next'
+import { BookmarkPlus, Bot, Database, FileText, Info, KeyRound, Settings, Sparkles, Trash2, X, Zap } from 'lucide-vue-next'
 import * as agentApi from '../api/agent'
+import type { AgentTemplate } from '../api/agent'
 import * as llmConfigApi from '../api/llmConfig'
 import * as skillApi from '../api/skill'
 import type { LlmConfig } from '../api/llmConfig'
 import type { SkillValidation } from '../api/skill'
 import { getErrorMessage } from '../utils/request'
+import { toastSuccess } from '../utils/toast'
 
 const props = defineProps<{
   agent: any
@@ -320,6 +396,11 @@ const errorMsg = ref('')
 const configs = ref<LlmConfig[]>([])
 const skillValidationMap = ref<Record<number, SkillValidation>>({})
 const previewSkillValidation = ref<SkillValidation | null>(null)
+const templates = ref<AgentTemplate[]>([])
+const templateLoading = ref(false)
+const savingTemplate = ref(false)
+const selectedTemplateId = ref('')
+const missingTemplateSkillNames = ref<string[]>([])
 
 const normalizedModelName = computed(() => form.value.model_name.trim().toLowerCase())
 const configuredModelNames = computed(() => new Set(configs.value.map((config) => config.model_name.toLowerCase())))
@@ -362,6 +443,17 @@ const loadConfigs = async () => {
   }
 }
 
+const loadTemplates = async () => {
+  templateLoading.value = true
+  try {
+    templates.value = await agentApi.listAgentTemplates()
+  } catch {
+    templates.value = []
+  } finally {
+    templateLoading.value = false
+  }
+}
+
 const loadSkillValidations = async () => {
   const entries = await Promise.all(props.skills.map(async (skill) => {
     try {
@@ -389,6 +481,93 @@ const loadSkillValidations = async () => {
   form.value.skill_ids = form.value.skill_ids.filter((id) => skillValidationMap.value[id]?.ok !== false)
 }
 
+const skillIdsByNames = (skillNames: string[]) => {
+  const normalizedNames = skillNames.map((name) => name.trim()).filter(Boolean)
+  const ids: number[] = []
+  const missing: string[] = []
+  normalizedNames.forEach((name) => {
+    const matched = props.skills.find((skill) => skill.name === name)
+    if (matched) ids.push(matched.id)
+    else missing.push(name)
+  })
+  missingTemplateSkillNames.value = missing
+  return ids
+}
+
+const applyTemplate = (template: AgentTemplate) => {
+  selectedTemplateId.value = template.id
+  form.value = {
+    name: template.name,
+    model_name: template.model_name,
+    temperature: template.temperature,
+    role: template.role,
+    task: template.task,
+    constraints: template.constraints,
+    output: template.output,
+    skill_ids: skillIdsByNames(template.skill_names),
+    rag_enabled: template.rag_enabled,
+    memory_enabled: template.memory_enabled,
+  }
+  errorMsg.value = ''
+}
+
+const startBlank = () => {
+  selectedTemplateId.value = ''
+  missingTemplateSkillNames.value = []
+  form.value = emptyForm()
+  errorMsg.value = ''
+}
+
+const selectedSkillNames = () => {
+  const skillMap = new Map(props.skills.map((skill) => [skill.id, skill.name]))
+  return form.value.skill_ids
+    .map((id) => skillMap.get(id))
+    .filter((name): name is string => Boolean(name))
+}
+
+const saveCurrentAsTemplate = async () => {
+  if (!form.value.name.trim()) return
+  savingTemplate.value = true
+  errorMsg.value = ''
+  try {
+    const template = await agentApi.createAgentTemplate({
+      name: form.value.name.trim(),
+      description: `${form.value.name.trim()}的自定义配置`,
+      model_name: form.value.model_name.trim() || 'glm-4',
+      role: form.value.role,
+      task: form.value.task,
+      constraints: form.value.constraints,
+      output: form.value.output,
+      rag_enabled: form.value.rag_enabled,
+      memory_enabled: form.value.memory_enabled,
+      temperature: Math.min(100, Math.max(0, Number(form.value.temperature) || 0)),
+      skill_names: selectedSkillNames(),
+    })
+    templates.value = [template, ...templates.value]
+    selectedTemplateId.value = template.id
+    toastSuccess('已保存为自定义模板')
+  } catch (e: any) {
+    errorMsg.value = getErrorMessage(e, '保存模板失败')
+  } finally {
+    savingTemplate.value = false
+  }
+}
+
+const removeTemplate = async (template: AgentTemplate) => {
+  if (!template.editable) return
+  if (!confirm(`确认删除模板「${template.name}」？`)) return
+  try {
+    await agentApi.deleteAgentTemplate(template.id)
+    templates.value = templates.value.filter((item) => item.id !== template.id)
+    if (selectedTemplateId.value === template.id) {
+      selectedTemplateId.value = ''
+    }
+    toastSuccess('模板已删除')
+  } catch (e: any) {
+    errorMsg.value = getErrorMessage(e, '删除模板失败')
+  }
+}
+
 const skillSummary = (skillId: number) => {
   const validation = skillValidationMap.value[skillId]
   if (!validation) return '校验中...'
@@ -405,6 +584,8 @@ watch(() => props.agent, (a: any) => {
   if (!a) {
     form.value = emptyForm()
     errorMsg.value = ''
+    selectedTemplateId.value = ''
+    missingTemplateSkillNames.value = []
     return
   }
   const prompt = a.prompt || {}
@@ -421,6 +602,8 @@ watch(() => props.agent, (a: any) => {
     memory_enabled: a.memory_enabled ?? 1,
   }
   errorMsg.value = ''
+  selectedTemplateId.value = ''
+  missingTemplateSkillNames.value = []
 }, { immediate: true })
 
 const submit = async () => {
@@ -462,7 +645,7 @@ const submit = async () => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadConfigs(), loadSkillValidations()])
+  await Promise.all([loadConfigs(), loadSkillValidations(), loadTemplates()])
 })
 watch(() => props.skills, loadSkillValidations, { deep: true })
 </script>

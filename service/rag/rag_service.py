@@ -296,11 +296,17 @@ def search(
     vector_ids = [r["id"] for r in results]
     chunks = get_chunks_by_vector_ids(db,vector_ids)
 
+    knowledge_ids = {chunk.knowledge_id for chunk in chunks}
+    knowledge_map = {
+        kid: get_knowledge_by_id(db, kid)
+        for kid in knowledge_ids
+    }
     chunk_map = { c.vector_id: c for c in chunks}
     final = []
     for r in results:
         chunk = chunk_map.get(r["id"])
-        if chunk:
+        knowledge = knowledge_map.get(chunk.knowledge_id) if chunk else None
+        if chunk and knowledge and knowledge.is_enabled != 0:
             final.append({
                 "chunk_id": chunk.id,
                 "content": chunk.content,
@@ -332,11 +338,6 @@ def search(
     logger.info(
         f"检索完成: agent={agent_id}, query='{query[:20]}...', 命中{len(final)}条"
     )
-    knowledge_ids = {item["knowledge_id"] for item in final}
-    knowledge_map = {
-        kid: get_knowledge_by_id(db, kid)
-        for kid in knowledge_ids
-    }
     for item in final:
         knowledge = knowledge_map.get(item["knowledge_id"])
         item["file_name"] = knowledge.file_name if knowledge else ""

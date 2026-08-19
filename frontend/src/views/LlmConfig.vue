@@ -137,6 +137,13 @@
                   </div>
                   <p class="mt-2 text-xs text-slate-500 font-mono">{{ cfg.api_key }}</p>
                   <p class="mt-1 truncate text-xs text-slate-400">{{ providerText(cfg.provider || providerOf(cfg.model_name)) }} · URL 自动适配</p>
+                  <p
+                    v-if="testResults[cfg.model_name]"
+                    :class="testResults[cfg.model_name].ok ? 'text-emerald-700' : 'text-red-600'"
+                    class="mt-2 text-xs"
+                  >
+                    {{ testResultText(testResults[cfg.model_name]) }}
+                  </p>
                 </div>
                 <span
                   :class="isEmbeddingModel(cfg.model_name) ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'"
@@ -146,6 +153,14 @@
                 </span>
               </div>
               <div class="mt-4 flex justify-end gap-2">
+                <button
+                  @click="testConfig(cfg)"
+                  :disabled="testingName === cfg.model_name"
+                  class="inline-flex h-8 items-center justify-center rounded border border-emerald-100 px-3 text-xs text-emerald-700 hover:bg-emerald-50 disabled:text-slate-300"
+                  title="测试连接"
+                >
+                  {{ testingName === cfg.model_name ? '测试中...' : '测试' }}
+                </button>
                 <button
                   @click="editConfig(cfg)"
                   class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -174,15 +189,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Cpu, Database, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import * as llmApi from '../api/llmConfig'
-import type { LlmConfig, SupportedModel } from '../api/llmConfig'
+import type { LlmConfig, LlmConfigTestResult, SupportedModel } from '../api/llmConfig'
 import { getErrorMessage } from '../utils/request'
+import { toastError, toastSuccess } from '../utils/toast'
 
 const router = useRouter()
 const configs = ref<LlmConfig[]>([])
 const supportedCatalog = ref<{ chat: SupportedModel[]; embedding: SupportedModel[] }>({ chat: [], embedding: [] })
 const submitting = ref(false)
+const testingName = ref('')
 const errorMsg = ref('')
 const editingName = ref('')
+const testResults = ref<Record<string, LlmConfigTestResult>>({})
 
 const presets = [
   { kind: 'chat', label: '智谱聊天', model: 'glm-4' },
@@ -265,6 +283,37 @@ const removeConfig = async (cfg: LlmConfig) => {
   await llmApi.deleteConfig(cfg.model_name)
   await reload()
   if (editingName.value === cfg.model_name) resetForm()
+}
+
+const testConfig = async (cfg: LlmConfig) => {
+  testingName.value = cfg.model_name
+  try {
+    const result = await llmApi.testConfig(cfg.model_name)
+    testResults.value[cfg.model_name] = result
+    toastSuccess(`${cfg.model_name} 连接正常`)
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail
+    const result = typeof detail === 'object'
+      ? detail as LlmConfigTestResult
+      : {
+          ok: false,
+          model_name: cfg.model_name,
+          message: getErrorMessage(e, '连接测试失败'),
+        }
+    testResults.value[cfg.model_name] = result
+    toastError(testResultText(result))
+  } finally {
+    testingName.value = ''
+  }
+}
+
+const testResultText = (result: LlmConfigTestResult) => {
+  if (result.ok) {
+    const elapsed = result.elapsed_ms !== undefined ? ` · ${result.elapsed_ms}ms` : ''
+    if (result.kind === 'embedding') return `${result.message} · ${result.dimension || 0}维${elapsed}`
+    return `${result.message}${elapsed}${result.preview ? ` · ${result.preview}` : ''}`
+  }
+  return `${result.message}${result.error ? `：${result.error}` : ''}`
 }
 
 onMounted(async () => {
