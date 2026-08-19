@@ -13,6 +13,12 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 60))
 
+
+def _get_secret_key() -> str:
+    if not SECRET_KEY:
+        raise RuntimeError("缺少环境变量 JWT_SECRET_KEY，请在 .env 中配置 JWT 签名密钥")
+    return SECRET_KEY
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     生成 JWT token
@@ -30,7 +36,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     # 把过期时间加到 payload
     to_encode.update({"exp": expire})
     # 生成并返回 token
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
 
 def decode_access_token(token: str) -> Optional[dict]:
     """
@@ -39,7 +45,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     :return: 解析出的 payload 字典；解析失败返回 None
     """
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except (JWTError, RuntimeError):
         return None

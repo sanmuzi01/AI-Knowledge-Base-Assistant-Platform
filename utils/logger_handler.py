@@ -45,13 +45,19 @@ def get_logger(
             LOG_ROOT, #日志文件存放的绝对路径
             f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
         )
-        #创建文件处理器
-        file_handler = logging.FileHandler(log_file,encoding="utf-8")
+        # 创建文件处理器（按天切割，自动保留7天）
+        from logging.handlers import TimedRotatingFileHandler
+        file_handler = TimedRotatingFileHandler(
+            log_file,
+            when="midnight",
+            interval=1,
+            backupCount=7,
+            encoding="utf-8",
+        )
         file_handler.setLevel(file_level)
         file_handler.setFormatter(DEFAULT_LOG_FORMAT)
 
-    logger.addHandler(file_handler)
-
+        logger.addHandler(file_handler)
     return logger
 
 logger = get_logger()

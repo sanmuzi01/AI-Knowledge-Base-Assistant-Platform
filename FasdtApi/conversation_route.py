@@ -1,0 +1,155 @@
+"""
+会话系统路由层
+接口设计：
+  POST   /conversation                       创建会话
+  GET    /conversation/{agent_id}            查询某Agent下的会话列表
+  GET    /conversation/{conversation_id}     查询单个会话详情
+  GET    /conversation/{conversation_id}/messages  查询会话消息历史
+  PUT    /conversation/{conversation_id}     更新会话标题
+  DELETE /conversation/{conversation_id}     删除会话（级联删消息）
+路由层职责：鉴权(get_current_user) + 入参校验 + 事务管理(commit/rollback)
+"""
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.orm import Session
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from models.init_db import get_db, User
+from service.dependencies import get_current_user
+from service import conversation_service
+router = APIRouter(prefix="/conversation", tags=["会话管理"])
+# ========== 请求模型 ==========
+class ConversationCreate(BaseModel):
+    """创建会话请求体"""
+    agent_id: int
+    title: Optional[str] = Field(default=None, max_length=255)
+
+class ConversationUpdate(BaseModel):
+    """更新会话请求体（目前只支持改标题）"""
+    title: str = Field(min_length=1, max_length=255)
+
+
+class ConversationFlagsUpdate(BaseModel):
+    """更新会话标记。"""
+    is_pinned: Optional[int] = Field(default=None, ge=0, le=1)
+    is_archived: Optional[int] = Field(default=None, ge=0, le=1)
+
+# ========== 接口 ==========
+
+@router.post("", summary="创建会话")
+def create_conversation(
+        body: ConversationCreate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """创建新会话（标题为空时默认"新会话"，发首条消息后自动生成）"""
+    result = conversation_service.create_conversation(
+        db, user_id=current_user.id, agent_id=body.agent_id, title=body.title
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+    db.commit()
+    return result
+
+@router.get("/agent/{agent_id}", summary="查询Agent下的会话列表")
+def list_conversations(
+        agent_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """查询当前用户某Agent下的所有会话（按最近活跃倒序）"""
+    return conversation_service.list_conversations(db, current_user.id, agent_id)
+
+@router.get("/{conversation_id}", summary="查询单个会话")
+def get_conversation(
+        conversation_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """查询单个会话详情（含权限校验）"""
+    result = conversation_service.get_conversation(db, current_user.id, conversation_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    return result
+@router.get("/{conversation_id}/messages", summary="查询会话消息历史")
+def get_messages(
+        conversation_id: int,
+        limit: int = 100,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """查询会话下的所有消息（正序，用于聊天历史展示）"""
+    result = conversation_service.list_messages(db, current_user.id, conversation_id, limit)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    return result
+
+
+@router.get("/{conversation_id}/export", summary="导出会话")
+def export_conversation(
+        conversation_id: int,
+        format: str = "markdown",
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    fmt = format.lower()
+    if fmt not in {"markdown", "json"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="format 仅支持 markdown 或 json")
+    result = conversation_service.export_conversation(db, current_user.id, conversation_id, fmt)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    return Response(
+        content=result["content"],
+        media_type=f'{result["media_type"]}; charset=utf-8',
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
+    )
+
+@router.put("/{conversation_id}", summary="更新会话标题")
+def update_conversation(
+        conversation_id: int,
+        body: ConversationUpdate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """更新会话标题"""
+    result = conversation_service.update_conversation_title(
+        db, current_user.id, conversation_id, body.title
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    db.commit()
+    return result
+
+
+@router.patch("/{conversation_id}/flags", summary="更新会话置顶/归档状态")
+def update_conversation_flags(
+        conversation_id: int,
+        body: ConversationFlagsUpdate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    if body.is_pinned is None and body.is_archived is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有要更新的字段")
+    result = conversation_service.update_conversation_flags(
+        db,
+        current_user.id,
+        conversation_id,
+        is_pinned=body.is_pinned,
+        is_archived=body.is_archived,
+    )
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    db.commit()
+    return result
+
+@router.delete("/{conversation_id}", summary="删除会话")
+def delete_conversation(
+        conversation_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """删除会话（级联删除其下所有消息）"""
+    success = conversation_service.delete_conversation(db, current_user.id, conversation_id)
+    if not success:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+    db.commit()
+    return {"message": "删除成功", "conversation_id": conversation_id}

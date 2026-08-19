@@ -2,3 +2,12 @@
 __pycache__/
 *.pyc
 .idea/
+.venv/
+.venv_codex/
+logs/
+vector_db/
+knowledge_files/
+static/charts/
+
+.env.*
+!.env.example

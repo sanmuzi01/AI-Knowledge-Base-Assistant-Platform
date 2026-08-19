@@ -5,6 +5,7 @@ from models.init_db import get_db
 from sqlalchemy.orm import Session
 from service.dependencies import get_current_user
 from models.init_db import User
+from service.admin_service import current_user_payload
 router = APIRouter(prefix="/user", tags=["用户功能"])
 
 class LoginUser(BaseModel):
@@ -26,8 +27,4 @@ def register(user:RegisterUser, db: Session = Depends(get_db)):
     return result
 @router.get("/me", summary="查询当前登录用户信息")
 def get_me(current_user: User = Depends(get_current_user)):
-    return {
-        "user_id": current_user.id,
-        "username": current_user.name,
-        "age": current_user.age
-    }
+    return current_user_payload(current_user)

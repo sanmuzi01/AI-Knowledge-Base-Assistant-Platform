@@ -1,0 +1,219 @@
+﻿"""
+Skill配置加载器
+职责：读取 skills/templates/ 下的 YML 文件 → 校验 → 转成结构化dict
+1.路径规范：
+   Skill.config_file 存的是相对路径，如 "templates/论文写作助手.yml"
+   完整路径 = service/skills/ + config_file
+2.非开发者友好：
+   YML写错时给清晰的报错（哪一行、什么字段错了）
+3.版本控制：
+   YML文件和Agent的prompt YML一样，支持Git管理
+4.运行时校验：
+   加载时检查 tools 里的每个工具名是否在 ToolRegistry 中存在
+   不存在的工具给warning跳过（防止Skill引用了未实现的工具直接崩）
+"""
+import os
+import yaml
+from typing import Optional,Dict,List,Any
+
+from utils.logger_handler import get_logger
+from utils.cache import skill_cache
+logger = get_logger("skill_loader")
+# Skill YML文件所在根目录 = service/skills/
+SKILLS_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "skills")
+class SkillValidationError(Exception):
+    #Skill配置校验失败时抛出
+    pass
+def _get_yml_path(config_file:str)->str:
+    #（相对路径）转成绝对路径
+    # 允许 config_file 带或不带 templates/ 前缀
+    normalized = os.path.normpath(config_file).replace("\\", os.sep)
+    if os.path.isabs(normalized) or normalized.startswith(".."):
+        raise SkillValidationError(f"非法Skill配置路径: {config_file}")
+    full_path = os.path.abspath(os.path.join(SKILLS_ROOT, normalized))
+    root = os.path.abspath(SKILLS_ROOT)
+    if not full_path.startswith(root + os.sep):
+        raise SkillValidationError(f"非法Skill配置路径: {config_file}")
+    return full_path
+
+def _safe_join(root: str, relative_path: str) -> str:
+    normalized = os.path.normpath(relative_path or "").replace("\\", os.sep)
+    if os.path.isabs(normalized) or normalized.startswith(".."):
+        raise SkillValidationError(f"非法资源路径: {relative_path}")
+    full_path = os.path.abspath(os.path.join(root, normalized))
+    abs_root = os.path.abspath(root)
+    if full_path != abs_root and not full_path.startswith(abs_root + os.sep):
+        raise SkillValidationError(f"非法资源路径: {relative_path}")
+    return full_path
+
+def _normalize_permissions(raw: Any) -> Dict[str, Any]:
+    permissions = raw if isinstance(raw, dict) else {}
+    file_read = permissions.get("file_read") or []
+    if not isinstance(file_read, list):
+        raise SkillValidationError("permissions.file_read 必须是列表")
+    return {
+        "network": bool(permissions.get("network", False)),
+        "file_read": [str(item).replace("\\", "/") for item in file_read if str(item).strip()],
+        "exec": bool(permissions.get("exec", False)),
+    }
+
+def _normalize_resources(config: Dict[str, Any], file_path: str) -> Dict[str, Any]:
+    resources_raw = config.get("resources") or []
+    if not isinstance(resources_raw, list):
+        raise SkillValidationError("resources 字段必须是列表")
+    permissions = config["permissions"]
+    allowed = set(permissions.get("file_read") or [])
+    resource_root = config.get("resource_root") or os.path.join(os.path.dirname(file_path), "resources")
+    if not os.path.isabs(resource_root):
+        resource_root = _safe_join(SKILLS_ROOT, resource_root)
+    resource_root = os.path.abspath(resource_root)
+    normalized_resources: List[Dict[str, Any]] = []
+    resource_text_parts: List[str] = []
+    text_exts = {".txt", ".md", ".markdown", ".json", ".csv", ".yml", ".yaml"}
+    for item in resources_raw:
+        if isinstance(item, str):
+            rel_path = item.replace("\\", "/")
+            name = os.path.basename(rel_path)
+        elif isinstance(item, dict) and item.get("path"):
+            rel_path = str(item.get("path")).replace("\\", "/")
+            name = str(item.get("name") or os.path.basename(rel_path))
+        else:
+            raise SkillValidationError(f"resources 项格式错误: {item}")
+        abs_path = _safe_join(resource_root, rel_path)
+        exists = os.path.exists(abs_path)
+        size = os.path.getsize(abs_path) if exists and os.path.isfile(abs_path) else 0
+        normalized_resources.append({
+            "name": name,
+            "path": rel_path,
+            "exists": exists,
+            "size": size,
+            "allowed": rel_path in allowed,
+        })
+        if rel_path in allowed and exists and os.path.isfile(abs_path):
+            ext = os.path.splitext(abs_path.lower())[1]
+            if ext in text_exts and size <= 200_000:
+                with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                resource_text_parts.append(f"【资源: {name}】\n{content[:12000]}")
+    missing_allowed = sorted(path for path in allowed if not os.path.exists(_safe_join(resource_root, path)))
+    if missing_allowed:
+        raise SkillValidationError(f"permissions.file_read 包含不存在的资源: {', '.join(missing_allowed)}")
+    return {
+        "resource_root": resource_root,
+        "resources": normalized_resources,
+        "resource_text": "\n\n".join(resource_text_parts),
+    }
+
+def load_skill_config(config_file:str)->Dict[str,Any]:
+    """加载并校验Skill的YML配置
+      config_file: Skill.config_file 存的文件名
+        :return: 结构化的配置dict，字段：
+            {"name": str,
+            "description": str,
+            "version": str,
+            "tools": [{"name": str, "defaults": dict}],
+            "system_prompt": str,
+            "tool_defaults_map": {tool_name: defaults_dict},  # 方便运行时快速查
+            "tool_names": [tool_name1, tool_name2],          # 工具名列表，ToolExecutor过滤用}
+        :raises SkillValidationError: 配置格式错误"""
+    file_path = _get_yml_path(config_file)#取绝对路径
+    mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+    return skill_cache.get_or_set(("skill_config", config_file, mtime), lambda: _load_skill_config_uncached(config_file, file_path))
+
+
+def invalidate_skill_config(config_file: str = None):
+    if config_file:
+        skill_cache.invalidate(prefix=("skill_config", config_file))
+    else:
+        skill_cache.invalidate(prefix=("skill_config",))
+
+
+def _load_skill_config_uncached(config_file: str, file_path: str)->Dict[str,Any]:
+    import service.tools  # noqa: F401 - ensure built-in tools are registered before validation
+    #1，读文件
+    if not os.path.exists(file_path):
+        raise SkillValidationError(f"Skill配置文件不存在: {file_path}")
+    try:
+        with open(file_path,"r",encoding="utf-8") as f:
+            config = yaml.safe_load(f)#把YAML文件中的配置内容读取出来，并转换成Python对象
+    except yaml.YAMLError as e:
+        raise SkillValidationError(f"Skill配置YAML解析失败: {e}\n文件: {file_path}")
+    if not isinstance(config, dict):
+        raise SkillValidationError(f"Skill配置格式错误：根节点必须是字典，实际是{type(config)}\n文件: {file_path}")
+    #2,必填字段
+    required_fields = ["name","tools"]
+    for field in required_fields:
+        if field not in config:
+            raise SkillValidationError(f"Skill配置缺少必填字段: {field}\n文件: {file_path}")
+    #3,填补默认值
+    config.setdefault("description","")
+    config.setdefault("version", "1.0")
+    config.setdefault("system_prompt", "")
+    config["permissions"] = _normalize_permissions(config.get("permissions"))
+    if config["permissions"].get("exec"):
+        raise SkillValidationError("Skill 不允许声明 exec=true")
+    resource_info = _normalize_resources(config, file_path)
+    config["resource_root"] = resource_info["resource_root"]
+    config["resources"] = resource_info["resources"]
+    config["resource_text"] = resource_info["resource_text"]
+    #4，tools字段校验+规范化
+    tools_raw = config["tools"]
+    if not isinstance(tools_raw,list):
+        raise SkillValidationError(f"Skill的tools字段必须是列表，实际是{type(tools_raw)}")
+    normalized_tools=[]
+    tool_defaults_map:Dict[str,Dict[str,Any]]={}
+    tool_names:List[str]=[]
+    for item in tools_raw:
+        if isinstance(item,str):
+            tool_name = item
+            defaults ={}
+        elif isinstance(item,dict) and "name" in item:
+            tool_name = item["name"]
+            defaults = item.get("defaults", {}) or {}#如果有 defaults，拿出来；没有就使用 {}。
+        else:
+            raise SkillValidationError(
+                f"Skill的tools列表元素格式错误: {item}\n"
+                f"支持两种格式:\n"
+                f"  - name: outline_generator\n"
+                f"    defaults: {{sections: 6}}\n"
+                f"  或简写:\n"
+                f"  - word_count"
+            )
+        # 校验工具名是否在 ToolRegistry 中存在
+        from service.tools.base import ToolRegistry
+        if ToolRegistry.get(tool_name) is None:
+            available = ToolRegistry.list_all()
+            logger.warning(
+                f"Skill '{config['name']}' 引用了未实现的工具 '{tool_name}'，"
+                f"已跳过。可用工具: {available}"
+            )
+            continue  # 未实现的工具跳过，不阻塞运行
+        normalized_tools.append({"name": tool_name, "defaults": defaults})
+        tool_defaults_map[tool_name] = defaults
+        tool_names.append(tool_name)
+    config["tools"]=normalized_tools
+    config["tool_defaults_map"]=tool_defaults_map
+    config["tool_names"]=tool_names
+    logger.info(f"加载Skill配置成功: {config['name']} (工具{len(tool_names)}个, 资源{len(config['resources'])}个)")
+    return config
+def list_available_templates()->List[str]:
+    #列出内置模板和用户自定义模板；不把 imported/user_created 当模板列出。
+    if not os.path.exists(SKILLS_ROOT):
+        return []
+    templates = [
+        f for f in os.listdir(SKILLS_ROOT)
+        if os.path.isfile(os.path.join(SKILLS_ROOT, f)) and f.endswith((".yml", ".yaml"))
+    ]
+    user_templates_root = os.path.join(SKILLS_ROOT, "user_templates")
+    if os.path.exists(user_templates_root):
+        for root, _, files in os.walk(user_templates_root):
+            for filename in files:
+                if filename.endswith((".yml", ".yaml")):
+                    full_path = os.path.join(root, filename)
+                    templates.append(os.path.relpath(full_path, SKILLS_ROOT).replace("\\", "/"))
+    return sorted(templates)
+def get_template_path(filename: str) -> str:
+   #直接返回文件名（config_file 存的就是文件名）
+    return filename

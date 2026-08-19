@@ -1,15 +1,20 @@
-from passlib.context import CryptContext
-from models.user_dao import get_user_by_name, create_user,update_user_password
+import bcrypt
+from datetime import datetime
+from models.user_dao import get_user_by_name, create_user, update_user_password
 from sqlalchemy.exc import IntegrityError
-from models.init_db import SessionLocal
 from service.auth import create_access_token
+from service.admin_service import current_user_payload, role_names
 import time
 from utils.logger_handler import logger, log_user_behavior
-# 密码加密工具
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
+
+# 密码加密工具（直接使用 bcrypt 库，避免 passlib 与 bcrypt 4.x 的兼容性问题）
+def hash_password(password: str) -> str:
+    """使用 bcrypt 对密码进行哈希"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    """校验密码是否匹配"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 # 登录业务
 def login(db, name: str, password: str):
     start = time.time()  # 记录开始时间，用于计算耗时
@@ -19,10 +24,14 @@ def login(db, name: str, password: str):
         logger.warning(f"登录失败-用户不存在: name={name}")#日志
         log_user_behavior(0, "login", "fail", start)   # ← user_id 未知传 0
         return {"message": "用户不存在"}
+    if getattr(user, "is_disabled", 0) == 1:
+        logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
+        log_user_behavior(user.id, "login", "fail", start)
+        return {"message": "账号已被禁用，请联系管理员"}
     # 2. 验证密码
     if user.password.startswith("$2b$"):
         # 新哈希密码：用 verify 校验
-        if not pwd_context.verify(password, user.password):
+        if not verify_password(password, user.password):
             logger.warning(f"登录失败-密码错误: name={name}")#日志
             log_user_behavior(user.id, "login", "fail", start)
             return {"message": "密码错误"}
@@ -33,8 +42,13 @@ def login(db, name: str, password: str):
             log_user_behavior(user.id, "login", "fail", start)
             return {"message": "密码错误"}
         # 顺手升级为哈希
-        hashed = pwd_context.hash(password)
+        hashed = hash_password(password)
         update_user_password(db, user, hashed)
+    now = datetime.utcnow()
+    user.last_login_at = now
+    user.last_seen_at = now
+    db.commit()
+    db.refresh(user)
     # 3. 登录成功，生成 token
     token_data = {
         "user_id": user.id,
@@ -48,12 +62,19 @@ def login(db, name: str, password: str):
         "message": "登录成功",
         "user_id": user.id,
         "username": user.name,
+        "selected_agent_id": user.selected_agent_id,
+        "roles": role_names(user),
+        "is_admin": current_user_payload(user)["is_admin"],
         "access_token": access_token,
         "token_type": "bearer"
     }
 # 注册业务
 def register(db,name: str,password: str,age: int):
     start = time.time()  # 记录开始时间，用于计算耗时
+    if name.strip().lower() == "admin":
+        logger.warning("注册失败-保留用户名: name=admin")
+        log_user_behavior(0, "register", "fail", start)
+        return {"message": "admin 为系统保留账号，不能注册"}
     # 1. 查询用户是否存在
     user = get_user_by_name(db,name)
     if user:
@@ -61,7 +82,7 @@ def register(db,name: str,password: str,age: int):
         log_user_behavior(0, "register", "fail", start)
         return {"message": "用户已经存在"}
     # 2. 密码加密
-    hashed_password = pwd_context.hash(password)
+    hashed_password = hash_password(password)
     # 3. 添加用户
     try:
         new_user = create_user(db, name, hashed_password, age)
