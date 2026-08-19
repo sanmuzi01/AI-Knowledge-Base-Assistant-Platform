@@ -1,0 +1,160 @@
+import request from '../utils/request'
+
+// SSE 事件类型（与 react_engine.py 中 sse_events.make_* 生成的一致）
+export type SseEventType =
+  | 'ready'      // { run_id }
+  | 'retrieval'  // { hit_count, content_preview }
+  | 'thinking'   // { content, tool_calls? }
+  | 'tool_call'  // { name, args, step_no }
+  | 'tool_result'// { name, result, step_no }
+  | 'answer'     // { content }  最终回答（完整字符串，不是增量 token）
+  | 'done'       // { run_id, steps, answer_length, conversation_id? }
+  | 'error'      // { message, detail? }
+
+export interface SseEvent {
+  type: SseEventType
+  run_id?: number
+  hit_count?: number
+  content_preview?: string
+  content?: string
+  tool_calls?: any[]
+  name?: string
+  args?: Record<string, any>
+  step_no?: number
+  result?: string
+  steps?: number
+  answer_length?: number
+  conversation_id?: number
+  message?: string
+  detail?: string
+}
+
+export interface SendStreamOptions {
+  agentId: number
+  conversationId?: number | null
+  message: string
+  onEvent: (evt: SseEvent) => void
+  signal?: AbortSignal
+}
+
+/**
+ * 同步对话（非必要用，目前聊天页默认走流式）
+ */
+export async function sendSync(agentId: number, message: string, conversationId?: number | null) {
+  const { data } = await request.post(`/chat/${agentId}`, {
+    message,
+    conversation_id: conversationId ?? undefined,
+  })
+  return data
+}
+
+/**
+ * 流式对话（SSE，fetch + ReadableStream，按 SSE 规范逐行解析）
+ * 后端每个事件块形如：
+ *   event: answer
+ *   data: {"content": "完整回答"}
+ *
+ *   data: {"content":"心跳或仅 data 的事件"}
+ */
+export async function sendStream(opts: SendStreamOptions): Promise<void> {
+  const { agentId, conversationId, message, onEvent, signal } = opts
+  const token = localStorage.getItem('token') || ''
+
+  const resp = await fetch(`/api/chat/${agentId}/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      message,
+      conversation_id: conversationId ?? undefined,
+    }),
+    signal,
+  })
+
+  if (!resp.ok) {
+    let errMsg = `HTTP ${resp.status}`
+    try {
+      const j = await resp.json()
+      errMsg = j?.detail || errMsg
+    } catch { /* ignore */ }
+    onEvent({ type: 'error', message: errMsg })
+    return
+  }
+
+  const reader = resp.body!.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''          // 跨 chunk 累积
+  let currentEventName: string = '' // event: xxx 决定下一个 data 的事件名
+
+  // 单个事件块（多个 data: 行累积，直到遇到空行触发一次回调）
+  let dataPayloads: string[] = []
+
+  const flushEvent = () => {
+    if (dataPayloads.length === 0 && !currentEventName) return
+    // SSE 允许多个 data 行，用 \n 拼接
+    const raw = dataPayloads.join('\n')
+    dataPayloads = []
+    let payload: any = {}
+    if (raw) {
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        // 非 JSON 的 data 直接作为 content
+        payload = { content: raw }
+      }
+    }
+    // 映射 event name -> 事件
+    const type: SseEventType = (currentEventName || 'answer') as SseEventType
+    const evt: SseEvent = { type, ...payload }
+    // 若未命名事件且无法判断，至少给一个 done 的兜底
+    if (!currentEventName && !raw) {
+      currentEventName = ''
+      return
+    }
+    onEvent(evt)
+    currentEventName = ''
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    // 逐行切分（兼容 \n / \r\n / \r）
+    let idx: number
+    // 以 \n 为主分隔
+    while ((idx = buffer.indexOf('\n')) !== -1) {
+      let line = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 1)
+      // 去掉尾部 \r
+      if (line.endsWith('\r')) line = line.slice(0, -1)
+
+      if (line === '') {
+        // 空行 → 触发一个 SSE 事件的分发
+        flushEvent()
+        continue
+      }
+      if (line.startsWith(':')) {
+        // SSE 注释行，跳过
+        continue
+      }
+      if (line.startsWith('event:')) {
+        currentEventName = line.slice(6).trim()
+        continue
+      }
+      if (line.startsWith('data:')) {
+        const data = line.slice(5).trimStart()
+        dataPayloads.push(data)
+        continue
+      }
+      // 其他忽略
+    }
+  }
+
+  // 流结束，可能还有残留事件（最后一块没以空行结尾）
+  if (dataPayloads.length > 0 || currentEventName) {
+    flushEvent()
+  }
+}

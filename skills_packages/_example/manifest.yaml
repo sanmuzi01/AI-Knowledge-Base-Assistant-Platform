@@ -1,0 +1,54 @@
+# Skill Package 示例 - 论文写作助手
+# 这是阶段A的示范包，展示 manifest.yaml 的完整字段
+# 旧版 skills/论文写作助手.yml 会被 Importer 转换成这种结构
+
+# ===== 元数据 =====
+name: "论文写作助手"
+display_name: "论文写作助手"
+description: "帮助用户完成论文写作全流程：大纲生成、字数统计、段落优化等"
+version: "1.0.0"
+author: "platform"
+license: "MIT"
+
+# ===== 来源标识 =====
+# template: 从平台预置模板创建
+# blank:    空白创建
+# zip:      上传 ZIP 导入
+# github:   从 GitHub URL 导入
+source: "template"
+source_ref: "论文写作助手.yml"    # 来源模板文件名
+
+# ===== 工具声明 =====
+# name: 平台 ToolRegistry 中注册的工具名
+# alias: 外部 Skill 用的别名 → 映射到 name（本示例是模板来源，无需 alias）
+# defaults: 默认参数
+# required: 是否必须加载
+tools:
+  - name: outline_generator
+    defaults:
+      sections: 6
+    required: true
+  - name: word_count
+    required: false
+
+# ===== 权限声明 =====
+# 安全沙箱用：决定 Skill 运行时能做什么
+permissions:
+  network: false                  # 不需要联网
+  file_read:                      # 允许读取 resources/ 内的文件
+    - "outline_template.txt"
+  exec: false                     # 不含可执行代码
+
+# ===== RAG 知识库绑定（可选） =====
+# rag:
+#   knowledge_base_id: 1
+#   top_k: 3
+
+# ===== 约束说明 =====
+# 会被写到 SKILL.md 头部，作为 system_prompt 的一部分
+constraints: |
+  - 生成的内容需符合学术规范，避免口语化表达
+  - 如果用户需求超出当前工具能力，如实告知
+
+# ===== 输出格式 =====
+output_format: "markdown"

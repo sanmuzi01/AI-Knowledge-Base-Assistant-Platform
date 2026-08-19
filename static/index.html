@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>接口测试页面</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+        h2 { border-bottom: 2px solid #4CAF50; padding-bottom: 5px; }
+        .box { border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+        input { display: block; width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+        button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #45a049; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+        .token-box { background: #fff3cd; padding: 10px; border-radius: 4px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <h1>接口测试页面</h1>
+
+    <!-- 注册区域 -->
+    <div class="box">
+        <h2>注册</h2>
+        <input type="text" id="reg_name" placeholder="用户名（3-20字符）">
+        <input type="password" id="reg_password" placeholder="密码（至少6位）">
+        <input type="number" id="reg_age" placeholder="年龄">
+        <button onclick="register()">注册</button>
+        <pre id="reg_result">等待操作...</pre>
+    </div>
+
+    <!-- 登录区域 -->
+    <div class="box">
+        <h2>登录</h2>
+        <input type="text" id="login_name" placeholder="用户名">
+        <input type="password" id="login_password" placeholder="密码">
+        <button onclick="login()">登录</button>
+        <pre id="login_result">等待操作...</pre>
+        <div id="token_area" style="display:none;">
+            <p><strong>Token：</strong></p>
+            <div class="token-box" id="token_value"></div>
+        </div>
+    </div>
+
+<script>
+    const BASE_URL = "http://127.0.0.1:8000";
+
+    // 注册
+    async function register() {
+        const name = document.getElementById("reg_name").value;
+        const password = document.getElementById("reg_password").value;
+        const age = parseInt(document.getElementById("reg_age").value);
+
+        try {
+            const res = await fetch(BASE_URL + "/user/register", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name, password, age})
+            });
+            const data = await res.json();
+            document.getElementById("reg_result").textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+            document.getElementById("reg_result").textContent = "请求失败：" + e.message;
+        }
+    }
+
+    // 登录
+    async function login() {
+        const name = document.getElementById("login_name").value;
+        const password = document.getElementById("login_password").value;
+
+        try {
+            const res = await fetch(BASE_URL + "/user/login", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name, password})
+            });
+            const data = await res.json();
+            document.getElementById("login_result").textContent = JSON.stringify(data, null, 2);
+
+            // 如果登录成功，显示 token
+            if (data.access_token) {
+                document.getElementById("token_area").style.display = "block";
+                document.getElementById("token_value").textContent = data.access_token;
+                // 把 token 存到 localStorage，方便后续接口使用
+                localStorage.setItem("access_token", data.access_token);
+            }
+        } catch (e) {
+            document.getElementById("login_result").textContent = "请求失败：" + e.message;
+        }
+    }
+</script>
+</body>
+</html>
