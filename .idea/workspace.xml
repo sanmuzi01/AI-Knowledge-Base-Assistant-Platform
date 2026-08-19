@@ -4,80 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="23602a6e-2a62-4831-98b2-a2d3da7fd322" name="更改" comment="功能完善中">
-      <change afterPath="$PROJECT_DIR$/FasdtApi/chat.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/FasdtApi/conversation_route.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/FasdtApi/llm_config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/FasdtApi/skill_route.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/agent_run_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/chat_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/conversation_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/knowledge_chunk_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/knowledge_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/llm_config_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/memory_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/models/skill_dao.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/prompt/prompt_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/chat_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/conversation_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/base.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/factory.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/glm_client.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/langchain_adapter.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/llm_config_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/llm/llm_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/memory/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/memory/memory_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding/base.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding/bge_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding/factory.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding/openai_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding/zhipu_embedding.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/embedding_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/rag_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/rerank/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/rerank/base.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/rerank/bge_reranker.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/rerank/factory.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/rag/vector_store_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/runtime/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/runtime/agent_runtime.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/runtime/react_engine.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/runtime/sse_events.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/skill_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/skills/loader.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/base.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/chart_generator.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/executor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/langchain_adapter.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/outline_generator.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/tools/word_count.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/skills/数据分析助手.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/skills/数据图表助手.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/skills/论文写作助手.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/test_conversation_chain.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/crypto.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FasdtApi/agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/agent.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FasdtApi/login.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/login.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FasdtApi/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FasdtApi/test_main.http" beforeDir="false" afterPath="$PROJECT_DIR$/FasdtApi/test_main.http" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/agent_dao.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/agent_dao.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/init_db.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/init_db.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/prompts/prompt_manager.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/service/agent_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/agent_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/service/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/auth.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/service/auth_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/auth_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/service/dependencies.py" beforeDir="false" afterPath="$PROJECT_DIR$/service/dependencies.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/logger_handler.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/logger_handler.py" afterDir="false" />
-    </list>
+    <list default="true" id="23602a6e-2a62-4831-98b2-a2d3da7fd322" name="更改" comment="平台前后端进一步完善" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -333,7 +260,7 @@
       <workItem from="1786501113786" duration="47307000" />
       <workItem from="1786677012916" duration="32695000" />
       <workItem from="1787023956180" duration="8666000" />
-      <workItem from="1787115883091" duration="699000" />
+      <workItem from="1787115883091" duration="1003000" />
     </task>
     <task id="LOCAL-00001" summary="功能完善中">
       <option name="closed" value="true" />
@@ -351,7 +278,15 @@
       <option name="project" value="LOCAL" />
       <updated>1785748657787</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="平台前后端进一步完善">
+      <option name="closed" value="true" />
+      <created>1787116606360</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1787116606360</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -370,7 +305,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="功能完善中" />
-    <option name="LAST_COMMIT_MESSAGE" value="功能完善中" />
+    <MESSAGE value="平台前后端进一步完善" />
+    <option name="LAST_COMMIT_MESSAGE" value="平台前后端进一步完善" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PythonProject1$test_sse.coverage" NAME="test_sse 覆盖结果" MODIFIED="1786697616183" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
