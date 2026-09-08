@@ -118,6 +118,47 @@ async def update_conversation_flags(
     return _conv_to_dict(conv)
 
 
+async def export_conversation(
+        db, user_id: int, conversation_id: int, fmt: str = "markdown",
+) -> Optional[Dict[str, str]]:
+    """异步导出会话为 markdown / json（纯读 + 字符串拼装）。"""
+
+    conv = await dao.get_owned_conversation_async(db, user_id, conversation_id)
+    if not conv:
+        return None
+    messages = await dao.list_messages_by_conversation_async(db, conversation_id, 1000)
+    safe_title = "".join(
+        ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in (conv.title or "")
+    ).strip("_") or "conversation"
+
+    if fmt == "json":
+        import json
+
+        content = json.dumps(
+            {
+                "conversation": _conv_to_dict(conv),
+                "messages": [_msg_to_dict(msg) for msg in messages],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        return {
+            "filename": f"{safe_title}_{conv.id}.json",
+            "media_type": "application/json",
+            "content": content,
+        }
+
+    lines = [f"# {conv.title}", "", f"- 会话ID: {conv.id}", f"- Agent ID: {conv.agent_id}", ""]
+    for msg in messages:
+        role = {"user": "用户", "assistant": "助手", "system": "系统"}.get(msg.role, msg.role)
+        lines.extend([f"## {role}", "", msg.content or "", ""])
+    return {
+        "filename": f"{safe_title}_{conv.id}.md",
+        "media_type": "text/markdown",
+        "content": "\n".join(lines),
+    }
+
+
 async def delete_conversation(db, user_id: int, conversation_id: int) -> bool:
     conv = await dao.get_owned_conversation_async(db, user_id, conversation_id)
     if not conv:

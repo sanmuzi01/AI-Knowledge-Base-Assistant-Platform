@@ -45,6 +45,7 @@ class AsyncRouteCoverageTest(unittest.TestCase):
             conversation_route.update_conversation,
             conversation_route.update_conversation_flags,
             conversation_route.delete_conversation,
+            conversation_route.export_conversation,
             admin.admin_overview,
             admin.admin_users,
             admin.admin_user_detail,

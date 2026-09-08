@@ -10,13 +10,11 @@
 路由层职责：鉴权(get_current_user) + 入参校验 + HTTP 异常转换
 """
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel, Field
-from models.init_db import get_db, User
+from models.init_db import User
 from models.async_db import get_async_db
-from service.dependencies import get_current_user, get_current_user_async
-from service import conversation_service
+from service.dependencies import get_current_user_async
 from service import conversation_async_service
 router = APIRouter(prefix="/conversation", tags=["会话管理"])
 # ========== 请求模型 ==========
@@ -86,16 +84,16 @@ async def get_messages(
 
 
 @router.get("/{conversation_id}/export", summary="导出会话")
-def export_conversation(
+async def export_conversation(
         conversation_id: int,
         format: str = "markdown",
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     fmt = format.lower()
     if fmt not in {"markdown", "json"}:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="format 仅支持 markdown 或 json")
-    result = conversation_service.export_conversation(db, current_user.id, conversation_id, fmt)
+    result = await conversation_async_service.export_conversation(async_db, current_user.id, conversation_id, fmt)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
     return Response(
