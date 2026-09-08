@@ -7,15 +7,17 @@
   GET    /conversation/{conversation_id}/messages  查询会话消息历史
   PUT    /conversation/{conversation_id}     更新会话标题
   DELETE /conversation/{conversation_id}     删除会话（级联删消息）
-路由层职责：鉴权(get_current_user) + 入参校验 + 事务管理(commit/rollback)
+路由层职责：鉴权(get_current_user) + 入参校验 + HTTP 异常转换
 """
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from models.init_db import get_db, User
-from service.dependencies import get_current_user
+from models.async_db import get_async_db
+from service.dependencies import get_current_user, get_current_user_async
 from service import conversation_service
+from service import conversation_async_service
 router = APIRouter(prefix="/conversation", tags=["会话管理"])
 # ========== 请求模型 ==========
 class ConversationCreate(BaseModel):
@@ -36,49 +38,48 @@ class ConversationFlagsUpdate(BaseModel):
 # ========== 接口 ==========
 
 @router.post("", summary="创建会话")
-def create_conversation(
+async def create_conversation(
         body: ConversationCreate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """创建新会话（标题为空时默认"新会话"，发首条消息后自动生成）"""
-    result = conversation_service.create_conversation(
-        db, user_id=current_user.id, agent_id=body.agent_id, title=body.title
+    result = await conversation_async_service.create_conversation(
+        async_db, user_id=current_user.id, agent_id=body.agent_id, title=body.title
     )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
-    db.commit()
     return result
 
 @router.get("/agent/{agent_id}", summary="查询Agent下的会话列表")
-def list_conversations(
+async def list_conversations(
         agent_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """查询当前用户某Agent下的所有会话（按最近活跃倒序）"""
-    return conversation_service.list_conversations(db, current_user.id, agent_id)
+    return await conversation_async_service.list_conversations(async_db, current_user.id, agent_id)
 
 @router.get("/{conversation_id}", summary="查询单个会话")
-def get_conversation(
+async def get_conversation(
         conversation_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """查询单个会话详情（含权限校验）"""
-    result = conversation_service.get_conversation(db, current_user.id, conversation_id)
+    result = await conversation_async_service.get_conversation(async_db, current_user.id, conversation_id)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
     return result
 @router.get("/{conversation_id}/messages", summary="查询会话消息历史")
-def get_messages(
+async def get_messages(
         conversation_id: int,
         limit: int = 100,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """查询会话下的所有消息（正序，用于聊天历史展示）"""
-    result = conversation_service.list_messages(db, current_user.id, conversation_id, limit)
+    result = await conversation_async_service.list_messages(async_db, current_user.id, conversation_id, limit)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
     return result
@@ -104,33 +105,32 @@ def export_conversation(
     )
 
 @router.put("/{conversation_id}", summary="更新会话标题")
-def update_conversation(
+async def update_conversation(
         conversation_id: int,
         body: ConversationUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """更新会话标题"""
-    result = conversation_service.update_conversation_title(
-        db, current_user.id, conversation_id, body.title
+    result = await conversation_async_service.update_conversation_title(
+        async_db, current_user.id, conversation_id, body.title
     )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
-    db.commit()
     return result
 
 
 @router.patch("/{conversation_id}/flags", summary="更新会话置顶/归档状态")
-def update_conversation_flags(
+async def update_conversation_flags(
         conversation_id: int,
         body: ConversationFlagsUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     if body.is_pinned is None and body.is_archived is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有要更新的字段")
-    result = conversation_service.update_conversation_flags(
-        db,
+    result = await conversation_async_service.update_conversation_flags(
+        async_db,
         current_user.id,
         conversation_id,
         is_pinned=body.is_pinned,
@@ -138,18 +138,16 @@ def update_conversation_flags(
     )
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
-    db.commit()
     return result
 
 @router.delete("/{conversation_id}", summary="删除会话")
-def delete_conversation(
+async def delete_conversation(
         conversation_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """删除会话（级联删除其下所有消息）"""
-    success = conversation_service.delete_conversation(db, current_user.id, conversation_id)
+    success = await conversation_async_service.delete_conversation(async_db, current_user.id, conversation_id)
     if not success:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
-    db.commit()
     return {"message": "删除成功", "conversation_id": conversation_id}

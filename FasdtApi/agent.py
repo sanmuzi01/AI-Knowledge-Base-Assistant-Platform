@@ -3,8 +3,10 @@ from pydantic import BaseModel,Field
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from models.init_db import get_db, User
-from service.dependencies import get_current_user
+from models.async_db import get_async_db
+from service.dependencies import get_current_user, get_current_user_async
 from service import agent_service
+from service import agent_async_service
 from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
 router = APIRouter(prefix="/agent", tags=["agent管理"])
 class AgentResponse(BaseModel):
@@ -69,7 +71,7 @@ class AgentTemplateCreate(BaseModel):
 
 @router.get("/templates", summary="查询内置Agent模板")
 def list_templates(
-        current_user: User = Depends(get_current_user)):
+        current_user: User = Depends(get_current_user_async)):
     """返回内置和用户自定义Agent模板，前端用于一键预填创建表单。"""
     return list_templates_for_user(current_user.id)
 
@@ -90,24 +92,23 @@ def delete_template(
     return {"message": "删除成功", "template_id": template_id}
 
 @router.get("/list",summary="查询用户的智能体列表",response_model=List[AgentWithSelectedResponse])
-def list_agents(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)):
+async def list_agents(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async)):
     """查询用户的智能体列表，每个智能体附带 is_selected 标记"""
-    return agent_service.list_agent(db, current_user)
+    return await agent_async_service.list_agent(async_db, current_user)
 @router.get("/selected/me",summary="获取选中智能体")
-def get_selected(
-        db :Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
+async def get_selected(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async)
 ):
-    result  = agent_service.get_selected(db,current_user)
-    return result
+    return await agent_async_service.get_selected(async_db, current_user)
 @router.get("/{agent_id:int}",summary="查询单个智能体信息",response_model=AgentWithSelectedResponse)
-def get_agent(
+async def get_agent(
         agent_id:int,
-        db:Session = Depends(get_db),
-        current_user: User =Depends(get_current_user) ):
-    result = agent_service.get_agent(db, current_user,agent_id)
+        async_db=Depends(get_async_db),
+        current_user: User =Depends(get_current_user_async) ):
+    result = await agent_async_service.get_agent(async_db, current_user, agent_id)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND,detail = "智能体不存在或无权限")
     return result
@@ -172,15 +173,11 @@ def create_agent(
         model_name=agent.model_name,
         rag_enabled=agent.rag_enabled,
         memory_enabled=agent.memory_enabled,
-        temperature=agent.temperature
+        temperature=agent.temperature,
+        skill_ids=agent.skill_ids,
     )
-    # 2. 如果指定了skill_ids，绑定Skill
-    if agent.skill_ids:
-        from service.skill_service import update_agent_skills
-        if not update_agent_skills(db, result["agent_id"], agent.skill_ids, user_id=current_user.id):
-            db.rollback()
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="绑定Skill失败，请检查Skill是否存在或有权限")
-    db.commit()
+    if "agent_id" not in result:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.get("message", "创建失败"))
     return result
 @router.put("/{agent_id}",summary="更新智能体信息")
 def update_agent(
@@ -203,14 +200,11 @@ def update_agent(
         model_name=agent_update.model_name,
         rag_enabled=agent_update.rag_enabled,
         memory_enabled=agent_update.memory_enabled,
-        temperature=agent_update.temperature
+        temperature=agent_update.temperature,
+        skill_ids=agent_update.skill_ids,
     )
-    if agent_update.skill_ids is not None:
-        from service.skill_service import update_agent_skills
-        if not update_agent_skills(db, agent_id, agent_update.skill_ids, user_id=current_user.id):
-            db.rollback()
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="绑定Skill失败，请检查Skill是否存在或有权限")
-        db.commit()
+    if update_result.get("message") != "更新成功":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=update_result.get("message", "更新失败"))
     return update_result
 @router.get("/{agent_id}/delete_preview", summary="删除智能体预检（返回将被删除的数据量）")
 def delete_preview_agent(

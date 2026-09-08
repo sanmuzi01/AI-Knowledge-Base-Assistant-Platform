@@ -2,11 +2,11 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from models.init_db import User, get_db
-from service.dependencies import get_current_user
-from service.memory import memory_service
+from models.async_db import get_async_db
+from models.init_db import User
+from service import memory_async_service
+from service.dependencies import get_current_user_async
 
 router = APIRouter(prefix="/memory", tags=["memory管理"])
 
@@ -32,46 +32,51 @@ class MemoryUpdate(BaseModel):
 
 
 @router.get("/agent/{agent_id:int}", summary="获取Agent长期记忆", response_model=List[MemoryResponse])
-def list_memories(
+async def list_memories(
     agent_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
-    result = memory_service.list_agent_memories(db, current_user.id, agent_id)
+    result = await memory_async_service.list_agent_memories(async_db, current_user.id, agent_id)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
     return result
 
 
 @router.post("/agent/{agent_id:int}", summary="手动添加长期记忆", response_model=MemoryResponse)
-def create_memory(
+async def create_memory(
     agent_id: int,
     data: MemoryCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
     try:
-        result = memory_service.add_memory(db, current_user.id, agent_id, data.memory_type, data.content)
+        result = await memory_async_service.add_memory(
+            async_db,
+            current_user.id,
+            agent_id,
+            data.memory_type,
+            data.content,
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
-    db.commit()
     return result
 
 
 @router.put("/{memory_id:int}", summary="编辑长期记忆", response_model=MemoryResponse)
-def update_memory(
+async def update_memory(
     memory_id: int,
     data: MemoryUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
     if data.memory_type is None and data.content is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有可更新的字段")
     try:
-        result = memory_service.edit_memory(
-            db,
+        result = await memory_async_service.edit_memory(
+            async_db,
             current_user.id,
             memory_id,
             memory_type=data.memory_type,
@@ -81,30 +86,28 @@ def update_memory(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在或无权限")
-    db.commit()
     return result
 
 
 @router.delete("/{memory_id:int}", summary="删除一条长期记忆")
-def delete_memory(
+async def delete_memory(
     memory_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
-    if not memory_service.remove_memory(db, current_user.id, memory_id):
+    success = await memory_async_service.remove_memory(async_db, current_user.id, memory_id)
+    if not success:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在或无权限")
-    db.commit()
     return {"message": "删除成功"}
 
 
 @router.delete("/agent/{agent_id:int}", summary="清空Agent长期记忆")
-def clear_memories(
+async def clear_memories(
     agent_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
-    count = memory_service.clear_agent_memories(db, current_user.id, agent_id)
+    count = await memory_async_service.clear_agent_memories(async_db, current_user.id, agent_id)
     if count is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
-    db.commit()
     return {"message": "清空成功", "count": count}

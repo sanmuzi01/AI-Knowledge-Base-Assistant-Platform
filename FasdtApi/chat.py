@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
+from models.async_db import get_async_db
 from models.init_db import get_db, User
-from service.dependencies import get_current_user
-from service import chat_service
-from models.chat_dao import list_chats_by_agent
+from service.dependencies import get_current_user, get_current_user_async
+from service import chat_async_service, chat_service
 from fastapi.responses import StreamingResponse
 from service.runtime.sse_events import SSE_HEADERS
+from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/chat", tags=["聊天对话"])
 
@@ -28,27 +29,56 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=5000)
     conversation_id: Optional[int] = Field(default=None, ge=1)
 
+
+def _limit_error(exc: LimitExceeded) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=exc.message,
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
 @router.post("/{agent_id}", summary="发送对话（同步）")
-def chat(
+async def chat(
         agent_id: int,
         request: ChatRequest,
         db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        current_user: User = Depends(get_current_user_async),
 ):
     """同步对话。conversation_id=None 时自动新建会话并返回 conversation_id。"""
     try:
-        result = chat_service.chat_with_agent(
-            db=db,
-            user=current_user,
-            agent_id=agent_id,
-            user_message=request.message,
-            conversation_id=request.conversation_id,
+        require_limit(
+            key=f"chat:user:{current_user.id}",
+            limit_env="CHAT_RATE_LIMIT",
+            default_limit=20,
+            window_env="CHAT_RATE_WINDOW_SECONDS",
+            default_window=60,
+            label="聊天请求",
         )
+    except LimitExceeded as e:
+        raise _limit_error(e)
+    try:
+        with concurrency_guard(
+            key=f"agent_run:user:{current_user.id}",
+            limit_env="USER_MAX_CONCURRENT_AGENT_RUNS",
+            default_limit=2,
+            ttl_env="AGENT_RUN_CONCURRENCY_TTL_SECONDS",
+            default_ttl=300,
+            label="Agent",
+        ):
+            result =  await chat_service.chat_with_agent(
+                db=db,
+                user=current_user,
+                agent_id=agent_id,
+                user_message=request.message,
+                conversation_id=request.conversation_id,
+            )
+    except LimitExceeded as e:
+        raise _limit_error(e)
     except ValueError as e:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(e))
     if "message" in result and "answer" not in result:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result["message"])
-    db.commit()   # chat_service 内部用了 flush，这里统一 commit（含消息和会话标题）
     return result
 
 @router.post("/{agent_id}/stream", summary="发送对话（SSE流式）")
@@ -62,6 +92,27 @@ def chat_stream(
     事务：流式无法像同步那样在路由层统一 commit，所以 chat_service 内部每步 flush，
     保存AI消息后会 commit 一次。
     """
+    try:
+        require_limit(
+            key=f"chat:user:{current_user.id}",
+            limit_env="CHAT_RATE_LIMIT",
+            default_limit=20,
+            window_env="CHAT_RATE_WINDOW_SECONDS",
+            default_window=60,
+            label="聊天请求",
+        )
+        lease_guard = concurrency_guard(
+            key=f"agent_run:user:{current_user.id}",
+            limit_env="USER_MAX_CONCURRENT_AGENT_RUNS",
+            default_limit=2,
+            ttl_env="AGENT_RUN_CONCURRENCY_TTL_SECONDS",
+            default_ttl=300,
+            label="Agent",
+        )
+        lease_guard.__enter__()
+    except LimitExceeded as e:
+        raise _limit_error(e)
+
     generator = chat_service.chat_with_agent_stream(
         db=db,
         user=current_user,
@@ -69,29 +120,27 @@ def chat_stream(
         user_message=request.message,
         conversation_id=request.conversation_id,
     )
+
+    def limited_generator():
+        try:
+            yield from generator
+        finally:
+            lease_guard.__exit__(None, None, None)
+
     return StreamingResponse(
-        generator,
+        limited_generator(),
         headers=SSE_HEADERS,
         media_type="text/event-stream",
     )
 
 @router.get("/{agent_id}/history", summary="获取对话历史（旧版Chat表，兼容）")
-def get_history(
+async def get_history(
         agent_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
     """旧版历史（从Chat表查），保留向后兼容。新版请用：
     GET /conversation/{agent_id} → 会话列表
     GET /conversation/{conversation_id}/messages → 消息历史
     """
-    chats = list_chats_by_agent(db, current_user.id, agent_id, limit=20)
-    return [
-        {
-            "id": c.id,
-            "question": c.question,
-            "answer": c.answer,
-            "create_time": c.create_time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        for c in reversed(chats)
-    ]
+    return await chat_async_service.list_legacy_history(async_db, current_user.id, agent_id, limit=20)

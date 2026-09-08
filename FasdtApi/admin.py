@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from models.init_db import User, get_db
-from service import admin_service
-from service.dependencies import get_current_admin_user
-from service.operation_log_service import list_operation_logs
+from models.async_db import get_async_db
+from service import admin_async_service, admin_service
+from service.dependencies import get_current_admin_user, get_current_admin_user_async
+from service import operation_log_async_service
 
 router = APIRouter(prefix="/admin", tags=["管理员后台"])
 
@@ -25,77 +26,74 @@ class UserPasswordUpdate(BaseModel):
 
 
 @router.get("/me", summary="查询当前管理员信息")
-def admin_me(current_user: User = Depends(get_current_admin_user)):
+async def admin_me(current_user: User = Depends(get_current_admin_user_async)):
     return admin_service.current_user_payload(current_user)
 
 
 @router.get("/overview", summary="后台总览统计")
-def admin_overview(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+async def admin_overview(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    return admin_service.overview(db)
+    return await admin_async_service.overview(async_db)
 
 
 @router.get("/users", summary="用户管控列表")
-def admin_users(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+async def admin_users(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    return admin_service.list_users(db)
+    return await admin_async_service.list_users(async_db)
 
 
 @router.get("/users/{user_id}", summary="查询用户详情")
-def admin_user_detail(
+async def admin_user_detail(
         user_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    result = admin_service.get_user_detail(db, user_id)
+    result = await admin_async_service.get_user_detail(async_db, user_id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
     return result
 
 
 @router.put("/users/{user_id}/roles", summary="更新用户角色")
-def admin_update_user_roles(
+async def admin_update_user_roles(
         user_id: int,
         data: UserRolesUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    result = admin_service.set_user_roles(db, user_id, data.roles, current_user.id)
+    result = await admin_async_service.set_user_roles(async_db, user_id, data.roles, current_user.id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    db.commit()
     return result
 
 
 @router.patch("/users/{user_id}/status", summary="启用或禁用用户")
-def admin_update_user_status(
+async def admin_update_user_status(
         user_id: int,
         data: UserStatusUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    result = admin_service.set_user_disabled(db, user_id, data.disabled, current_user.id)
+    result = await admin_async_service.set_user_disabled(async_db, user_id, data.disabled, current_user.id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    db.commit()
     return result
 
 
 @router.put("/users/{user_id}/password", summary="重置用户密码")
-def admin_reset_user_password(
+async def admin_reset_user_password(
         user_id: int,
         data: UserPasswordUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    result = admin_service.reset_user_password(db, user_id, data.new_password)
+    result = await admin_async_service.reset_user_password(async_db, user_id, data.new_password)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    db.commit()
     return result
 
 
@@ -108,41 +106,40 @@ def admin_delete_user(
     result = admin_service.delete_user(db, user_id, current_user.id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    db.commit()
     return result
 
 
 @router.get("/tasks", summary="查询全局后台任务")
-def admin_tasks(
+async def admin_tasks(
         limit: int = Query(default=50, ge=1, le=200),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    return admin_service.list_recent_tasks(db, limit=limit)
+    return await admin_async_service.list_recent_tasks(async_db, limit=limit)
 
 
 @router.get("/usage", summary="查询系统使用情况")
-def admin_usage(
+async def admin_usage(
         days: int = Query(default=14, ge=1, le=90),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    return admin_service.usage_stats(db, days=days)
+    return await admin_async_service.usage_stats(async_db, days=days)
 
 
 @router.get("/logs", summary="查询操作日志")
-def admin_logs(
+async def admin_logs(
         limit: int = Query(default=100, ge=1, le=500),
         days: int = Query(default=7, ge=1, le=90),
         keyword: str = Query(default=None),
         method: str = Query(default=None),
         status_group: str = Query(default=None),
         user_id: int = Query(default=None),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    return list_operation_logs(
-        db,
+    return await operation_log_async_service.list_operation_logs(
+        async_db,
         limit=limit,
         days=days,
         keyword=keyword,

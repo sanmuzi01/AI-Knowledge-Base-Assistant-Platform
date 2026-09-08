@@ -6,7 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from models.init_db import User, get_db
-from service.dependencies import get_current_user
+from models.async_db import get_optional_async_db
+from service.dependencies import get_current_user, get_current_user_async
+from service import skill_async_service
 from service.skill_service import (
     bind_skill,
     create_template,
@@ -18,6 +20,7 @@ from service.skill_service import (
     get_skill_config,
     get_template_config,
     import_skill_from_upload,
+    install_public_skill,
     list_agent_skills,
     list_available_tools,
     list_public_skills,
@@ -26,6 +29,7 @@ from service.skill_service import (
     unbind_skill,
     update_agent_skills,
     update_skill,
+    update_skill_with_config,
     update_skill_config,
     update_template,
     validate_skill,
@@ -83,24 +87,31 @@ def api_create_skill(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="创建Skill失败，请检查模板文件名是否正确",
         )
-    db.commit()
     return {"code": 200, "msg": "创建成功", "data": skill}
 
 
 @router.get("/", summary="查询当前用户的所有Skill")
-def api_list_my_skills(
+async def api_list_my_skills(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_optional_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
+    if async_db is not None:
+        skills = await skill_async_service.list_user_skills(async_db, current_user.id)
+        return {"code": 200, "msg": "查询成功", "data": skills}
     skills = list_user_skills(db, current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 
 @router.get("/public", summary="查询所有公开Skill")
-def api_list_public_skills(
+async def api_list_public_skills(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_optional_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
+    if async_db is not None:
+        skills = await skill_async_service.list_public_skills(async_db)
+        return {"code": 200, "msg": "查询成功", "data": skills}
     skills = list_public_skills(db)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
@@ -180,12 +191,16 @@ def api_list_tools(
 
 
 @router.get("/{skill_id}/validate", summary="校验Skill是否可用")
-def api_validate_skill(
+async def api_validate_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_optional_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
-    result = validate_skill(db, skill_id, user_id=current_user.id)
+    if async_db is not None:
+        result = await skill_async_service.validate_skill(async_db, skill_id, user_id=current_user.id)
+    else:
+        result = validate_skill(db, skill_id, user_id=current_user.id)
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
     return {"code": 200, "msg": "校验完成", "data": result}
@@ -208,6 +223,18 @@ def api_export_skill(
         filename=package["filename"],
         media_type="application/zip",
     )
+
+
+@router.post("/{skill_id}/install", summary="安装公开Skill到我的能力库")
+def api_install_public_skill(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    skill = install_public_skill(db, current_user.id, skill_id)
+    if not skill:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="安装失败：Skill不存在或不是公开能力")
+    return {"code": 200, "msg": "安装成功", "data": skill}
 
 
 @router.post("/import", summary="导入外部Skill包")
@@ -233,20 +260,24 @@ async def api_import_skill(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="导入失败：请上传 .zip Skill包，或符合格式的 .yml/.yaml 文件",
         )
-    db.commit()
     return {"code": 200, "msg": "导入成功", "data": skill}
 
 
 @router.get("/{skill_id}", summary="查询单个Skill详情")
-def api_get_skill(
+async def api_get_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_optional_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
-    skill = get_skill(db, skill_id, user_id=current_user.id)
+    if async_db is not None:
+        skill = await skill_async_service.get_skill_with_config(async_db, skill_id, user_id=current_user.id)
+    else:
+        skill = get_skill(db, skill_id, user_id=current_user.id)
+        if skill:
+            skill["config"] = get_skill_config(db, skill_id, user_id=current_user.id)
     if not skill:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
-    skill["config"] = get_skill_config(db, skill_id, user_id=current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skill}
 
 
@@ -262,32 +293,18 @@ def api_update_skill(
     for key in ("system_prompt", "tool_names", "permissions"):
         if key in payload:
             config_payload[key] = payload.pop(key)
-    kwargs = payload
-    if not kwargs:
-        if not config_payload:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有要更新的字段")
-        updated = update_skill_config(db, skill_id, user_id=current_user.id, **config_payload)
-        if not updated:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新Skill配置失败")
-        db.commit()
-        skill = get_skill(db, skill_id, user_id=current_user.id)
-        if skill:
-            skill["config"] = get_skill_config(db, skill_id, user_id=current_user.id)
-        return {"code": 200, "msg": "更新成功", "data": skill}
-    skill = update_skill(db, skill_id, user_id=current_user.id, **kwargs)
+    skill = update_skill_with_config(
+        db,
+        skill_id,
+        user_id=current_user.id,
+        fields=payload,
+        config_fields=config_payload,
+    )
     if not skill:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="更新失败，Skill不存在或模板文件名错误",
+            detail="更新失败，Skill不存在、模板文件名错误或配置不可用",
         )
-    if config_payload:
-        updated = update_skill_config(db, skill_id, user_id=current_user.id, **config_payload)
-        if not updated:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新Skill配置失败")
-    skill = get_skill(db, skill_id, user_id=current_user.id)
-    if skill:
-        skill["config"] = get_skill_config(db, skill_id, user_id=current_user.id)
-    db.commit()
     return {"code": 200, "msg": "更新成功", "data": skill}
 
 
@@ -300,7 +317,6 @@ def api_delete_skill(
     success = delete_skill(db, skill_id, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
-    db.commit()
     return {"code": 200, "msg": "删除成功"}
 
 
@@ -317,7 +333,6 @@ def api_bind_skill(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="绑定失败，请检查Agent和Skill是否存在且有权限",
         )
-    db.commit()
     return {"code": 200, "msg": "绑定成功"}
 
 
@@ -331,16 +346,19 @@ def api_unbind_skill(
     success = unbind_skill(db, agent_id, skill_id, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="解绑失败")
-    db.commit()
     return {"code": 200, "msg": "解绑成功"}
 
 
 @router.get("/agent/{agent_id}", summary="查询Agent绑定的所有Skill")
-def api_list_agent_skills(
+async def api_list_agent_skills(
     agent_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    async_db=Depends(get_optional_async_db),
+    current_user: User = Depends(get_current_user_async),
 ):
+    if async_db is not None:
+        skills = await skill_async_service.list_agent_skills(async_db, agent_id, user_id=current_user.id)
+        return {"code": 200, "msg": "查询成功", "data": skills}
     skills = list_agent_skills(db, agent_id, user_id=current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
@@ -355,5 +373,4 @@ def api_update_agent_skills(
     success = update_agent_skills(db, agent_id, skill_ids, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
-    db.commit()
     return {"code": 200, "msg": "更新成功"}
