@@ -9,7 +9,9 @@ OpenAI Embedding 实现
 """
 import requests
 from typing import List
+import httpx
 from service.rag.embedding.base import BaseEmbedding
+from service.http_resilience import async_request_with_retry, request_with_retry
 from utils.logger_handler import get_logger
 logger = get_logger("openai_embedding")
 class OpenAIEmbedding(BaseEmbedding):
@@ -44,6 +46,25 @@ class OpenAIEmbedding(BaseEmbedding):
         #文本里提取问
         vectors = self.embed_texts([query])
         return vectors[0] if vectors else []
+
+    async def aembed_texts(self, texts: List[str]) -> List[List[float]]:
+        """异步批量文本嵌入，适合 API 请求链路直接 await。"""
+
+        if not texts:
+            return []
+        all_vectors = []
+        for i in range(0, len(texts), self.BATCH_SIZE):
+            batch = texts[i:i + self.BATCH_SIZE]
+            vectors = await self._acall_api(batch)
+            all_vectors.extend(vectors)
+            logger.info(f"OpenAI异步嵌入批次 {i // self.BATCH_SIZE + 1} 完成，本批 {len(batch)} 条")
+        logger.info(f"OpenAI异步嵌入完成，共 {len(all_vectors)} 条向量")
+        return all_vectors
+
+    async def aembed_query(self, query: str) -> List[float]:
+        vectors = await self.aembed_texts([query])
+        return vectors[0] if vectors else []
+
     def _call_api(self,texts:List[str])->List[List[float]]:
         """真正调OpenAI API
         1. URL不同
@@ -63,8 +84,11 @@ class OpenAIEmbedding(BaseEmbedding):
         try:
             # 支持自定义api_url（用户可能用代理或兼容服务）
             url = self.api_url or self.OPENAI_EMBEDDING_URL
-            resp = requests.post(
-                url,headers = headers,json=payload,timeout=30
+            resp = request_with_retry(
+                service_name=f"embedding:{self.model_name}",
+                sender=lambda timeout: requests.post(url, headers=headers, json=payload, timeout=timeout),
+                timeout_env="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=30,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -75,6 +99,36 @@ class OpenAIEmbedding(BaseEmbedding):
             raise
         except (KeyError, IndexError) as e:
             logger.error(f"OpenAI Embedding响应格式异常: {e}")
+            raise
+
+    async def _acall_api(self, texts: List[str]) -> List[List[float]]:
+        """异步调用 OpenAI Embedding API。"""
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_name,
+            "input": texts
+        }
+        try:
+            url = self.api_url or self.OPENAI_EMBEDDING_URL
+            resp = await async_request_with_retry(
+                service_name=f"embedding:{self.model_name}",
+                sender=lambda client: client.post(url, headers=headers, json=payload),
+                timeout_env="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            embeddings = sorted(data["data"], key=lambda x: x["index"])
+            return [item["embedding"] for item in embeddings]
+        except httpx.HTTPError as e:
+            logger.error(f"OpenAI Embedding API异步调用失败: {e}")
+            raise
+        except (KeyError, IndexError) as e:
+            logger.error(f"OpenAI Embedding异步响应格式异常: {e}")
             raise
 # ========== 自动注册 ==========
 from service.rag.embedding.base import EmbeddingRegistry

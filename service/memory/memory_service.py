@@ -11,7 +11,7 @@ Memory 记忆服务：长期记忆管理
 """
 from typing import Dict, List, Optional
 from utils.logger_handler import get_logger
-from models.chat_dao import list_chats_by_agent
+from models.agent_run_dao import count_finished_runs_by_agent, list_finished_runs_by_agent
 from service.access_control import get_owned_agent, get_owned_memory
 from models.memory_dao import (
     create_memory,
@@ -60,6 +60,7 @@ def add_memory(db, user_id: int, agent_id: int, memory_type: str, content: str) 
         content=content.strip(),
         chat_count=0,
     )
+    db.commit()
     return memory_to_dict(memory)
 
 def edit_memory(db, user_id: int, memory_id: int, memory_type: str = None, content: str = None) -> Optional[Dict]:
@@ -69,6 +70,7 @@ def edit_memory(db, user_id: int, memory_id: int, memory_type: str = None, conte
     normalized_type = _normalize_memory_type(memory_type) if memory_type is not None else None
     next_content = content.strip() if content is not None else None
     updated = update_memory(db, memory, memory_type=normalized_type, content=next_content)
+    db.commit()
     return memory_to_dict(updated)
 
 def remove_memory(db, user_id: int, memory_id: int) -> bool:
@@ -76,12 +78,15 @@ def remove_memory(db, user_id: int, memory_id: int) -> bool:
     if not memory or not ensure_agent_owner(db, user_id, memory.agent_id):
         return False
     delete_memory(db, memory)
+    db.commit()
     return True
 
 def clear_agent_memories(db, user_id: int, agent_id: int) -> Optional[int]:
     if not ensure_agent_owner(db, user_id, agent_id):
         return None
-    return delete_memories_by_user_agent(db, user_id, agent_id)
+    count = delete_memories_by_user_agent(db, user_id, agent_id)
+    db.commit()
+    return count
 
 def _normalize_memory_type(memory_type: str) -> str:
     value = (memory_type or "").strip().lower()
@@ -117,9 +122,8 @@ def should_summarize(db,user_id:int,agent_id:int)->bool:
     """判断是否该总结新对话了
           当前总对话轮数 - 上次总结时的轮数 >= SUMMARY_EVERY_N_ROUNDS（5）
         """
-    # 查对话总数
-    chats = list_chats_by_agent(db,user_id,agent_id,limit=1000)
-    total_count = len(chats)
+    # 以 AgentRun 为准，兼容旧聊天入口和新版会话入口。
+    total_count = count_finished_runs_by_agent(db, user_id, agent_id)
     # 2.查上次总结时的chat_count
     summary = get_latest_summary(db,user_id,agent_id)
     last_summary_count=summary.chat_count if summary else 0
@@ -147,19 +151,18 @@ def summarize_and_save(
           就会丢了"张三"这个信息。带上旧摘要就能保留下来。"""
     from service.llm.llm_service import chat as llm_chat
 
-    # 1.查所有对话（取最近1000轮，倒序）
-    chats = list_chats_by_agent(db,user_id,agent_id,limit=1000)
-    if len(chats)<=SHORT_TERM_ROUNDS:
-        logger.info(f"对话只有{len(chats)}轮，少于短期记忆{SHORT_TERM_ROUNDS}轮，不总结")
+    # 1.查所有成功运行记录（取最近1000轮，倒序）
+    runs = list_finished_runs_by_agent(db, user_id, agent_id, limit=1000)
+    if len(runs) <= SHORT_TERM_ROUNDS:
+        logger.info(f"对话只有{len(runs)}轮，少于短期记忆{SHORT_TERM_ROUNDS}轮，不总结")
         return None
     # 2.分离：短期（最近5轮不总结）长期（旧对话，要总结）chats是倒序的（[最新, ..., 最旧]）
-    short_term = chats[:SHORT_TERM_ROUNDS]# 最近5轮
-    old_chats = chats[SHORT_TERM_ROUNDS:]# 剩下的旧对话
+    old_runs = runs[SHORT_TERM_ROUNDS:]# 剩下的旧对话
     # 3.取上次的旧摘要（如果有）
     old_summary_obj = get_latest_summary(db,user_id,agent_id)
     old_summary_text = old_summary_obj.content if old_summary_obj else ""
     # 4.组装"待总结文本"：旧对话原文 + 旧摘要
-    chat_text = _format_chats_for_summary(old_chats)
+    chat_text = _format_runs_for_summary(old_runs)
     # 5.构造总结prompt
     summarize_prompt = _build_summary_prompt(
         old_summary = old_summary_text,new_chats_text = chat_text)
@@ -189,16 +192,42 @@ def summarize_and_save(
         delete_memory(db, old_summary_obj)
         logger.info(f"删除旧摘要: id={old_summary_obj.id}")
     #8,存新摘要
-    total_chats = len(chats)
+    total_chats = len(runs)
     create_memory(
         db,user_id=user_id,agent_id=agent_id,memory_type="summary",
         content=new_summary.strip(),chat_count=total_chats,
     )
     logger.info(
-        f"记忆总结完成: {len(old_chats)}轮旧对话 → "
+        f"记忆总结完成: {len(old_runs)}轮旧对话 → "
         f"{len(new_summary.strip())}字摘要, 当前总对话{total_chats}轮"
     )
+    try:
+        from service.user_profile_service import infer_user_profile_from_summary
+
+        inferred = infer_user_profile_from_summary(
+            db=db,
+            user_id=user_id,
+            agent_id=agent_id,
+            memory_summary=new_summary,
+            llm_model_name=llm_model_name,
+        )
+        if inferred:
+            logger.info(f"用户画像自动提炼完成: {len(inferred)}字")
+    except Exception as e:
+        logger.warning(f"用户画像自动提炼失败（不影响记忆总结）: {e}")
     return new_summary
+
+
+def _format_runs_for_summary(runs) -> str:
+    """把运行记录格式化成“用户/助手”对话文本。"""
+    sorted_runs = list(reversed(runs))
+    lines = []
+    for i, run in enumerate(sorted_runs):
+        lines.append(f"轮次{i+1} 用户: {run.user_message}")
+        lines.append(f"轮次{i+1} 助手: {run.final_answer}")
+    return "\n".join(lines)
+
+
 def _format_chats_for_summary(chats)->str:
     """把旧对话列表格式化成"用户：xxx\n助手：xxx\n..."的文本
         chats是倒序的，要反转为正序再格式化。"""

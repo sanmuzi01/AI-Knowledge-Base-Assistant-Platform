@@ -25,6 +25,7 @@ from utils.logger_handler import get_logger
 from utils.path_tool import get_abs_path
 # 导入 RAG 底层两层能力
 from service.rag.embedding_service import embed_texts,embed_query
+from service.rag.embedding_service import aembed_query
 from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge)
 # 导入 DAO（4层架构：Service层只调DAO，不直接碰 ORM）
 from models.knowledge_dao import (
@@ -281,27 +282,34 @@ def search(
     if not query or not query.strip():
         raise ValueError("检索关键词不能为空")
     query_vector = embed_query(db,user_id,query)
+    return _build_search_results(db, agent_id, query, top_k, query_vector, knowledge_id)
+
+
+def _build_search_results(
+        db, agent_id: int, query: str, top_k: int,
+        query_vector: List[float], knowledge_id: int = None,
+) -> List[Dict[str, Any]]:
+    """根据已经生成好的查询向量完成向量检索、DB 反查和可选重排。"""
+
     if not query_vector:
         return []
     logger.info(f"开始检索: agent={agent_id}, query='{query[:50]}...', top_k={top_k}")
-    # 第2步：向量库检索；启用Rerank时多召回一些给精排，否则只取需要展示的数量。
     retrieve_count = max(10, top_k * 2) if RAG_RERANK_ENABLED else top_k
     where = {"knowledge_id": knowledge_id} if knowledge_id is not None else None
-    results = search_similar(agent_id,query_vector,top_k=retrieve_count, where=where)
+    results = search_similar(agent_id, query_vector, top_k=retrieve_count, where=where)
     if not results:
         logger.info(f"向量检索无命中: agent={agent_id}, query='{query[:50]}...'")
         return []
     logger.info(f"向量检索完成: agent={agent_id}, 命中{len(results)}条")
-    # 第3步：反查 MySQL 拿完整 chunk 内容
-    vector_ids = [r["id"] for r in results]
-    chunks = get_chunks_by_vector_ids(db,vector_ids)
 
+    vector_ids = [r["id"] for r in results]
+    chunks = get_chunks_by_vector_ids(db, vector_ids)
     knowledge_ids = {chunk.knowledge_id for chunk in chunks}
     knowledge_map = {
         kid: get_knowledge_by_id(db, kid)
         for kid in knowledge_ids
     }
-    chunk_map = { c.vector_id: c for c in chunks}
+    chunk_map = {c.vector_id: c for c in chunks}
     final = []
     for r in results:
         chunk = chunk_map.get(r["id"])
@@ -318,7 +326,7 @@ def search(
     if not final:
         logger.info(f"向量命中但未在MySQL找到chunk: agent={agent_id}, vector_ids={vector_ids[:5]}")
         return []
-    # ======== 第4步：Rerank重排序 ========
+
     reranker = _get_rerank_client()
     if reranker and len(final) > 1:
         doc_contents = [item["content"] for item in final]
@@ -334,15 +342,29 @@ def search(
             f"Rerank重排完成: {len(doc_contents)}条 → {len(final)}条, "
             f"Rerank最高分数={final[0]['score']:.4f}"
         )
-    # ======== Rerank结束 ========
-    logger.info(
-        f"检索完成: agent={agent_id}, query='{query[:20]}...', 命中{len(final)}条"
-    )
+
+    logger.info(f"检索完成: agent={agent_id}, query='{query[:20]}...', 命中{len(final)}条")
     for item in final:
         knowledge = knowledge_map.get(item["knowledge_id"])
         item["file_name"] = knowledge.file_name if knowledge else ""
         item["file_type"] = knowledge.file_type if knowledge else ""
     return final
+
+
+async def async_search(
+        db, user_id: int, agent_id: int, query: str,
+        top_k: int = 5, knowledge_id: int = None,
+) -> List[Dict[str, Any]]:
+    """异步检索入口。
+
+    查询向量化是最容易阻塞请求的远程 HTTP 调用，优先使用异步客户端。
+    本地 ChromaDB 和当前同步 SQLAlchemy DAO 保持同步调用，后续切 async ORM 时只改这里。
+    """
+
+    if not query or not query.strip():
+        raise ValueError("检索关键词不能为空")
+    query_vector = await aembed_query(db, user_id, query)
+    return _build_search_results(db, agent_id, query, top_k, query_vector, knowledge_id)
 # ========== 彻底删除文档 ==========
 def delete_knowledge_completely(
         db,agent_id:int,knowledge_id:int

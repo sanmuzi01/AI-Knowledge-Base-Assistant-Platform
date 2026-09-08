@@ -1,5 +1,18 @@
 from typing import Dict, List
 
+PROVIDER_DEFAULT_API_URLS = {
+    "deepseek": "https://api.deepseek.com",
+    "openai": "https://api.openai.com/v1",
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "local": "",
+}
+
+PROVIDER_PREFIX_RULES = (
+    (("deepseek",), "deepseek"),
+    (("gpt", "o1", "o3", "o4", "text-embedding"), "openai"),
+    (("baai/",), "local"),
+)
+
 
 CHAT_MODELS: Dict[str, Dict[str, str]] = {
     "glm-4": {"provider": "zhipu", "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
@@ -44,12 +57,9 @@ def provider(model_name: str) -> str:
     if meta.get("provider"):
         return meta["provider"]
     lowered = name.lower()
-    if lowered.startswith("deepseek"):
-        return "deepseek"
-    if lowered.startswith(("gpt", "o1", "o3", "o4", "text-embedding")):
-        return "openai"
-    if lowered.startswith("baai/"):
-        return "local"
+    for prefixes, provider_name in PROVIDER_PREFIX_RULES:
+        if lowered.startswith(prefixes):
+            return provider_name
     return "zhipu"
 
 
@@ -58,11 +68,7 @@ def default_api_url(model_name: str) -> str:
     meta = EMBEDDING_MODELS.get(name) or CHAT_MODELS.get(name)
     if meta is not None:
         return meta["api_url"]
-    if provider(name) == "deepseek":
-        return "https://api.deepseek.com"
-    if provider(name) == "openai":
-        return "https://api.openai.com/v1"
-    return "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    return PROVIDER_DEFAULT_API_URLS.get(provider(name), PROVIDER_DEFAULT_API_URLS["zhipu"])
 
 
 def supported_models() -> Dict[str, List[Dict[str, str]]]:

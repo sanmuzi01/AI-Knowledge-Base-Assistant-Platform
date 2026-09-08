@@ -2,6 +2,8 @@
 from abc import abstractmethod,ABC
 from typing import List
 
+from starlette.concurrency import run_in_threadpool
+
 class BaseEmbedding(ABC):
     """嵌入模型抽象基类
        【为什么要抽象基类？】
@@ -29,6 +31,21 @@ class BaseEmbedding(ABC):
         :return: 单个向量
         """
         pass
+
+    async def aembed_texts(self, texts: List[str]) -> List[List[float]]:
+        """异步批量嵌入。
+
+        默认把同步实现放到线程池执行，避免阻塞 FastAPI 事件循环。
+        远程 HTTP 型客户端可以覆盖此方法，使用真正的异步 HTTP 连接。
+        """
+
+        return await run_in_threadpool(self.embed_texts, texts)
+
+    async def aembed_query(self, query: str) -> List[float]:
+        """异步查询嵌入。"""
+
+        return await run_in_threadpool(self.embed_query, query)
+
     @abstractmethod
     def get_dimension(self)->int:
         """

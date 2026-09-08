@@ -1,17 +1,15 @@
 import json
 from typing import Dict, Generator, List
-
+import httpx
 import requests
 
 from service.llm.base import BaseLLM
+from service.http_resilience import async_request_with_retry, request_with_retry, stream_request_with_circuit
 from utils.logger_handler import get_logger
 
 logger = get_logger("openai_compatible_client")
-
-
 class OpenAICompatibleClient(BaseLLM):
     """通用 OpenAI-compatible Chat Completions 客户端。"""
-
     DEFAULT_BASE_URLS = {
         "deepseek": "https://api.deepseek.com/v1",
         "openai": "https://api.openai.com/v1",
@@ -54,7 +52,12 @@ class OpenAICompatibleClient(BaseLLM):
         }
         try:
             logger.info(f"[OpenAI-compatible] 请求: model={self.model_name}, url={self.api_url}")
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=60)
+            response = request_with_retry(
+                service_name=f"llm:{self.model_name}",
+                sender=lambda timeout: requests.post(self.api_url, headers=headers, json=payload, timeout=timeout),
+                timeout_env="LLM_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=60,
+            )
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"] or ""
@@ -62,6 +65,39 @@ class OpenAICompatibleClient(BaseLLM):
             detail = getattr(e.response, "text", "")[:500] if getattr(e, "response", None) else str(e)
             logger.error(f"[OpenAI-compatible] 请求失败: {detail}")
             raise Exception(f"大模型请求失败: {detail}")
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"[OpenAI-compatible] 响应解析失败: {e}")
+            raise Exception("大模型响应解析失败")
+
+    async def achat(self, messages: List[Dict[str, str]], temperature: float = 0.5) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+        try:
+            logger.info(f"[OpenAI-compatible] 请求: model={self.model_name}, url={self.api_url}")
+            response = await async_request_with_retry(
+                service_name=f"llm:{self.model_name}",
+                sender=lambda client: client.post(self.api_url, headers=headers, json=payload),
+                timeout_env="LLM_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=60,
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"] or ""
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text[:500] if e.response is not None else str(e)
+            logger.error(f"[OpenAI-compatible] 请求失败: {detail}")
+            raise Exception(f"大模型请求失败: {detail}")
+        except httpx.HTTPError as e:
+            logger.error(f"[OpenAI-compatible] 请求失败: {e}")
+            raise Exception(f"大模型请求失败: {e}")
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             logger.error(f"[OpenAI-compatible] 响应解析失败: {e}")
             raise Exception("大模型响应解析失败")
@@ -83,7 +119,12 @@ class OpenAICompatibleClient(BaseLLM):
         }
         try:
             logger.info(f"[OpenAI-compatible] 流式请求: model={self.model_name}, url={self.api_url}")
-            with requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=60) as response:
+            with stream_request_with_circuit(
+                service_name=f"llm_stream:{self.model_name}",
+                sender=lambda timeout: requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=timeout),
+                timeout_env="LLM_STREAM_TIMEOUT_SECONDS",
+                default_timeout=60,
+            ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines(decode_unicode=True):
                     if not line or not line.startswith("data:"):

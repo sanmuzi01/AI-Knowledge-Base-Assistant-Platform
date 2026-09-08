@@ -104,6 +104,20 @@ def embed_texts(
     logger.info(f"嵌入完成，共 {len(vectors)} 条向量，维度={client.get_dimension()}")
     return vectors
 
+
+async def aembed_texts(
+        db, user_id: int, texts: List[str], model_name: str = None
+) -> List[List[float]]:
+    """异步批量嵌入，供 FastAPI 请求链路使用。"""
+
+    if not texts:
+        return []
+    client = _get_client(db, user_id, model_name)
+    logger.info(f"异步调用 {client.model_name} 嵌入 {len(texts)} 条文本")
+    vectors = await client.aembed_texts(texts)
+    logger.info(f"异步嵌入完成，共 {len(vectors)} 条向量，维度={client.get_dimension()}")
+    return vectors
+
 def embed_query(
         db,user_id:int,query:str,model_name:str=None
 )->List[float]:
@@ -114,5 +128,14 @@ def embed_query(
     vectors = client.embed_query(query)
     return vectors
 
+
+async def aembed_query(
+        db, user_id: int, query: str, model_name: str = None
+) -> List[float]:
+    """异步把单条用户问题转成向量。"""
+
+    client = _get_client(db, user_id, model_name)
+    logger.info(f"异步调用 {client.model_name} 嵌入查询: {query[:30]}...")
+    return await client.aembed_query(query)
 
 

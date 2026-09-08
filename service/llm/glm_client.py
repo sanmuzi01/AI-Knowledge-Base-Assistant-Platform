@@ -1,7 +1,9 @@
-﻿import requests
+﻿import httpx
+import requests
 import json
 from typing import Dict,List,Generator
 from service.llm.base import BaseLLM
+from service.http_resilience import async_request_with_retry, request_with_retry, stream_request_with_circuit
 from utils.logger_handler import get_logger
 logger = get_logger("glm_client")
 
@@ -10,7 +12,31 @@ class GLMClient(BaseLLM):
     def __init__(self,api_key,api_url=None,model_name="glm-4"):
         super().__init__(api_key, api_url, model_name)
         self.api_url = api_url or self.DEFAULT_API_URL
-
+    async def achat(self,messages,temperature = 0.5)->str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",  # API Key 认证
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_name,  # 模型名：glm-4 / glm-4-flash 等
+            "messages": messages,  # 对话历史：system + user + assistant
+            "temperature": temperature,  # 创造性：0=保守, 1=天马行空
+            "stream": False  # False = 一次性返回
+        }
+        try:
+            response = await async_request_with_retry(
+                service_name=f"llm:{self.model_name}",
+                sender=lambda client: client.post(self.api_url, headers=headers, json=payload),
+                timeout_env="LLM_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=30,
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except httpx.HTTPError as e:
+            raise Exception(f"大模型请求失败: {e}")
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            raise Exception(f"大模型响应解析失败: {e}")
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.5) -> str:
         headers = {
         "Authorization": f"Bearer {self.api_key}",   # API Key 认证
@@ -24,11 +50,11 @@ class GLMClient(BaseLLM):
         }
         try:
             logger.info(f"[GLM] 请求: model={self.model_name}, messages={len(messages)}条, temp={temperature}")
-            response = requests.post(#向服务器后端发送请求
-                self.api_url,
-                headers = headers,
-                json = payload,
-                timeout =60
+            response = request_with_retry(
+                service_name=f"llm:{self.model_name}",
+                sender=lambda timeout: requests.post(self.api_url, headers=headers, json=payload, timeout=timeout),
+                timeout_env="LLM_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=60,
             )
         # HTTP 状态码异常（4xx/5xx）直接抛
             response.raise_for_status()
@@ -61,12 +87,11 @@ class GLMClient(BaseLLM):
         }
         try:
             logger.info(f"[GLM] 流式请求: model={self.model_name}")
-            with requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                stream=True,
-                timeout=60
+            with stream_request_with_circuit(
+                service_name=f"llm_stream:{self.model_name}",
+                sender=lambda timeout: requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=timeout),
+                timeout_env="LLM_STREAM_TIMEOUT_SECONDS",
+                default_timeout=60,
             ) as response:
                 response.raise_for_status()
         # SSE 格式：每行以 "data: " 开头，最后一行为 "data: [DONE]"

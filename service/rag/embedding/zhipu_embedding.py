@@ -9,8 +9,10 @@ import os
 import requests
 from typing import List
 from dotenv import load_dotenv
+import httpx
 
 from service.rag.embedding.base import BaseEmbedding
+from service.http_resilience import async_request_with_retry, request_with_retry
 from utils.logger_handler import get_logger
 load_dotenv()
 logger = get_logger("zhipu_embedding")
@@ -53,6 +55,27 @@ class ZhipuEmbedding(BaseEmbedding):
         """单条查询→向量"""
         vectors = self.embed_texts([query])
         return vectors[0] if vectors else []
+
+    async def aembed_texts(self, texts: List[str]) -> List[List[float]]:
+        """异步批量文本嵌入，减少资料检索接口阻塞。"""
+
+        if not texts:
+            return []
+        all_vectors = []
+        for i in range(0, len(texts), self.BATCH_SIZE):
+            batch = texts[i:i + self.BATCH_SIZE]
+            vectors = await self._acall_api(batch)
+            all_vectors.extend(vectors)
+            logger.info(f"智谱异步嵌入批次 {i // self.BATCH_SIZE + 1} 完成，本批 {len(batch)} 条")
+        logger.info(f"智谱异步嵌入完成，共 {len(all_vectors)} 条向量")
+        return all_vectors
+
+    async def aembed_query(self, query: str) -> List[float]:
+        """异步单条查询嵌入。"""
+
+        vectors = await self.aembed_texts([query])
+        return vectors[0] if vectors else []
+
     def _call_api(self,texts:List[str])->List[List[float]]:
         """真正调智谱API（内部方法，下划线开头）
         把"发HTTP请求"和"业务编排(分批/日志)"分开，
@@ -68,11 +91,12 @@ class ZhipuEmbedding(BaseEmbedding):
             "dimensions":self.dimension
         }
         try:
-            resp = requests.post(
-                self.api_url or self.ZHIPU_EMBEDDING_URL,
-                headers=headers,
-                json = payload,
-                timeout = 30
+            url = self.api_url or self.ZHIPU_EMBEDDING_URL
+            resp = request_with_retry(
+                service_name=f"embedding:{self.model_name}",
+                sender=lambda timeout: requests.post(url, headers=headers, json=payload, timeout=timeout),
+                timeout_env="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=30,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -85,6 +109,37 @@ class ZhipuEmbedding(BaseEmbedding):
             raise
         except (KeyError, IndexError) as e:
             logger.error(f"智谱Embedding响应格式异常: {e}")
+            raise
+
+    async def _acall_api(self, texts: List[str]) -> List[List[float]]:
+        """异步调用智谱 Embedding API。"""
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model_name,
+            "input": texts,
+            "dimensions": self.dimension
+        }
+        try:
+            url = self.api_url or self.ZHIPU_EMBEDDING_URL
+            resp = await async_request_with_retry(
+                service_name=f"embedding:{self.model_name}",
+                sender=lambda client: client.post(url, headers=headers, json=payload),
+                timeout_env="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+                default_timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            embeddings = sorted(data["data"], key=lambda x: x["index"])
+            return [item["embedding"] for item in embeddings]
+        except httpx.HTTPError as e:
+            logger.error(f"智谱Embedding API异步调用失败: {e}")
+            raise
+        except (KeyError, IndexError) as e:
+            logger.error(f"智谱Embedding异步响应格式异常: {e}")
             raise
 # ========== 自动注册（插件模式） ==========
 # 所以只要 zhipu_embedding.py 被 import 过，embedding-3/embedding-2 就自动注册好了
