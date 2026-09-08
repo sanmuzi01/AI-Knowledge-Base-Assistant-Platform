@@ -85,7 +85,11 @@ request.interceptors.request.use((config) => {
 request.interceptors.response.use(
   (resp: AxiosResponse) => resp,
   (err) => {
-    if (err.response?.status === 401) {
+    // 登录接口自身返回 401 表示“账号或密码错误”，应作为普通错误展示，
+    // 不能触发“登录过期”清理与跳转逻辑。
+    const url: string = err.config?.url || ''
+    const isLoginRequest = url.includes('/user/login')
+    if (err.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       if (location.pathname !== '/login') {
