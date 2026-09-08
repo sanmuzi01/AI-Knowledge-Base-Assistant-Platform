@@ -37,6 +37,15 @@
 | 向量库 | - | `service/rag/vector_store_service.py` | Chroma |
 | 网页抓取 | `FasdtApi/knowledge.py` | `service/web_crawler_service.py` | - |
 
+## 4b. 自定义工作台组件（自然语言驱动）
+
+| 功能 | 路由 | Service | DAO |
+| --- | --- | --- | --- |
+| 组件 design / CRUD / run | `FasdtApi/user_widget.py` | `service/widget_async_service.py`、`service/widgets/*` | `models/user_widget_async_dao.py` |
+| 数据源连接器 / 处理器 / 校验 / 运行引擎 | - | `service/widgets/{connectors,processors,validator,designer,runner,scheduler,schema}` | `user_widgets`、`widget_data_points` |
+
+详见 `docs/widget-platform.md`。
+
 ## 5. Skill
 
 | 功能 | 路由 | Service | DAO |

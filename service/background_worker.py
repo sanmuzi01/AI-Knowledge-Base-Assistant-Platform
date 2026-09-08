@@ -63,6 +63,32 @@ def run_once() -> bool:
         return False
 
 
+def _run_widget_scheduler_tick() -> None:
+    """到点的自定义组件调度入口（默认关闭，WIDGET_SCHEDULER_ENABLED=1 开启）。
+
+    P1 只把入口接好；真正批量运行的逻辑在 service.widgets.scheduler.run_due_widgets，
+    最终都走 runner.run_widget，与手动运行完全一致。
+    """
+    import asyncio
+
+    from service.widgets.scheduler import run_due_widgets, scheduler_enabled
+
+    if not scheduler_enabled():
+        return
+    try:
+        from models.async_db import AsyncSessionLocal
+
+        async def _tick():
+            async with AsyncSessionLocal() as db:
+                return await run_due_widgets(db)
+
+        summary = asyncio.run(_tick())
+        if summary.get("due"):
+            logger.info(f"组件调度: {summary}")
+    except Exception as exc:  # noqa: BLE001 - 调度失败不能拖垮任务 Worker
+        logger.warning(f"组件调度执行失败: {exc}")
+
+
 def run_forever() -> None:
     """持续运行 Worker。
 
@@ -71,9 +97,15 @@ def run_forever() -> None:
     # Worker 可能先于 API 启动，需保证表结构就绪（幂等，进程内只跑一次）。
     bootstrap_database()
     poll_seconds = _env_float("TASK_WORKER_POLL_SECONDS", 2.0)
+    widget_poll_seconds = _env_float("WIDGET_SCHEDULER_POLL_SECONDS", 60.0)
     logger.info(f"后台任务 Worker 已启动，poll={poll_seconds}s")
+    last_widget_tick = 0.0
     while True:
         handled = run_once()
+        now = time.time()
+        if now - last_widget_tick >= widget_poll_seconds:
+            _run_widget_scheduler_tick()
+            last_widget_tick = now
         if not handled:
             time.sleep(poll_seconds)
 

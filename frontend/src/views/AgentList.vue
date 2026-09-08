@@ -35,6 +35,13 @@
           自定义工作台
         </button>
         <button
+          @click="router.push('/widgets')"
+          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
+        >
+          <LayoutGrid :size="15" />
+          我的小窗口
+        </button>
+        <button
           @click="openCreateDialog"
           class="sci-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
         >
@@ -651,7 +658,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
+  Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, LayoutGrid, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
 } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'

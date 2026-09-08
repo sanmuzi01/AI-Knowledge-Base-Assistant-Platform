@@ -2,7 +2,7 @@ from utils.timeutil import utcnow
 from typing import List
 from typing import Generator
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table, Index
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table, Index, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, Mapped, relationship
 from dotenv import load_dotenv
 import os
@@ -415,6 +415,62 @@ class Message(Base):
     create_time = Column(DateTime, default=utcnow, nullable=False)
     # 反向关联会话
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class UserWidget(Base):
+    """用户自定义工作台小窗口。
+
+    组件不保存前端源码，只保存一份「配置」：五段式 data_source / processor /
+    view / trigger / actions，由统一的运行引擎（service/widgets/runner.py）执行、
+    由前端统一渲染器按 view.kind 渲染。新增数据源/处理器/视图只需注册，不改主流程。
+    """
+    __tablename__ = "user_widgets"
+    __table_args__ = (
+        Index("idx_user_widgets_user_sort", "user_id", "sort_order"),
+        Index("idx_user_widgets_next_run", "enabled", "next_run_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_user_widgets_user"), nullable=False)
+    name = Column(String(120), nullable=False)
+    type = Column(String(40), nullable=False)                 # 白名单组件类型
+    description = Column(Text, nullable=True)
+    spec_version = Column(Integer, nullable=False, default=1)  # 组件协议版本，便于日后升级兼容
+    capabilities_json = Column(Text, nullable=True)            # ["fetch","schedule",...]
+    data_source_json = Column(Text, nullable=True)             # {"kind": "...", "config": {...}}
+    processor_json = Column(Text, nullable=True)
+    view_json = Column(Text, nullable=True)
+    trigger_json = Column(Text, nullable=True)
+    actions_json = Column(Text, nullable=True)                 # ["refresh","edit","hide","delete"]
+    enabled = Column(Integer, nullable=False, default=1)       # 0=隐藏 1=显示
+    sort_order = Column(Integer, nullable=False, default=0)
+    # 调度状态（P1 不单独建 widget_schedules 表，规则存在 trigger_json，运行状态放这里）
+    next_run_at = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_status = Column(String(20), nullable=True)            # ok / error
+    fail_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class WidgetDataPoint(Base):
+    """组件每次运行的结果快照。
+
+    payload_json 是通用结构，chart / table / metric / markdown 等各种展示形态
+    都往里放；label / value / recorded_at 是通用快速查询字段（时间序列、趋势）。
+    """
+    __tablename__ = "widget_data_points"
+    __table_args__ = (
+        Index("idx_widget_data_points_widget_time", "widget_id", "recorded_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    widget_id = Column(Integer, ForeignKey("user_widgets.id", name="fk_widget_data_points_widget"), nullable=False)
+    recorded_at = Column(DateTime, default=utcnow, nullable=False)
+    ok = Column(Integer, nullable=False, default=1)            # 1=成功 0=失败
+    label = Column(String(255), nullable=True)                # 例如 "1893.2 USD/oz"
+    value = Column(Float, nullable=True)                      # 可用于快速取最新数值/画趋势
+    payload_json = Column(Text, nullable=True)                # 完整结果，交给前端渲染器
+    error = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
 
 
 # 建表 / 幂等迁移 / 内置管理员初始化统一由 bootstrap_database() 触发，

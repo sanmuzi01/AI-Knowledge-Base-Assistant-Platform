@@ -56,6 +56,11 @@ const router = createRouter({
       component: () => import('../views/WebMonitor.vue'),
     },
     {
+      path: '/widgets',
+      name: 'WidgetStudio',
+      component: () => import('../views/WidgetStudio.vue'),
+    },
+    {
       path: '/chat/:agentId',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),
