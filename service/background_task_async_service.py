@@ -39,9 +39,28 @@ async def list_all_tasks(
     return [task_to_dict(task) for task in tasks]
 
 
-async def retry_task(db, user_id: int, task_id: int, is_admin: bool = False) -> Optional[Dict]:
-    return await run_in_threadpool(background_task_service.retry_task, db, user_id, task_id, is_admin)
+async def retry_task(user_id: int, task_id: int, is_admin: bool = False) -> Optional[Dict]:
+    """在独立同步会话中执行同步实现（内部自行 commit），结果为纯 dict。"""
+    from models.init_db import SessionLocal
+
+    def _run() -> Optional[Dict]:
+        session = SessionLocal()
+        try:
+            return background_task_service.retry_task(session, user_id, task_id, is_admin)
+        finally:
+            session.close()
+
+    return await run_in_threadpool(_run)
 
 
-async def cancel_task(db, user_id: int, task_id: int, is_admin: bool = False) -> Optional[Dict]:
-    return await run_in_threadpool(background_task_service.cancel_task, db, user_id, task_id, is_admin)
+async def cancel_task(user_id: int, task_id: int, is_admin: bool = False) -> Optional[Dict]:
+    from models.init_db import SessionLocal
+
+    def _run() -> Optional[Dict]:
+        session = SessionLocal()
+        try:
+            return background_task_service.cancel_task(session, user_id, task_id, is_admin)
+        finally:
+            session.close()
+
+    return await run_in_threadpool(_run)

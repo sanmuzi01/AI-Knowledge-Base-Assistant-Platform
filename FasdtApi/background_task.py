@@ -1,7 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
-from models.init_db import User, get_db
+from models.init_db import User
 from models.async_db import get_async_db
 from service import background_task_async_service, background_task_service
 from service.admin_service import is_admin_user
@@ -61,12 +60,11 @@ async def get_task(
 async def retry_task(
     task_id: int,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_async),
 ):
     # 1. 创建重试任务（service 层校验权限 + 状态 + 复制参数）
     new_task = await background_task_async_service.retry_task(
-        db, current_user.id, task_id, is_admin=is_admin_user(current_user)
+        current_user.id, task_id, is_admin=is_admin_user(current_user)
     )
     if not new_task:
         raise HTTPException(
@@ -84,11 +82,10 @@ async def retry_task(
 @router.post("/{task_id}/cancel", summary="取消后台任务")
 async def cancel_task(
     task_id: int,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_async),
 ):
     task = await background_task_async_service.cancel_task(
-        db, current_user.id, task_id, is_admin=is_admin_user(current_user)
+        current_user.id, task_id, is_admin=is_admin_user(current_user)
     )
     if not task:
         raise HTTPException(
