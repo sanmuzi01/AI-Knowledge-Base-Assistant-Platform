@@ -5,7 +5,7 @@
   2. 业务逻辑（标题自动生成、活跃时间更新）
   3. 组装返回数据给路由层（转 dict，不暴露 ORM 对象）
   4. 提供 chat_service 需要的辅助方法（保存消息、加载历史）
-遵循四层架构约束：Service 不直接 commit，由路由层管事务
+遵循四层架构约束：写操作由 Service 统一提交事务，路由层只负责 HTTP 编排。
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -32,6 +32,7 @@ def create_conversation(
         db, user_id=user_id, agent_id=agent_id,
         title=title or "新会话"
     )
+    db.commit()
     logger.info(f"创建会话: id={conv.id}, agent_id={agent_id}, user_id={user_id}")
     return _conv_to_dict(conv)
 
@@ -61,6 +62,7 @@ def update_conversation_title(
     if not conv:
         return None
     conv = dao.update_conversation_title(db, conv, title)
+    db.commit()
     logger.info(f"更新会话标题: id={conversation_id}, title={title}")
     return _conv_to_dict(conv)
 
@@ -78,6 +80,7 @@ def update_conversation_flags(
     if is_archived is not None:
         is_archived = 1 if is_archived else 0
     conv = dao.update_conversation_flags(db, conv, is_pinned=is_pinned, is_archived=is_archived)
+    db.commit()
     logger.info(f"更新会话标记: id={conversation_id}, pinned={is_pinned}, archived={is_archived}")
     return _conv_to_dict(conv)
 
@@ -87,6 +90,7 @@ def delete_conversation(db, user_id: int, conversation_id: int) -> bool:
     if not conv:
         return False
     dao.delete_conversation(db, conv)
+    db.commit()
     logger.info(f"删除会话: id={conversation_id}, 级联删除其下所有消息")
     return True
 

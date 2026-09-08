@@ -18,10 +18,12 @@ from models.chat_dao import create_chat, list_chats_by_agent
 from service.access_control import get_owned_agent
 from prompt.prompt_manager import build_prompt
 from service.rag.rag_service import search as rag_search
+from service.rag.rag_service import async_search as async_rag_search
 from utils.logger_handler import get_logger
 from service.runtime.sse_events import make_ready, make_done, make_error, make_retrieval, make_memory
 from typing import Generator
 from service.memory.memory_service import load_memory, should_summarize, summarize_and_save
+from service.user_profile_service import format_user_profile_for_prompt
 # ========== 新增: ReAct 模式 ==========
 from service.tools.executor import ToolExecutor
 logger = get_logger("agent_runtime")
@@ -60,6 +62,39 @@ def _format_rag_audit(results: List[Dict[str, Any]], rag_context: str) -> str:
         "context_preview": rag_context[:1000],
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _compose_system_prompt(db, user_id: int, agent_id: int, agent) -> Dict[str, str]:
+    """统一组装 Agent 基础提示词、用户画像和长期记忆。"""
+    base_prompt = build_prompt(agent_id) or "你是一个通用智能助理。"
+
+    profile_text = ""
+    try:
+        profile_text = format_user_profile_for_prompt(db, user_id) or ""
+        if profile_text:
+            logger.info(f"已加载用户画像，长度={len(profile_text)}")
+    except Exception as profile_err:
+        logger.warning(f"加载用户画像失败（降级跳过）: {profile_err}")
+
+    memory_text = ""
+    memory_error = ""
+    if agent.memory_enabled:
+        try:
+            memory_text = load_memory(db, user_id, agent_id) or ""
+            if memory_text:
+                logger.info(f"已加载长期记忆，长度={len(memory_text)}")
+        except Exception as mem_err:
+            memory_error = str(mem_err)
+            logger.warning(f"加载长期记忆失败（降级跳过）: {mem_err}")
+
+    system_prompt = "\n\n".join([part for part in [base_prompt, profile_text, memory_text] if part])
+    return {
+        "system_prompt": system_prompt,
+        "base_prompt": base_prompt,
+        "profile_text": profile_text,
+        "memory_text": memory_text,
+        "memory_error": memory_error,
+    }
 
 
 def _record_react_step(db, run_id: int, step_no_ref: Dict[str, int], step_info: Dict[str, Any],
@@ -141,23 +176,8 @@ def run(
     )
     #3.按开关编排：RAG/Memory 失败降级，不阻断主流程
     try:
-        #读取 YAML 配置，组装成完整的 system prompt 字符串
-        system_prompt = build_prompt(agent_id)
-        if system_prompt is None:
-            system_prompt = "你是一个通用智能助理。"
-
-        # ====== Memory：开关控制 + 失败降级 ======
-        memory_text = ""
-        if agent.memory_enabled:
-            try:
-                memory_text = load_memory(db, user_id, agent_id) or ""
-                if memory_text:
-                    logger.info(f"已加载长期记忆，长度={len(memory_text)}")
-            except Exception as mem_err:
-                logger.warning(f"加载长期记忆失败（降级跳过）: {mem_err}")
-                memory_text = ""
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\n{memory_text}"
+        prompt_parts = _compose_system_prompt(db, user_id, agent_id, agent)
+        system_prompt = prompt_parts["system_prompt"]
 
         # ====== RAG：开关控制 + 失败降级 ======
         rag_context = ""
@@ -329,24 +349,12 @@ def run_stream(db, user_id: int, agent_id: int, user_message: str) -> Generator[
         # 用 try 包裹完整流程，确保异常都转成 error 事件 + 记录 DB 失败状态
     try:
         # 3. 按开关编排（RAG/Memory 各自降级）
-        system_prompt = build_prompt(agent_id)
-        if system_prompt is None:
-            system_prompt = "你是一个通用智能助理。"
-
-        # ===== Memory：开关控制 + 失败降级 =====
-        memory_text = ""
-        if agent.memory_enabled:
-            try:
-                memory_text = load_memory(db, user_id, agent_id) or ""
-                if memory_text:
-                    logger.info(f"已加载长期记忆，长度={len(memory_text)}")
-                    yield make_memory("loaded", f"加载长期记忆 {len(memory_text)} 字")
-            except Exception as mem_err:
-                logger.warning(f"加载长期记忆失败（降级跳过）: {mem_err}")
-                yield make_memory("error", f"加载记忆失败，已跳过: {str(mem_err)[:100]}")
-                memory_text = ""
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\n{memory_text}"
+        prompt_parts = _compose_system_prompt(db, user_id, agent_id, agent)
+        system_prompt = prompt_parts["system_prompt"]
+        if prompt_parts["memory_text"]:
+            yield make_memory("loaded", f"加载长期记忆 {len(prompt_parts['memory_text'])} 字")
+        if prompt_parts["memory_error"]:
+            yield make_memory("error", f"加载记忆失败，已跳过: {prompt_parts['memory_error'][:100]}")
 
         # ===== RAG：开关控制 + 失败降级 =====
         rag_context = ""
@@ -498,7 +506,8 @@ def run_stream(db, user_id: int, agent_id: int, user_message: str) -> Generator[
         )
         return
 # 新版：支持外部传入 history + conversation_id（供 chat_service 调用）旧的 run() 和 run_stream() 保留不动，保证向后兼容
-def run_with_history(
+
+async def run_with_history(
         db, user_id: int, agent_id: int, user_message: str,
         history: List[Dict[str, str]] = None,
         conversation_id: int = None,
@@ -528,22 +537,8 @@ def run_with_history(
 
     try:
         # 3. system_prompt + Memory + RAG（和 run() 完全一致）
-        system_prompt = build_prompt(agent_id)
-        if system_prompt is None:
-            system_prompt = "你是一个通用智能助理。"
-
-        # Memory 降级
-        memory_text = ""
-        if agent.memory_enabled:
-            try:
-                memory_text = load_memory(db, user_id, agent_id) or ""
-                if memory_text:
-                    logger.info(f"已加载长期记忆，长度={len(memory_text)}")
-            except Exception as mem_err:
-                logger.warning(f"加载长期记忆失败（降级跳过）: {mem_err}")
-                memory_text = ""
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\n{memory_text}"
+        prompt_parts = _compose_system_prompt(db, user_id, agent_id, agent)
+        system_prompt = prompt_parts["system_prompt"]
 
         # RAG 降级
         rag_context = ""
@@ -551,7 +546,7 @@ def run_with_history(
             step_no = 1
             try:
                 logger.info(f"RAG已启用，开始检索: query='{user_message[:30]}...'")
-                results = rag_search(db, user_id, agent_id, user_message, top_k=3)
+                results = await async_rag_search(db, user_id, agent_id, user_message, top_k=3)
                 if results:
                     rag_context = "\n\n".join([
                         f"[知识片段{i+1}]\n{r['content']}"
@@ -707,24 +702,12 @@ def run_stream_with_history(
 
     try:
         # 3. system_prompt + Memory + RAG（和 run_stream 一致）
-        system_prompt = build_prompt(agent_id)
-        if system_prompt is None:
-            system_prompt = "你是一个通用智能助理。"
-
-        # Memory 降级
-        memory_text = ""
-        if agent.memory_enabled:
-            try:
-                memory_text = load_memory(db, user_id, agent_id) or ""
-                if memory_text:
-                    logger.info(f"已加载长期记忆，长度={len(memory_text)}")
-                    yield make_memory("loaded", f"加载长期记忆 {len(memory_text)} 字")
-            except Exception as mem_err:
-                logger.warning(f"加载长期记忆失败（降级跳过）: {mem_err}")
-                yield make_memory("error", f"加载记忆失败，已跳过: {str(mem_err)[:100]}")
-                memory_text = ""
-        if memory_text:
-            system_prompt = f"{system_prompt}\n\n{memory_text}"
+        prompt_parts = _compose_system_prompt(db, user_id, agent_id, agent)
+        system_prompt = prompt_parts["system_prompt"]
+        if prompt_parts["memory_text"]:
+            yield make_memory("loaded", f"加载长期记忆 {len(prompt_parts['memory_text'])} 字")
+        if prompt_parts["memory_error"]:
+            yield make_memory("error", f"加载记忆失败，已跳过: {prompt_parts['memory_error'][:100]}")
 
         # RAG 降级
         rag_context = ""

@@ -6,7 +6,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from models.init_db import SessionLocal, get_db
+from models.async_db import get_async_db
 from models.user_dao import get_user_by_id
+from models.user_async_dao import get_user_by_id_async, touch_user_seen_async
 from service.auth import decode_access_token
 from service.admin_service import is_admin_user
 
@@ -81,7 +83,66 @@ def get_current_user(
     return user
 
 
+def _user_id_from_credentials(credentials: HTTPAuthorizationCredentials) -> int:
+    """解析 Bearer Token 并返回 user_id。"""
+
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token 无效或已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token 中缺少用户信息",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user_id
+
+
+async def get_current_user_async(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    async_db=Depends(get_async_db),
+):
+    """异步当前用户依赖。"""
+
+    user_id = _user_id_from_credentials(credentials)
+    user = await get_user_by_id_async(async_db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if getattr(user, "is_disabled", 0) == 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号已被禁用，请联系管理员",
+        )
+    now = datetime.utcnow()
+    last_seen_at = getattr(user, "last_seen_at", None)
+    if not last_seen_at or (now - last_seen_at).total_seconds() > 30:
+        await touch_user_seen_async(async_db, user.id)
+        user.last_seen_at = now
+    return user
+
+
 def get_current_admin_user(current_user=Depends(get_current_user)):
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user
+
+
+async def get_current_admin_user_async(current_user=Depends(get_current_user_async)):
+    """异步优先的管理员鉴权依赖。"""
+
     if not is_admin_user(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

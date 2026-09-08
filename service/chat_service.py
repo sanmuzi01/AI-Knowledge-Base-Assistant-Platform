@@ -16,7 +16,7 @@ import service.conversation_service as conv_service
 import models.conversation_dao as conv_dao
 logger = get_logger("chat_service")
 # 同步对话（保留原接口兼容：conversation_id=None 时向后兼容旧调用方）
-def chat_with_agent(db, user, agent_id: int, user_message: str,conversation_id: Optional[int] = None,) -> Dict[str, Any]:
+async def chat_with_agent(db, user, agent_id: int, user_message: str,conversation_id: Optional[int] = None,) -> Dict[str, Any]:
     """用户与智能体对话：验证归属 → 交给Runtime执行 → 返回结果"""
     # 1. 验证智能体归属权（这层只管权限，不管怎么推理）
     agent = get_owned_agent(db, user.id, agent_id)
@@ -47,7 +47,7 @@ def chat_with_agent(db, user, agent_id: int, user_message: str,conversation_id: 
 
     # 5. 调用 Agent Runtime
     try:
-        result = agent_runtime.run_with_history(
+        result = await agent_runtime.run_with_history(
             db=db,
             user_id=user.id,
             agent_id=agent_id,
@@ -65,6 +65,7 @@ def chat_with_agent(db, user, agent_id: int, user_message: str,conversation_id: 
     answer = result.get("answer", "") or ""
     conv_service.save_message(db, conversation_id, "assistant", answer)
     db.flush()
+    db.commit()
     # 7. 返回时带 conversation_id，前端保存以便下一轮消息复用
     result["conversation_id"] = conversation_id
     return result

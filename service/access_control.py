@@ -66,16 +66,6 @@ def can_write_skill(skill: Skill, user_id: int) -> bool:
     return bool(skill and skill.user_id == user_id)
 
 
-def get_readable_skill(db, user_id: int, skill_id: int) -> Optional[Skill]:
-    skill = get_skill_by_id(db, skill_id)
-    return skill if can_read_skill(skill, user_id) else None
-
-
-def get_writable_skill(db, user_id: int, skill_id: int) -> Optional[Skill]:
-    skill = get_skill_by_id(db, skill_id)
-    return skill if can_write_skill(skill, user_id) else None
-
-
 def get_owned_memory(db, user_id: int, memory_id: int, agent_id: int = None) -> Optional[Memory]:
     memory = get_memory_by_id(db, memory_id)
     if not memory or memory.user_id != user_id:

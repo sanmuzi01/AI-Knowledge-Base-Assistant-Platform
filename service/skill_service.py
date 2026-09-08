@@ -168,6 +168,7 @@ def import_skill_from_upload(
         filename: str,
         content: bytes,
         is_public: int = 0,
+        commit: bool = True,
 ) -> Optional[Dict]:
     """导入用户上传的 Skill。
 
@@ -225,6 +226,8 @@ def import_skill_from_upload(
                 config_file=config_file,
                 is_public=is_public,
             )
+            if skill and commit:
+                db.commit()
             return _skill_to_dict(skill) if skill else None
 
         if ext != ".zip":
@@ -327,10 +330,65 @@ def import_skill_from_upload(
             config_file=config_file,
             is_public=is_public,
         )
+        if skill and commit:
+            db.commit()
         return _skill_to_dict(skill) if skill else None
     except Exception as e:
         logger.error(f"导入Skill失败: filename={filename}, error={e}")
         return None
+
+
+def install_public_skill(db: Session, user_id: int, skill_id: int, commit: bool = True) -> Optional[Dict]:
+    """把公开 Skill 安装为当前用户自己的私有副本。"""
+    import os
+    import uuid
+    import yaml
+
+    source = dao_get(db, skill_id)
+    if not source or not can_read_skill(source, user_id) or source.is_public != 1:
+        return None
+    if source.user_id == user_id:
+        return _skill_to_dict(source)
+
+    try:
+        cfg = load_skill_config(source.config_file)
+        config_file = f"installed/u{user_id}_{uuid.uuid4().hex[:10]}_{_safe_skill_stem(source.name)}.yml"
+        config_path = os.path.join(SKILLS_ROOT, config_file)
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        runtime_config = {
+            "name": cfg.get("name") or source.name,
+            "description": cfg.get("description") or source.description or "",
+            "version": cfg.get("version", "1.0"),
+            "tools": cfg.get("tools", []),
+            "permissions": _normalize_permission_payload(cfg.get("permissions", {})),
+            "resource_root": cfg.get("resource_root", ""),
+            "resources": cfg.get("resources", []),
+            "system_prompt": cfg.get("system_prompt", ""),
+        }
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
+        invalidate_skill_config(config_file)
+        validation = validate_skill_config_file(config_file)
+        if not validation["ok"]:
+            os.remove(config_path)
+            logger.warning(f"安装公开Skill失败，配置校验未通过: {validation}")
+            return None
+        skill = dao_create(
+            db=db,
+            user_id=user_id,
+            name=f"{source.name}",
+            description=source.description or cfg.get("description", ""),
+            config_file=config_file,
+            is_public=0,
+        )
+        if skill and commit:
+            db.commit()
+        return _skill_to_dict(skill) if skill else None
+    except Exception as e:
+        logger.error(f"安装公开Skill失败: skill={skill_id}, user={user_id}, error={e}")
+        return None
+
+
 # Skill CRUD
 def _list_package_resources(resources_root: str) -> List[str]:
     import os
@@ -357,7 +415,8 @@ def _normalize_permission_payload(permissions: Optional[Dict[str, Any]]) -> Dict
 def create_skill(db: Session, user_id: int, name: str, description: str,
                  template_filename: str = "", is_public: int = 0,
                  system_prompt: str = "", tool_names: Optional[List[str]] = None,
-                 permissions: Optional[Dict[str, Any]] = None) -> Optional[Dict]:
+                 permissions: Optional[Dict[str, Any]] = None,
+                 commit: bool = True) -> Optional[Dict]:
     # 新建 Skill 要生成用户自己的运行时 YML，否则只是数据库里的一条模板引用。
     import os
     import uuid
@@ -371,7 +430,7 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
         "tool_names": [],
         "tool_defaults_map": {},
         "system_prompt": "",
-        "permissions": cfg.get("permissions", {"network": False, "file_read": [], "exec": False}),
+        "permissions": {"network": False, "file_read": [], "exec": False},
         "resources": [],
         "resource_root": "",
     }
@@ -435,6 +494,8 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
         is_public=is_public)
     if not skill:
         return None
+    if commit:
+        db.commit()
     return _skill_to_dict(skill)
 
 
@@ -725,7 +786,7 @@ def list_public_skills(db: Session) -> List[Dict]:
 def list_all_skills(db: Session) -> List[Dict]:
     skills = dao_list_all(db)
     return [_skill_to_dict(s) for s in skills]
-def update_skill(db: Session, skill_id: int, user_id: int, **kwargs) -> Optional[Dict]:
+def update_skill(db: Session, skill_id: int, user_id: int, commit: bool = True, **kwargs) -> Optional[Dict]:
     # 先查Skill是否存在
     skill = dao_get(db, skill_id)
     if not skill:
@@ -746,7 +807,38 @@ def update_skill(db: Session, skill_id: int, user_id: int, **kwargs) -> Optional
             kwargs["config_file"] = get_template_path(template)
 
     updated_skill = dao_update(db, skill_id, **kwargs)
+    if updated_skill and commit:
+        db.commit()
     return _skill_to_dict(updated_skill) if updated_skill else None
+
+
+def update_skill_with_config(
+        db: Session,
+        skill_id: int,
+        user_id: int,
+        fields: Dict[str, Any],
+        config_fields: Dict[str, Any],
+) -> Optional[Dict]:
+    """统一更新 Skill 基础信息和运行配置。
+
+    路由层不再拆分事务；基础字段和 YML 运行配置都成功后，才提交数据库变更。
+    """
+    if not fields and not config_fields:
+        return None
+    if fields:
+        skill = update_skill(db, skill_id, user_id=user_id, commit=False, **fields)
+        if not skill:
+            return None
+    if config_fields:
+        if not update_skill_config(db, skill_id, user_id=user_id, **config_fields):
+            return None
+    db.commit()
+    skill = get_skill(db, skill_id, user_id=user_id)
+    if skill:
+        skill["config"] = get_skill_config(db, skill_id, user_id=user_id)
+    return skill
+
+
 def delete_skill(db: Session, skill_id: int, user_id: int) -> bool:
     """删除Skill（加权限校验：只有创建者能删除）"""
     skill = dao_get(db, skill_id)
@@ -759,6 +851,7 @@ def delete_skill(db: Session, skill_id: int, user_id: int) -> bool:
     success = dao_delete(db, skill_id)
     if success:
         invalidate_skill_config(config_file)
+        db.commit()
     return success
 def bind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
     """绑定Skill到Agent（校验：Skill必须是当前用户创建的或公开的）"""
@@ -773,14 +866,20 @@ def bind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
     if not can_read_skill(skill, user_id):
         logger.warning(f"权限拒绝：用户{user_id}无权绑定Skill {skill_id}")
         return False
-    return dao_bind(db, agent_id, skill_id)
+    success = dao_bind(db, agent_id, skill_id)
+    if success:
+        db.commit()
+    return success
 
 def unbind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
     """解绑Skill（校验：Agent必须是当前用户的）"""
     agent = get_owned_agent(db, user_id, agent_id)
     if not agent:
         return False
-    return dao_unbind(db, agent_id, skill_id)
+    success = dao_unbind(db, agent_id, skill_id)
+    if success:
+        db.commit()
+    return success
 
 def list_agent_skills(db: Session, agent_id: int, user_id: int = None) -> List[Dict]:
     if user_id is not None:
@@ -791,7 +890,7 @@ def list_agent_skills(db: Session, agent_id: int, user_id: int = None) -> List[D
     skills = dao_list_by_agent(db, agent_id)
     return [_skill_to_dict(s) for s in skills]
 
-def update_agent_skills(db: Session, agent_id: int, skill_ids: List[int], user_id: int = None) -> bool:
+def update_agent_skills(db: Session, agent_id: int, skill_ids: List[int], user_id: int = None, commit: bool = True) -> bool:
     """批量更新Agent绑定的Skill（先全部解绑，再绑定新的）"""
     if user_id is not None:
         agent = get_owned_agent(db, user_id, agent_id)
@@ -807,6 +906,8 @@ def update_agent_skills(db: Session, agent_id: int, skill_ids: List[int], user_i
     for skill_id in skill_ids:
         dao_bind(db, agent_id, skill_id)
     logger.info(f"更新Agent绑定Skill: agent={agent_id}, skills={skill_ids}")
+    if commit:
+        db.commit()
     return True
 #合并Agent的所有Skill配置
 def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]:
@@ -842,11 +943,13 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
     skill_configs: List[Dict] = []
     resource_roots: List[str] = []
     resources: List[Dict[str, Any]] = []
+    load_errors: List[Dict[str, str]] = []
     for skill in skills:
         try:
             cfg = load_skill_config(skill.config_file)
         except Exception as e:
             logger.error(f"加载Skill配置失败: skill={skill.name}, error={e}")
+            load_errors.append({"skill_name": skill.name, "error": str(e)})
             continue
         skill_configs.append(cfg)
         if cfg.get("resource_root") and cfg.get("resource_root") not in resource_roots:
@@ -872,6 +975,7 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
     logger.info(
         f"合并Agent Skill配置: agent={agent_id}, "
         f"skills={len(skill_configs)}个, tools={len(merged_tool_names)}个"
+        + (f", 加载失败={len(load_errors)}个" if load_errors else "")
     )
     return {
         "skill_names": [cfg["name"] for cfg in skill_configs],
@@ -890,6 +994,7 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
         },
         "resource_roots": resource_roots,
         "resources": resources,
+        "load_errors": load_errors,
     }
 #辅助方法
 def _skill_to_dict(skill) -> Dict:

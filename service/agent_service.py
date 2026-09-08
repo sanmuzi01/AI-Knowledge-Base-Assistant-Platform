@@ -61,7 +61,8 @@ def create(db,user,name:str,role:str = None, task: str = None,
            constraints: str = None, output: str = None,
            model_name: str = "glm-4",
            rag_enabled: int = 0, memory_enabled: int = 1,
-           temperature: int = 70)->Dict[str,Any]:
+           temperature: int = 70,
+           skill_ids: Optional[List[int]] = None)->Dict[str,Any]:
     """创建智能体，创建后自动选中"""
     try:
         agent =create_agent(
@@ -78,6 +79,12 @@ def create(db,user,name:str,role:str = None, task: str = None,
         # 创建后自动设为当前选中
         update_selected_agent(db, user, agent.id)
         db.flush()
+        if skill_ids:
+            from service.skill_service import update_agent_skills
+            if not update_agent_skills(db, agent.id, skill_ids, user_id=user.id, commit=False):
+                db.rollback()
+                return {"message": "绑定Skill失败，请检查Skill是否存在或有权限"}
+        db.commit()
         return {
             "message": "创建成功",
             "agent_id": agent.id,
@@ -134,7 +141,8 @@ def clone(db, user, agent_id: int, name: str = None) -> Optional[Dict[str, Any]]
 def update(db, user, agent_id: int, name: str = None,role: str = None,
            task: str = None, constraints: str = None, output: str = None,
            model_name: str = None, rag_enabled: int = None,
-           memory_enabled: int = None, temperature: int = None) -> Dict[str, Any]:
+           memory_enabled: int = None, temperature: int = None,
+           skill_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """更新智能体，先验证归属"""
     agent = get_agent_by_id(db, agent_id)
     if not agent or agent.user_id != user.id:
@@ -159,6 +167,11 @@ def update(db, user, agent_id: int, name: str = None,role: str = None,
             memory_enabled=memory_enabled,
             temperature=temperature
         )
+        if skill_ids is not None:
+            from service.skill_service import update_agent_skills
+            if not update_agent_skills(db, agent_id, skill_ids, user_id=user.id, commit=False):
+                db.rollback()
+                return {"message": "绑定Skill失败，请检查Skill是否存在或有权限"}
         db.commit()
         return {"message":"更新成功","agent_id":agent_id}
     except SQLAlchemyError as e:
@@ -206,7 +219,6 @@ def delete_preview(db, user, agent_id: int) -> Optional[Dict[str, Any]]:
         "task_count": task_count,
         "total_impacted": conversation_count + message_count + knowledge_count + run_count + task_count,
     }
-## 5. 删除智能体（只能删自己的，按顺序显式级联）
 ## 5. 删除智能体（只能删自己的，按顺序显式级联）
 def delete(db, user, agent_id: int) -> Dict[str, Any]:
     """删除顺序：会话 → 运行轨迹 → 后台任务 → 知识库块/向量 → 记忆/工具/旧聊天 → 提示词 → Agent"""
@@ -331,6 +343,7 @@ def get_agent_debug(db, user, agent_id: int) -> Optional[Dict[str, Any]]:
     from prompt.prompt_manager import build_prompt, read_prompt_file
     from service.llm.llm_config_service import get_api_config
     from service.skill_service import get_agent_skills_merged_config
+    from service.user_profile_service import format_user_profile_for_prompt
 
     agent = get_agent_by_id(db, agent_id)
     if not agent or agent.user_id != user.id:
@@ -338,9 +351,10 @@ def get_agent_debug(db, user, agent_id: int) -> Optional[Dict[str, Any]]:
 
     prompt_data = read_prompt_file(agent.id) or {}
     base_prompt = build_prompt(agent.id) or "你是一个通用智能助理。"
+    profile_prompt = format_user_profile_for_prompt(db, user.id)
     skill_config = get_agent_skills_merged_config(db, agent.id)
     skill_prompt = skill_config.get("system_prompt", "")
-    final_prompt = "\n\n".join([part for part in [base_prompt, skill_prompt] if part])
+    final_prompt = "\n\n".join([part for part in [base_prompt, profile_prompt, skill_prompt] if part])
     docs = list_knowledge_by_agent(db, agent.id)
     done_docs = [doc for doc in docs if doc.status == "done" and doc.chunk_count > 0]
     embedding_configured = any(
@@ -369,6 +383,7 @@ def get_agent_debug(db, user, agent_id: int) -> Optional[Dict[str, Any]]:
         "prompt": {
             "raw": prompt_data,
             "base_prompt": base_prompt,
+            "profile_prompt": profile_prompt,
             "skill_prompt": skill_prompt,
             "final_prompt": final_prompt,
         },
@@ -468,6 +483,7 @@ def dry_run_agent(db, user, agent_id: int, user_message: str, conversation_id: i
         "resources": debug.get("resources", []),
         "prompt": {
             "base_prompt": debug["prompt"]["base_prompt"],
+            "profile_prompt": debug["prompt"].get("profile_prompt", ""),
             "skill_prompt": debug["prompt"]["skill_prompt"],
             "final_prompt": full_prompt,
         },

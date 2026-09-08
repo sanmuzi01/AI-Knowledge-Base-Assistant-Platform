@@ -1,9 +1,11 @@
 import bcrypt
 from datetime import datetime
-from models.user_dao import get_user_by_name, create_user, update_user_password
+from fastapi import HTTPException, status
+from models.user_dao import get_user_by_name, get_user_by_phone, create_user, update_user_password
 from sqlalchemy.exc import IntegrityError
 from service.auth import create_access_token
 from service.admin_service import current_user_payload, role_names
+from service.phone_verification_service import verify_register_code
 import time
 from utils.logger_handler import logger, log_user_behavior
 
@@ -69,28 +71,39 @@ def login(db, name: str, password: str):
         "token_type": "bearer"
     }
 # 注册业务
-def register(db,name: str,password: str,age: int):
+def register(db, name: str, password: str, age: int, phone: str, sms_code: str, accepted_terms: bool):
     start = time.time()  # 记录开始时间，用于计算耗时
+    if not accepted_terms:
+        logger.warning(f"注册失败-未同意用户须知: name={name}")
+        log_user_behavior(0, "register", "fail", start)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请先阅读并同意用户须知")
+
     if name.strip().lower() == "admin":
         logger.warning("注册失败-保留用户名: name=admin")
         log_user_behavior(0, "register", "fail", start)
         return {"message": "admin 为系统保留账号，不能注册"}
+    phone = verify_register_code(phone, sms_code, consume=False)
     # 1. 查询用户是否存在
     user = get_user_by_name(db,name)
     if user:
         logger.warning(f"注册失败-用户已存在: name={name}")
         log_user_behavior(0, "register", "fail", start)
         return {"message": "用户已经存在"}
+    if get_user_by_phone(db, phone):
+        logger.warning(f"注册失败-手机号已注册: phone={phone}")
+        log_user_behavior(0, "register", "fail", start)
+        return {"message": "手机号已经注册"}
     # 2. 密码加密
     hashed_password = hash_password(password)
     # 3. 添加用户
     try:
-        new_user = create_user(db, name, hashed_password, age)
+        new_user = create_user(db, name, hashed_password, age, phone=phone)
     except IntegrityError:
         db.rollback()
-        logger.warning(f"注册失败-并发冲突: name={name}")
+        logger.warning(f"注册失败-并发冲突: name={name}, phone={phone}")
         log_user_behavior(0, "register", "fail", start)
-        return {"message": "用户已经存在"}
+        return {"message": "用户名或手机号已经存在"}
+    verify_register_code(phone, sms_code, consume=True)
     logger.info(f"注册成功: user_id={new_user.id}, name={name}")
     log_user_behavior(new_user.id, "register", "success", start)
     # 4. 返回结果

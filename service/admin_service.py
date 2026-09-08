@@ -58,6 +58,7 @@ def current_user_payload(user: User) -> Dict:
     return {
         "user_id": user.id,
         "username": user.name,
+        "phone": getattr(user, "phone", None),
         "age": user.age,
         "is_disabled": getattr(user, "is_disabled", 0),
         "last_login_at": _format_dt(getattr(user, "last_login_at", None)),
@@ -71,6 +72,43 @@ def current_user_payload(user: User) -> Dict:
 
 def _count(db, model) -> int:
     return db.query(func.count(model.id)).scalar() or 0
+
+
+def _count_by_user(db, model) -> Dict[int, int]:
+    """按 user_id 批量统计数量，避免管理员用户列表出现 N+1 查询。"""
+
+    return {
+        user_id: int(count or 0)
+        for user_id, count in db.query(model.user_id, func.count(model.id)).group_by(model.user_id).all()
+    }
+
+
+def _user_admin_payload(
+    user: User,
+    agent_count: int = 0,
+    skill_count: int = 0,
+    knowledge_count: int = 0,
+    task_count: int = 0,
+) -> Dict:
+    """组装管理员后台用户摘要，保证列表和详情字段一致。"""
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "phone": getattr(user, "phone", None),
+        "age": user.age,
+        "is_disabled": getattr(user, "is_disabled", 0),
+        "last_login_at": _format_dt(getattr(user, "last_login_at", None)),
+        "last_seen_at": _format_dt(getattr(user, "last_seen_at", None)),
+        "is_online": is_online_user(user),
+        "selected_agent_id": user.selected_agent_id,
+        "roles": role_names(user),
+        "is_admin": is_admin_user(user),
+        "agent_count": int(agent_count or 0),
+        "skill_count": int(skill_count or 0),
+        "knowledge_count": int(knowledge_count or 0),
+        "task_count": int(task_count or 0),
+    }
 
 
 def overview(db) -> Dict:
@@ -112,24 +150,21 @@ def overview(db) -> Dict:
 
 def list_users(db) -> List[Dict]:
     users = db.query(User).order_by(User.id.desc()).all()
+    agent_counts = _count_by_user(db, Agent)
+    skill_counts = _count_by_user(db, Skill)
+    knowledge_counts = _count_by_user(db, Knowledge)
+    task_counts = _count_by_user(db, BackgroundTask)
     rows = []
     for user in users:
-        rows.append({
-            "id": user.id,
-            "name": user.name,
-            "age": user.age,
-            "is_disabled": getattr(user, "is_disabled", 0),
-            "last_login_at": _format_dt(getattr(user, "last_login_at", None)),
-            "last_seen_at": _format_dt(getattr(user, "last_seen_at", None)),
-            "is_online": is_online_user(user),
-            "selected_agent_id": user.selected_agent_id,
-            "roles": role_names(user),
-            "is_admin": is_admin_user(user),
-            "agent_count": db.query(func.count(Agent.id)).filter(Agent.user_id == user.id).scalar() or 0,
-            "skill_count": db.query(func.count(Skill.id)).filter(Skill.user_id == user.id).scalar() or 0,
-            "knowledge_count": db.query(func.count(Knowledge.id)).filter(Knowledge.user_id == user.id).scalar() or 0,
-            "task_count": db.query(func.count(BackgroundTask.id)).filter(BackgroundTask.user_id == user.id).scalar() or 0,
-        })
+        rows.append(
+            _user_admin_payload(
+                user,
+                agent_count=agent_counts.get(user.id, 0),
+                skill_count=skill_counts.get(user.id, 0),
+                knowledge_count=knowledge_counts.get(user.id, 0),
+                task_count=task_counts.get(user.id, 0),
+            )
+        )
     return rows
 
 
@@ -156,6 +191,7 @@ def set_user_roles(db, user_id: int, roles: List[str], operator_id: int = None) 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不能移除当前登录管理员自己的管理员角色")
     user.roles = role_models
     db.flush()
+    db.commit()
     return current_user_payload(user)
 
 
@@ -163,10 +199,18 @@ def get_user_detail(db, user_id: int) -> Dict:
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return {}
-    data = next((item for item in list_users(db) if item["id"] == user_id), None)
-    if not data:
-        return {}
+    data = _user_admin_payload(
+        user,
+        agent_count=db.query(func.count(Agent.id)).filter(Agent.user_id == user_id).scalar() or 0,
+        skill_count=db.query(func.count(Skill.id)).filter(Skill.user_id == user_id).scalar() or 0,
+        knowledge_count=db.query(func.count(Knowledge.id)).filter(Knowledge.user_id == user_id).scalar() or 0,
+        task_count=db.query(func.count(BackgroundTask.id)).filter(BackgroundTask.user_id == user_id).scalar() or 0,
+    )
     data["counts"] = {
+        "agents": data["agent_count"],
+        "skills": data["skill_count"],
+        "knowledge_docs": data["knowledge_count"],
+        "background_tasks": data["task_count"],
         "llm_configs": db.query(func.count(LLMConfig.id)).filter(LLMConfig.user_id == user_id).scalar() or 0,
         "conversations": db.query(func.count(Conversation.id)).filter(Conversation.user_id == user_id).scalar() or 0,
         "messages": (
@@ -192,6 +236,7 @@ def set_user_disabled(db, user_id: int, disabled: bool, operator_id: int) -> Dic
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不能禁用内置管理员账号")
     user.is_disabled = 1 if disabled else 0
     db.flush()
+    db.commit()
     return current_user_payload(user)
 
 
@@ -205,6 +250,7 @@ def reset_user_password(db, user_id: int, new_password: str) -> Dict:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="密码至少需要 6 位")
     user.password = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     db.flush()
+    db.commit()
     return {"message": "密码已重置", "user_id": user.id}
 
 
@@ -236,6 +282,7 @@ def delete_user(db, user_id: int, operator_id: int) -> Dict:
     db.execute(association_table.delete().where(association_table.c.user_id == user.id))
     db.delete(user)
     db.flush()
+    db.commit()
     return {"message": "用户已删除", "user_id": user_id}
 
 
@@ -261,6 +308,7 @@ def list_recent_tasks(db, limit: int = 50) -> List[Dict]:
             "created_at": task.created_at.strftime("%Y-%m-%d %H:%M:%S") if task.created_at else None,
             "started_at": task.started_at.strftime("%Y-%m-%d %H:%M:%S") if task.started_at else None,
             "finished_at": task.finished_at.strftime("%Y-%m-%d %H:%M:%S") if task.finished_at else None,
+            "next_run_at": task.next_run_at.strftime("%Y-%m-%d %H:%M:%S") if getattr(task, "next_run_at", None) else None,
         }
         for task in tasks
     ]
