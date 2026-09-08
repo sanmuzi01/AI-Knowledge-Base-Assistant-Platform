@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 import json
 import os
 import uuid
@@ -107,7 +108,7 @@ def list_templates_for_user(user_id: int) -> List[Dict]:
 
 
 def create_user_template(user_id: int, payload: Dict) -> Dict:
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = utcnow().strftime("%Y-%m-%d %H:%M:%S")
     template = {
         "id": f"custom_{uuid.uuid4().hex[:12]}",
         "name": str(payload.get("name") or "自定义 Agent 模板").strip()[:255],

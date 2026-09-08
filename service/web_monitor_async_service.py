@@ -1,5 +1,6 @@
 """网页监控服务。"""
 
+from utils.timeutil import utcnow
 import hashlib
 from datetime import datetime
 from typing import Dict
@@ -103,7 +104,7 @@ async def check_monitor(db, user_id: int, monitor_id: int):
         content = result["content"].decode("utf-8", errors="replace")
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
         changed = bool(monitor.last_hash and monitor.last_hash != digest)
-        now = datetime.utcnow()
+        now = utcnow()
         monitor.last_hash = digest
         monitor.last_title = (result.get("title") or monitor.name or "")[:255]
         monitor.last_excerpt = content[:500]
@@ -120,7 +121,7 @@ async def check_monitor(db, user_id: int, monitor_id: int):
     except Exception as exc:
         monitor.last_status = "failed"
         monitor.last_error = str(exc)[:500]
-        monitor.last_checked_at = datetime.utcnow()
+        monitor.last_checked_at = utcnow()
         await db.commit()
         await db.refresh(monitor)
         payload = _monitor_to_dict(monitor)

@@ -1,13 +1,7 @@
-from datetime import datetime, timezone
 from typing import List, Optional
 
 from models.init_db import BackgroundTask
-
-
-def _utcnow() -> datetime:
-    """返回无时区 UTC 时间，兼容现有数据库字段。"""
-
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from utils.timeutil import utcnow as _utcnow
 
 
 def create_task(db, user_id: int, task_type: str, title: str,

@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -140,7 +141,7 @@ def infer_user_profile_from_summary(
     profile = get_user_profile(db, user_id)
     payload = {
         "auto_summary": inferred,
-        "last_inferred_at": datetime.utcnow(),
+        "last_inferred_at": utcnow(),
     }
     if not profile:
         payload.update({

@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from typing import List,Optional
 from models.init_db import AgentStep,AgentRun
 from datetime import datetime
@@ -34,7 +35,7 @@ def update_run_status(
         run.total_tokens = total_tokens
     if error_msg is not None:
         run.error_msg = error_msg
-    run.finished_at = datetime.utcnow()
+    run.finished_at = utcnow()
     db.flush()
     return run
 

@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -30,9 +31,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode = data.copy()
     # 计算过期时间
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     # 把过期时间加到 payload
     to_encode.update({"exp": expire})
     # 生成并返回 token

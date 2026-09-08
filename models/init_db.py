@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from typing import List
 from typing import Generator
 from datetime import datetime
@@ -108,7 +109,7 @@ class UserProfile(Base):
     extra_info = Column(Text, nullable=True)                     # 其他补充信息
     auto_summary = Column(Text, nullable=True)                   # AI 自动提炼的用户画像
     last_inferred_at = Column(DateTime, nullable=True)           # 最近一次自动画像更新时间
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class UserWorkspace(Base):
@@ -122,7 +123,7 @@ class UserWorkspace(Base):
     modules_json = Column(Text, nullable=False)
     widgets_json = Column(Text, nullable=False)
     layout_json = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 # 智能体表
@@ -204,7 +205,7 @@ class Knowledge(Base):
     status = Column(String(20), default="pending")         # pending/processing/done/failed
     is_enabled = Column(Integer, default=1)                 # 0=禁用 1=启用，控制是否参与RAG检索
     error_msg = Column(Text, nullable=True)                 # 失败原因
-    created_at = Column(DateTime,default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime,default=utcnow, nullable=False)
 # 知识块表（文档切分后的块，含向量库id引用）
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunk"
@@ -218,7 +219,7 @@ class KnowledgeChunk(Base):
     content = Column(Text,nullable=False)
     vector_id = Column(String(100),nullable=False)#向量数据库
     token_count =Column(Integer,default=0)
-    created_at = Column(DateTime,default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime,default=utcnow, nullable=False)
 # Agent运行记录表（每次用户发消息=一次Run）
 class AgentRun(Base):
     __tablename__ = "agent_run"
@@ -238,7 +239,7 @@ class AgentRun(Base):
     total_steps = Column(Integer, default=0)     # 总步数
     total_tokens = Column(Integer, default=0)              # 总token消耗
     error_msg = Column(Text, nullable=True)                # 失败原因
-    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, default=utcnow, nullable=False)
     finished_at = Column(DateTime, nullable=True)          # 结束时间（结束时回填）
     conversation_id = Column(Integer, ForeignKey("conversation.id", name="fk_run_conv", ondelete="SET NULL"),nullable=True)
 
@@ -257,7 +258,7 @@ class AgentStep(Base):
     tool_args = Column(Text, nullable=True)  # 工具参数（JSON字符串）
     tool_result = Column(Text, nullable=True)  # 工具返回结果
     tokens = Column(Integer, default=0)  # 本步token消耗
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class BackgroundTask(Base):
@@ -281,7 +282,7 @@ class BackgroundTask(Base):
     progress = Column(Integer, default=0)
     result = Column(Text, nullable=True)
     error_msg = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)  # queued 任务的最早可领取时间，用于失败后延迟重试
@@ -311,8 +312,8 @@ class WebMonitor(Base):
     last_error = Column(Text, nullable=True)
     last_checked_at = Column(DateTime, nullable=True)
     last_change_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class OperationLog(Base):
@@ -334,7 +335,7 @@ class OperationLog(Base):
     client_ip = Column(String(100), nullable=True)
     user_agent = Column(String(500), nullable=True)
     error_msg = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class Skill(Base):
@@ -349,7 +350,7 @@ class Skill(Base):
     description = Column(String(500))                                     # 描述
     config_file = Column(String(500), nullable=False)                     # YML路径
     is_public = Column(Integer, default=0)                                # 0=私有 1=公开
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     # 被哪些Agent使用（多对多） ← 新增这 3 行
     agents: Mapped[List["Agent"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="skills"
@@ -376,7 +377,7 @@ class Memory(Base):
     memory_type = Column(String(20), nullable=False)  # summary=会话摘要, fact=关键事实
     content = Column(Text, nullable=False)
     chat_count = Column(Integer, default=0)  # 生成这条记忆时有多少轮对话
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 # ========== 会话系统 ==========
 class Conversation(Base):
     """会话表：一个 Agent 下可以有多个会话，每个会话包含多条消息"""
@@ -391,8 +392,8 @@ class Conversation(Base):
     title = Column(String(255), default="新会话")        # 会话标题（可由首条消息自动生成）
     is_pinned = Column(Integer, default=0)                # 0=普通 1=置顶
     is_archived = Column(Integer, default=0)              # 0=正常 1=归档
-    create_time = Column(DateTime, default=datetime.utcnow, nullable=False)
-    update_time = Column(DateTime, default=datetime.utcnow, nullable=False)  # 最后一条消息时间
+    create_time = Column(DateTime, default=utcnow, nullable=False)
+    update_time = Column(DateTime, default=utcnow, nullable=False)  # 最后一条消息时间
     # 关联消息（一对多）
     messages: Mapped[List["Message"]] = relationship(
         back_populates="conversation",
@@ -411,7 +412,7 @@ class Message(Base):
     conversation_id = Column(Integer, ForeignKey("conversation.id", name="fk_msg_conv"), nullable=False)
     role = Column(String(20), nullable=False)    # user / assistant / system
     content = Column(Text, nullable=False)
-    create_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    create_time = Column(DateTime, default=utcnow, nullable=False)
     # 反向关联会话
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 

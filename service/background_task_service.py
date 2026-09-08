@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Callable, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -18,16 +18,11 @@ from models.init_db import BackgroundTask
 from service.access_control import get_owned_task
 from service.rag import rag_service
 from utils.logger_handler import get_logger
+from utils.timeutil import utcnow as _utcnow
 
 logger = get_logger("background_task_service")
 TaskRunner = Callable[[int, int, int, int], None]
 TASK_RUNNERS: Dict[str, TaskRunner] = {}
-
-
-def _utcnow() -> datetime:
-    """返回无时区 UTC 时间，兼容现有数据库字段。"""
-
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def register_task_runner(task_type: str):

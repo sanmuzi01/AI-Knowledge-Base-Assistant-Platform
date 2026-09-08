@@ -1,5 +1,6 @@
 """用户异步 DAO。"""
 
+from utils.timeutil import utcnow
 from datetime import datetime
 from typing import Optional
 
@@ -57,7 +58,7 @@ async def touch_user_seen_async(db: AsyncSession, user_id: int) -> bool:
     await db.execute(
         update(User)
         .where(User.id == user_id)
-        .values(last_seen_at=datetime.utcnow())
+        .values(last_seen_at=utcnow())
     )
     await db.commit()
     return True

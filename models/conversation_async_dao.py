@@ -1,5 +1,6 @@
 """会话异步 DAO。"""
 
+from utils.timeutil import utcnow
 from datetime import datetime
 from typing import List, Optional
 
@@ -86,8 +87,8 @@ async def create_conversation_async(
         user_id=user_id,
         agent_id=agent_id,
         title=title,
-        create_time=datetime.utcnow(),
-        update_time=datetime.utcnow(),
+        create_time=utcnow(),
+        update_time=utcnow(),
     )
     db.add(conv)
     await db.flush()
@@ -100,7 +101,7 @@ async def update_conversation_title_async(
         title: str,
 ) -> Conversation:
     conv.title = title
-    conv.update_time = datetime.utcnow()
+    conv.update_time = utcnow()
     await db.flush()
     return conv
 
@@ -115,7 +116,7 @@ async def update_conversation_flags_async(
         conv.is_pinned = is_pinned
     if is_archived is not None:
         conv.is_archived = is_archived
-    conv.update_time = datetime.utcnow()
+    conv.update_time = utcnow()
     await db.flush()
     return conv
 

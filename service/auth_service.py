@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 import bcrypt
 from datetime import datetime
 from fastapi import HTTPException, status
@@ -64,7 +65,7 @@ def login(db, name: str, password: str):
         logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
         log_user_behavior(user.id, "login", "fail", start)
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
-    now = datetime.utcnow()
+    now = utcnow()
     user.last_login_at = now
     user.last_seen_at = now
     db.commit()

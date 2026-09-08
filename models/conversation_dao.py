@@ -3,6 +3,7 @@
 职责：纯数据库操作（CRUD），不含业务逻辑
 遵循现有 DAO 风格：db.query + flush（不 commit，由路由层管事务）
 """
+from utils.timeutil import utcnow
 from typing import List, Optional
 from datetime import datetime
 from models.init_db import Conversation, Message
@@ -15,8 +16,8 @@ def create_conversation(
         user_id=user_id,
         agent_id=agent_id,
         title=title,
-        create_time=datetime.utcnow(),
-        update_time=datetime.utcnow(),
+        create_time=utcnow(),
+        update_time=utcnow(),
     )
     db.add(conv)
     db.flush()
@@ -43,13 +44,13 @@ def list_conversations_by_agent(
 def update_conversation_title(db,conv: Conversation,title: str) -> Conversation:
     """更新会话标题"""
     conv.title = title
-    conv.update_time = datetime.utcnow()
+    conv.update_time = utcnow()
     db.flush()
     return conv
 
 def touch_conversation(db,conv:Conversation) -> Conversation:
     """更新会话的最后活跃时间（发消息时调用）"""
-    conv.update_time = datetime.utcnow()
+    conv.update_time = utcnow()
     db.flush()
     return conv
 
@@ -60,7 +61,7 @@ def update_conversation_flags(db, conv: Conversation, is_pinned: int = None, is_
         conv.is_pinned = is_pinned
     if is_archived is not None:
         conv.is_archived = is_archived
-    conv.update_time = datetime.utcnow()
+    conv.update_time = utcnow()
     db.flush()
     return conv
 
@@ -79,7 +80,7 @@ def create_message(
         conversation_id=conversation_id,
         role=role,
         content=content,
-        create_time=datetime.utcnow(),
+        create_time=utcnow(),
     )
     db.add(msg)
     db.flush()

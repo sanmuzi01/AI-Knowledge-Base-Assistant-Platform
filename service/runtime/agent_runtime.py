@@ -11,6 +11,7 @@ Agent Runtime - 智能体推理引擎
         ↓
   ChromaDB + 智谱API + MySQL
 """
+from utils.timeutil import utcnow
 from typing import Any, Dict, List
 from datetime import datetime
 from models.agent_run_dao import create_run, create_step, update_run_status
@@ -309,7 +310,7 @@ def run(
             if run_record:
                 run_record.status = "failed"
                 run_record.error_msg = str(e)[:500]
-                run_record.finished_at = datetime.utcnow()
+                run_record.finished_at = utcnow()
                 db.commit()
         except Exception:
             db.rollback()
@@ -496,7 +497,7 @@ def run_stream(db, user_id: int, agent_id: int, user_message: str) -> Generator[
             if run_record:
                 run_record.status = "failed"
                 run_record.error_msg = str(e)[:500]
-                run_record.finished_at = datetime.utcnow()
+                run_record.finished_at = utcnow()
                 db.commit()
         except Exception:
             db.rollback()
@@ -655,7 +656,7 @@ async def run_with_history(
             if run_record:
                 run_record.status = "failed"
                 run_record.error_msg = str(e)[:500]
-                run_record.finished_at = datetime.utcnow()
+                run_record.finished_at = utcnow()
                 db.commit()
         except Exception:
             db.rollback()
@@ -831,7 +832,7 @@ def run_stream_with_history(
             if run_record:
                 run_record.status = "failed"
                 run_record.error_msg = str(e)[:500]
-                run_record.finished_at = datetime.utcnow()
+                run_record.finished_at = utcnow()
                 db.commit()
         except Exception:
             db.rollback()

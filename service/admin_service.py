@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List
@@ -50,7 +51,7 @@ def is_online_user(user: User) -> bool:
     last_seen_at = getattr(user, "last_seen_at", None)
     if not last_seen_at:
         return False
-    return datetime.utcnow() - last_seen_at <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
+    return utcnow() - last_seen_at <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
 
 
 def current_user_payload(user: User) -> Dict:
@@ -112,7 +113,7 @@ def _user_admin_payload(
 
 
 def overview(db) -> Dict:
-    online_cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+    online_cutoff = utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
     task_status_rows = (
         db.query(BackgroundTask.status, func.count(BackgroundTask.id))
         .group_by(BackgroundTask.status)
@@ -317,7 +318,7 @@ def list_recent_tasks(db, limit: int = 50) -> List[Dict]:
 def usage_stats(db, days: int = 14, top_limit: int = 8) -> Dict:
     days = max(1, min(days, 90))
     top_limit = max(1, min(top_limit, 20))
-    start_dt = datetime.utcnow() - timedelta(days=days - 1)
+    start_dt = utcnow() - timedelta(days=days - 1)
     start_day = start_dt.date()
 
     run_rows = (

@@ -1,5 +1,6 @@
 """管理员后台异步统计服务。"""
 
+from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Dict, List
 
@@ -44,7 +45,7 @@ async def _count_by_user(db, model) -> Dict[int, int]:
 
 
 async def overview(db) -> Dict:
-    online_cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+    online_cutoff = utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
     task_status_rows = await db.execute(
         select(BackgroundTask.status, func.count(BackgroundTask.id)).group_by(BackgroundTask.status)
     )
@@ -166,7 +167,7 @@ async def list_recent_tasks(db, limit: int = 50) -> List[Dict]:
 async def usage_stats(db, days: int = 14, top_limit: int = 8) -> Dict:
     days = max(1, min(days, 90))
     top_limit = max(1, min(top_limit, 20))
-    start_dt = datetime.utcnow() - timedelta(days=days - 1)
+    start_dt = utcnow() - timedelta(days=days - 1)
     start_day = start_dt.date()
 
     run_rows = await db.execute(

@@ -1,5 +1,6 @@
 """异步认证服务。"""
 
+from utils.timeutil import utcnow
 from datetime import datetime
 import time
 
@@ -51,7 +52,7 @@ async def login(db, name: str, password: str):
         log_user_behavior(user.id, "login", "fail", start)
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
 
-    now = datetime.utcnow()
+    now = utcnow()
     await update_user_login_seen_async(db, user.id, now)
     user.last_login_at = now
     user.last_seen_at = now

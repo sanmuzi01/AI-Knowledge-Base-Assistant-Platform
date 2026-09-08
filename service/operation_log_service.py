@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -77,7 +78,7 @@ def list_operation_logs(
     limit = max(1, min(limit, 500))
     days = max(1, min(days, 90))
     query = db.query(OperationLog)
-    query = query.filter(OperationLog.created_at >= datetime.utcnow() - timedelta(days=days))
+    query = query.filter(OperationLog.created_at >= utcnow() - timedelta(days=days))
 
     if user_id:
         query = query.filter(OperationLog.user_id == user_id)

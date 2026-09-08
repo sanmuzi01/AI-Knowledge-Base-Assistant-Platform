@@ -1,5 +1,6 @@
 """操作日志异步查询服务。"""
 
+from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Dict, List
 
@@ -20,7 +21,7 @@ async def list_operation_logs(
 ) -> List[Dict]:
     limit = max(1, min(limit, 500))
     days = max(1, min(days, 90))
-    conditions = [OperationLog.created_at >= datetime.utcnow() - timedelta(days=days)]
+    conditions = [OperationLog.created_at >= utcnow() - timedelta(days=days)]
 
     if user_id:
         conditions.append(OperationLog.user_id == user_id)

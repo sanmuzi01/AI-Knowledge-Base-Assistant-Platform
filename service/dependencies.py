@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from datetime import datetime
 
 from fastapi import Depends, HTTPException, status
@@ -23,7 +24,7 @@ def _touch_user_seen(user_id: int) -> bool:
     try:
         db.execute(
             text("UPDATE `user` SET last_seen_at = :last_seen_at WHERE id = :user_id"),
-            {"last_seen_at": datetime.utcnow(), "user_id": user_id},
+            {"last_seen_at": utcnow(), "user_id": user_id},
         )
         db.commit()
         return True
@@ -74,7 +75,7 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="账号已被禁用，请联系管理员",
         )
-    now = datetime.utcnow()
+    now = utcnow()
     last_seen_at = getattr(user, "last_seen_at", None)
     if not last_seen_at or (now - last_seen_at).total_seconds() > 30:
         if _touch_user_seen(user.id):
@@ -123,7 +124,7 @@ async def get_current_user_async(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="账号已被禁用，请联系管理员",
         )
-    now = datetime.utcnow()
+    now = utcnow()
     last_seen_at = getattr(user, "last_seen_at", None)
     if not last_seen_at or (now - last_seen_at).total_seconds() > 30:
         await touch_user_seen_async(async_db, user.id)

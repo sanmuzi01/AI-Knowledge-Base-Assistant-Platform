@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Dict, List
 
@@ -191,7 +192,7 @@ def get_user_dashboard(db, user_id: int) -> Dict:
         if model_ready and rag_ready:
             ready_agent_count += 1
 
-    now = datetime.utcnow()
+    now = utcnow()
     seven_days_ago = now - timedelta(days=7)
     run_status = _status_counts(db, AgentRun, user_id)
     task_status = _status_counts(db, BackgroundTask, user_id)
