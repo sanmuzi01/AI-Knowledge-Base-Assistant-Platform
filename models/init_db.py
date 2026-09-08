@@ -1,10 +1,29 @@
 from typing import List
 from typing import Generator
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table, Index
 from sqlalchemy.orm import declarative_base, sessionmaker, Mapped, relationship
 from dotenv import load_dotenv
 import os
+
+
+def _env_int(name: str, default: int) -> int:
+    """读取整数环境变量，格式错误时使用默认值，避免配置错误导致应用直接崩溃。"""
+
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    """读取布尔环境变量，支持 1/true/yes/on 和 0/false/no/off。"""
+
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 # 数据库连接
 load_dotenv()
@@ -26,8 +45,26 @@ missing_db_config = [
 if missing_db_config:
     raise RuntimeError(f"缺少数据库环境变量: {', '.join(missing_db_config)}")
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-# 数据库连接
-engine = create_engine(DATABASE_URL, echo=False)
+DB_POOL_SIZE = _env_int("DB_POOL_SIZE", 10)
+DB_MAX_OVERFLOW = _env_int("DB_MAX_OVERFLOW", 20)
+DB_POOL_TIMEOUT = _env_int("DB_POOL_TIMEOUT", 30)
+DB_POOL_RECYCLE = _env_int("DB_POOL_RECYCLE", 1800)
+DB_POOL_PRE_PING = _env_bool("DB_POOL_PRE_PING", True)
+
+# 数据库连接池：
+# pool_pre_ping 会在取连接前探测连接是否还活着，避免 MySQL 空闲断开后请求直接报错。
+# pool_recycle 主动回收旧连接，应小于 MySQL wait_timeout，适合长时间运行的生产服务。
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
+    pool_timeout=DB_POOL_TIMEOUT,
+    pool_recycle=DB_POOL_RECYCLE,
+    pool_pre_ping=DB_POOL_PRE_PING,
+    pool_use_lifo=True,
+    connect_args={"charset": "utf8mb4"},
+)
 
 # ORM基类
 Base = declarative_base()
@@ -38,16 +75,12 @@ association_table = Table(
     Column("user_id", Integer, ForeignKey("user.id"),primary_key=True),
     Column("role_id", Integer, ForeignKey("role.id"),primary_key=True)
 )
-#class UserRole(Base):
-#    __tablename__ = "user_role"
-#   id = Column(Integer,primary_key=True,autoincrement=True)
-#    user_id = Column(Integer,ForeignKey("user.id"))
-#   role_id = Column(Integer,ForeignKey("role.id"))
 # 用户表
 class User(Base):
     __tablename__ = "user"
     id = Column(Integer,primary_key=True,autoincrement=True)
     name = Column(String(255),nullable=False,unique=True)
+    phone = Column(String(20),nullable=True,unique=True)
     password = Column(String(255),nullable=False)
     age = Column(Integer)
     is_disabled = Column(Integer, default=0)
@@ -57,9 +90,47 @@ class User(Base):
     roles:Mapped[List["Role"]]=relationship(secondary=association_table,lazy=False,back_populates="users")
     #1对1的关系
     #role = relationship("Role",lazy=False,back_populates="user")
+
+
+class UserProfile(Base):
+    """用户画像：保存用户希望 AI 长期遵循的身份、偏好和沟通方式。"""
+    __tablename__ = "user_profile"
+    __table_args__ = (
+        Index("idx_user_profile_user_id", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_user_profile_user"), nullable=False, unique=True)
+    occupation = Column(String(100), nullable=True)              # 职业/身份
+    skills = Column(Text, nullable=True)                         # 技能背景
+    preferences = Column(Text, nullable=True)                    # 长期偏好
+    communication_style = Column(String(50), default="balanced") # 回答风格
+    persona = Column(String(50), default="professional")         # 助手人格
+    extra_info = Column(Text, nullable=True)                     # 其他补充信息
+    auto_summary = Column(Text, nullable=True)                   # AI 自动提炼的用户画像
+    last_inferred_at = Column(DateTime, nullable=True)           # 最近一次自动画像更新时间
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class UserWorkspace(Base):
+    """用户工作台配置：保存每个用户自己的模块、小窗口和布局。"""
+    __tablename__ = "user_workspace"
+    __table_args__ = (
+        Index("idx_user_workspace_user_id", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_user_workspace_user"), nullable=False, unique=True)
+    modules_json = Column(Text, nullable=False)
+    widgets_json = Column(Text, nullable=False)
+    layout_json = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 # 智能体表
 class Agent(Base):
     __tablename__ = "agent"
+    __table_args__ = (
+        Index("idx_agent_user_id_id", "user_id", "id"),
+    )
     id = Column(Integer,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id", name="fk_agent_user"),nullable=False)
     name = Column(String(255),nullable=False)
@@ -85,6 +156,10 @@ class Role(Base):
 #llm的apikey
 class LLMConfig(Base):
     __tablename__ = "llm_config"
+    __table_args__ = (
+        Index("idx_llm_config_user_model", "user_id", "model_name"),
+        Index("idx_llm_config_user_active", "user_id", "is_active"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     model_name = Column(String(100), nullable=False)  # "glm-4" / "gpt-4o" / "deepseek-chat"
@@ -94,6 +169,9 @@ class LLMConfig(Base):
 # 聊天记录表
 class Chat(Base):
     __tablename__ = "chat"
+    __table_args__ = (
+        Index("idx_chat_user_agent_time", "user_id", "agent_id", "create_time"),
+    )
     id = Column(Integer,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id"))
     agent_id = Column(Integer,ForeignKey("agent.id"))
@@ -110,6 +188,11 @@ class Tool(Base):
 # 知识库文档表（上传的原始文档元数据）
 class Knowledge(Base):
     __tablename__ = "knowledge"
+    __table_args__ = (
+        Index("idx_knowledge_user_created", "user_id", "created_at"),
+        Index("idx_knowledge_agent_created", "agent_id", "created_at"),
+        Index("idx_knowledge_agent_enabled_status", "agent_id", "is_enabled", "status"),
+    )
     id  = Column(Integer ,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id",name="fk_knowledge_user"),nullable=False)
     agent_id = Column(Integer,ForeignKey("agent.id",name="fk_knowledge_agent"),nullable=False)
@@ -125,6 +208,10 @@ class Knowledge(Base):
 # 知识块表（文档切分后的块，含向量库id引用）
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunk"
+    __table_args__ = (
+        Index("idx_knowledge_chunk_knowledge_index", "knowledge_id", "chunk_index"),
+        Index("idx_knowledge_chunk_vector_id", "vector_id"),
+    )
     id  = Column(Integer ,primary_key=True,autoincrement=True)
     knowledge_id = Column(Integer, ForeignKey("knowledge.id", name="fk_chunk_knowledge"), nullable=False)
     chunk_index = Column(Integer,default=0)
@@ -135,6 +222,12 @@ class KnowledgeChunk(Base):
 # Agent运行记录表（每次用户发消息=一次Run）
 class AgentRun(Base):
     __tablename__ = "agent_run"
+    __table_args__ = (
+        Index("idx_agent_run_user_started", "user_id", "started_at"),
+        Index("idx_agent_run_agent_started", "agent_id", "started_at"),
+        Index("idx_agent_run_agent_conversation_started", "agent_id", "conversation_id", "started_at"),
+        Index("idx_agent_run_status_started", "status", "started_at"),
+    )
     id  = Column(Integer ,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id",name="fk_run_user"),nullable=False)
     agent_id = Column(Integer,ForeignKey("agent.id",name="fk_run_agent"),nullable=False)
@@ -152,6 +245,9 @@ class AgentRun(Base):
 # Agent运行步骤表（每一步的思考/工具/结果）
 class AgentStep(Base):
     __tablename__ = "agent_step"
+    __table_args__ = (
+        Index("idx_agent_step_run_step", "run_id", "step_no"),
+    )
     id  = Column(Integer ,primary_key=True,autoincrement=True)
     run_id = Column(Integer, ForeignKey("agent_run.id", name="fk_step_run"), nullable=False)
     step_no = Column(Integer, nullable=False)  # 第几步（从1开始）
@@ -166,6 +262,13 @@ class AgentStep(Base):
 
 class BackgroundTask(Base):
     __tablename__ = "background_task"
+    __table_args__ = (
+        Index("idx_background_task_user_status_created", "user_id", "status", "created_at"),
+        Index("idx_background_task_user_type_created", "user_id", "task_type", "created_at"),
+        Index("idx_background_task_status_type_next_run", "status", "task_type", "next_run_at", "created_at", "id"),
+        Index("idx_background_task_status_type_created", "status", "task_type", "created_at", "id"),
+        Index("idx_background_task_status_started", "status", "started_at"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_task_user"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agent.id", name="fk_task_agent"), nullable=True)
@@ -181,13 +284,46 @@ class BackgroundTask(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)  # queued 任务的最早可领取时间，用于失败后延迟重试
     # 重试机制：retry_count 记录本任务被重试过几次；parent_task_id 指向触发本次重试的原任务
     retry_count = Column(Integer, default=0, nullable=False)
     parent_task_id = Column(Integer, ForeignKey("background_task.id", name="fk_task_parent"), nullable=True)
 
 
+class WebMonitor(Base):
+    """用户网页监控项：记录 URL、检查状态和最近一次内容指纹。"""
+    __tablename__ = "web_monitor"
+    __table_args__ = (
+        Index("idx_web_monitor_user_active", "user_id", "is_active"),
+        Index("idx_web_monitor_user_checked", "user_id", "last_checked_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_web_monitor_user"), nullable=False)
+    agent_id = Column(Integer, ForeignKey("agent.id", name="fk_web_monitor_agent"), nullable=True)
+    name = Column(String(255), nullable=False)
+    url = Column(String(1000), nullable=False)
+    interval_minutes = Column(Integer, default=30, nullable=False)
+    is_active = Column(Integer, default=1, nullable=False)
+    last_status = Column(String(30), default="pending", nullable=False)
+    last_hash = Column(String(64), nullable=True)
+    last_title = Column(String(255), nullable=True)
+    last_excerpt = Column(Text, nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    last_change_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class OperationLog(Base):
     __tablename__ = "operation_log"
+    __table_args__ = (
+        Index("idx_operation_log_created", "created_at"),
+        Index("idx_operation_log_user_created", "user_id", "created_at"),
+        Index("idx_operation_log_method_created", "method", "created_at"),
+        Index("idx_operation_log_status_created", "status_code", "created_at"),
+        Index("idx_operation_log_latency_created", "latency_ms", "created_at"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_operation_log_user"), nullable=True)
     username = Column(String(255), nullable=True)
@@ -203,6 +339,10 @@ class OperationLog(Base):
 
 class Skill(Base):
     __tablename__ = "skill"
+    __table_args__ = (
+        Index("idx_skill_user_id", "user_id"),
+        Index("idx_skill_public", "is_public"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)      # 创建者
     name = Column(String(255), nullable=False)                            # 技能名
@@ -226,6 +366,10 @@ agent_skill = Table(
 # Memory 记忆表（长期记忆：会话摘要 + 关键事实）
 class Memory(Base):
     __tablename__ = "memory"
+    __table_args__ = (
+        Index("idx_memory_user_agent_type_created", "user_id", "agent_id", "memory_type", "created_at"),
+        Index("idx_memory_agent_id", "agent_id"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_memory_user"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agent.id", name="fk_memory_agent"), nullable=False)
@@ -237,6 +381,10 @@ class Memory(Base):
 class Conversation(Base):
     """会话表：一个 Agent 下可以有多个会话，每个会话包含多条消息"""
     __tablename__ = "conversation"
+    __table_args__ = (
+        Index("idx_conversation_user_agent_flags_time", "user_id", "agent_id", "is_archived", "is_pinned", "update_time"),
+        Index("idx_conversation_user_time", "user_id", "update_time"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_conv_user"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agent.id", name="fk_conv_agent"), nullable=False)
@@ -256,6 +404,9 @@ class Conversation(Base):
 class Message(Base):
     """消息表：一个会话下的每条消息（user/assistant/system）"""
     __tablename__ = "message"
+    __table_args__ = (
+        Index("idx_message_conversation_time", "conversation_id", "create_time"),
+    )
     id = Column(Integer, primary_key=True, autoincrement=True)
     conversation_id = Column(Integer, ForeignKey("conversation.id", name="fk_msg_conv"), nullable=False)
     role = Column(String(20), nullable=False)    # user / assistant / system
@@ -294,10 +445,18 @@ def _run_migrations():
          "ALTER TABLE `user` ADD COLUMN last_login_at DATETIME NULL COMMENT '最后登录时间'"),
         ("user", "last_seen_at",
          "ALTER TABLE `user` ADD COLUMN last_seen_at DATETIME NULL COMMENT '最后访问时间'"),
+        ("user", "phone",
+         "ALTER TABLE `user` ADD COLUMN phone VARCHAR(20) NULL COMMENT '注册手机号', ADD UNIQUE KEY uq_user_phone (phone)"),
         ("background_task", "retry_count",
          "ALTER TABLE background_task ADD COLUMN retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数'"),
         ("background_task", "parent_task_id",
          "ALTER TABLE background_task ADD COLUMN parent_task_id INT NULL, ADD CONSTRAINT fk_task_parent FOREIGN KEY (parent_task_id) REFERENCES background_task(id)"),
+        ("background_task", "next_run_at",
+         "ALTER TABLE background_task ADD COLUMN next_run_at DATETIME NULL COMMENT '任务最早可领取时间，用于失败后延迟重试'"),
+        ("user_profile", "auto_summary",
+         "ALTER TABLE user_profile ADD COLUMN auto_summary TEXT NULL COMMENT 'AI自动提炼的用户画像'"),
+        ("user_profile", "last_inferred_at",
+         "ALTER TABLE user_profile ADD COLUMN last_inferred_at DATETIME NULL COMMENT '最近一次自动画像更新时间'"),
     ]
     with engine.connect() as conn:
         for table, col, ddl in migrations:
@@ -313,6 +472,56 @@ def _run_migrations():
                     print(f"[Migration] 已为 {table} 添加列 {col}")
                 except Exception as e:
                     print(f"[Migration] 添加列 {col} 失败: {e}")
+
+        index_migrations = [
+            ("agent", "idx_agent_user_id_id", "CREATE INDEX idx_agent_user_id_id ON agent (user_id, id)"),
+            ("llm_config", "idx_llm_config_user_model", "CREATE INDEX idx_llm_config_user_model ON llm_config (user_id, model_name)"),
+            ("llm_config", "idx_llm_config_user_active", "CREATE INDEX idx_llm_config_user_active ON llm_config (user_id, is_active)"),
+            ("chat", "idx_chat_user_agent_time", "CREATE INDEX idx_chat_user_agent_time ON chat (user_id, agent_id, create_time)"),
+            ("knowledge", "idx_knowledge_user_created", "CREATE INDEX idx_knowledge_user_created ON knowledge (user_id, created_at)"),
+            ("knowledge", "idx_knowledge_agent_created", "CREATE INDEX idx_knowledge_agent_created ON knowledge (agent_id, created_at)"),
+            ("knowledge", "idx_knowledge_agent_enabled_status", "CREATE INDEX idx_knowledge_agent_enabled_status ON knowledge (agent_id, is_enabled, status)"),
+            ("knowledge_chunk", "idx_knowledge_chunk_knowledge_index", "CREATE INDEX idx_knowledge_chunk_knowledge_index ON knowledge_chunk (knowledge_id, chunk_index)"),
+            ("knowledge_chunk", "idx_knowledge_chunk_vector_id", "CREATE INDEX idx_knowledge_chunk_vector_id ON knowledge_chunk (vector_id)"),
+            ("agent_run", "idx_agent_run_user_started", "CREATE INDEX idx_agent_run_user_started ON agent_run (user_id, started_at)"),
+            ("agent_run", "idx_agent_run_agent_started", "CREATE INDEX idx_agent_run_agent_started ON agent_run (agent_id, started_at)"),
+            ("agent_run", "idx_agent_run_agent_conversation_started", "CREATE INDEX idx_agent_run_agent_conversation_started ON agent_run (agent_id, conversation_id, started_at)"),
+            ("agent_run", "idx_agent_run_status_started", "CREATE INDEX idx_agent_run_status_started ON agent_run (status, started_at)"),
+            ("agent_step", "idx_agent_step_run_step", "CREATE INDEX idx_agent_step_run_step ON agent_step (run_id, step_no)"),
+            ("background_task", "idx_background_task_user_status_created", "CREATE INDEX idx_background_task_user_status_created ON background_task (user_id, status, created_at)"),
+            ("background_task", "idx_background_task_user_type_created", "CREATE INDEX idx_background_task_user_type_created ON background_task (user_id, task_type, created_at)"),
+            ("background_task", "idx_background_task_status_type_created", "CREATE INDEX idx_background_task_status_type_created ON background_task (status, task_type, created_at, id)"),
+            ("background_task", "idx_background_task_status_type_next_run", "CREATE INDEX idx_background_task_status_type_next_run ON background_task (status, task_type, next_run_at, created_at, id)"),
+            ("background_task", "idx_background_task_status_started", "CREATE INDEX idx_background_task_status_started ON background_task (status, started_at)"),
+            ("operation_log", "idx_operation_log_created", "CREATE INDEX idx_operation_log_created ON operation_log (created_at)"),
+            ("operation_log", "idx_operation_log_user_created", "CREATE INDEX idx_operation_log_user_created ON operation_log (user_id, created_at)"),
+            ("operation_log", "idx_operation_log_method_created", "CREATE INDEX idx_operation_log_method_created ON operation_log (method, created_at)"),
+            ("operation_log", "idx_operation_log_status_created", "CREATE INDEX idx_operation_log_status_created ON operation_log (status_code, created_at)"),
+            ("operation_log", "idx_operation_log_latency_created", "CREATE INDEX idx_operation_log_latency_created ON operation_log (latency_ms, created_at)"),
+            ("skill", "idx_skill_user_id", "CREATE INDEX idx_skill_user_id ON skill (user_id)"),
+            ("skill", "idx_skill_public", "CREATE INDEX idx_skill_public ON skill (is_public)"),
+            ("memory", "idx_memory_user_agent_type_created", "CREATE INDEX idx_memory_user_agent_type_created ON memory (user_id, agent_id, memory_type, created_at)"),
+            ("memory", "idx_memory_agent_id", "CREATE INDEX idx_memory_agent_id ON memory (agent_id)"),
+            ("user_profile", "idx_user_profile_user_id", "CREATE INDEX idx_user_profile_user_id ON user_profile (user_id)"),
+            ("user_workspace", "idx_user_workspace_user_id", "CREATE INDEX idx_user_workspace_user_id ON user_workspace (user_id)"),
+            ("web_monitor", "idx_web_monitor_user_active", "CREATE INDEX idx_web_monitor_user_active ON web_monitor (user_id, is_active)"),
+            ("web_monitor", "idx_web_monitor_user_checked", "CREATE INDEX idx_web_monitor_user_checked ON web_monitor (user_id, last_checked_at)"),
+            ("conversation", "idx_conversation_user_agent_flags_time", "CREATE INDEX idx_conversation_user_agent_flags_time ON conversation (user_id, agent_id, is_archived, is_pinned, update_time)"),
+            ("conversation", "idx_conversation_user_time", "CREATE INDEX idx_conversation_user_time ON conversation (user_id, update_time)"),
+            ("message", "idx_message_conversation_time", "CREATE INDEX idx_message_conversation_time ON message (conversation_id, create_time)"),
+        ]
+        for table, index_name, ddl in index_migrations:
+            try:
+                existing_indexes = {idx["name"] for idx in inspector.get_indexes(table)}
+            except Exception:
+                continue
+            if index_name not in existing_indexes:
+                try:
+                    conn.execute(text(ddl))
+                    conn.commit()
+                    print(f"[Migration] 已为 {table} 添加索引 {index_name}")
+                except Exception as e:
+                    print(f"[Migration] 添加索引 {index_name} 失败: {e}")
 _run_migrations()
 # ========== 迁移结束 ==========
 # 创建Session
@@ -320,11 +529,22 @@ SessionLocal = sessionmaker(bind=engine)
 
 
 def _ensure_builtin_admin():
-    """确保内置管理员账号存在，便于本地部署后直接进入后台。"""
-    import bcrypt
+    """确保内置管理员账号存在，便于本地部署后直接进入后台。
 
-    admin_name = "admin"
-    admin_password = "139218"
+    账号名/密码优先从环境变量 ADMIN_USERNAME / ADMIN_PASSWORD 读取。
+    未配置密码时，默认用户名 admin，密码随机生成并打印一次，
+    要求登录后立即修改，日志中不会再次出现。
+    已存在的管理员账号不会在每次启动时被静默重置密码——
+    只有显式设置 ADMIN_PASSWORD_RESET=true 并提供 ADMIN_PASSWORD 时，
+    才会用它覆盖已有密码，用于找回丢失的管理员密码。
+    """
+    import bcrypt
+    import secrets as _secrets
+
+    admin_name = (os.getenv("ADMIN_USERNAME", "admin") or "admin").strip() or "admin"
+    admin_password = (os.getenv("ADMIN_PASSWORD", "") or "").strip()
+    force_reset = _env_bool("ADMIN_PASSWORD_RESET", False)
+
     db = SessionLocal()
     try:
         role = db.query(Role).filter(Role.role_name == "admin").first()
@@ -334,13 +554,26 @@ def _ensure_builtin_admin():
             db.flush()
 
         user = db.query(User).filter(User.name == admin_name).first()
-        hashed = bcrypt.hashpw(admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
         if not user:
+            # 首次创建：未配置 ADMIN_PASSWORD 时生成随机密码，仅打印这一次。
+            if not admin_password:
+                admin_password = _secrets.token_urlsafe(12)
+                print(
+                    f"[Seed] 未配置 ADMIN_PASSWORD，已为管理员账号 {admin_name} "
+                    f"生成随机初始密码：{admin_password}（请立即登录后台并修改，"
+                    "该密码不会再次打印）"
+                )
+            hashed = bcrypt.hashpw(admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             user = User(name=admin_name, password=hashed, age=18)
             db.add(user)
             db.flush()
         else:
-            user.password = hashed
+            # 账号已存在：默认不覆盖密码，避免把后台已改过的密码每次启动重置掉。
+            # 仅当显式设置 ADMIN_PASSWORD_RESET=true 且提供了 ADMIN_PASSWORD 时才允许找回式重置。
+            if force_reset and admin_password:
+                user.password = bcrypt.hashpw(admin_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                print(f"[Seed] 已按 ADMIN_PASSWORD_RESET 重置管理员 {admin_name} 的密码")
             user.is_disabled = 0
             if user.age is None:
                 user.age = 18

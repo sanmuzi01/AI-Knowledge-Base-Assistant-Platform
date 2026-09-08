@@ -1,5 +1,5 @@
 from typing import List,Optional
-from models.init_db import Knowledge       # ✅ 对
+from models.init_db import Agent, Knowledge
 def create_knowledge(
         db,user_id:int,agent_id:int,file_name:str,
         file_path:str,file_type:str,file_size:int)->Knowledge:
@@ -11,6 +11,24 @@ def create_knowledge(
         file_path = file_path,
         file_type = file_type,
         file_size = file_size
+    )
+    db.add(knowledge)
+    db.flush()
+    return knowledge
+
+
+def clone_knowledge_for_agent(db, source: Knowledge, target_agent_id: int) -> Knowledge:
+    """把用户已有资料挂到另一个 Agent，复用原文件，并重新生成目标 Agent 的向量索引。"""
+    knowledge = Knowledge(
+        user_id=source.user_id,
+        agent_id=target_agent_id,
+        file_name=source.file_name,
+        file_path=source.file_path,
+        file_type=source.file_type,
+        file_size=source.file_size,
+        status="pending",
+        chunk_count=0,
+        is_enabled=1,
     )
     db.add(knowledge)
     db.flush()
@@ -30,6 +48,17 @@ def list_knowledge_by_user(db,user_id:int)->List[Knowledge]:
     return(db.query(Knowledge).
            filter(Knowledge.user_id == user_id).
            order_by(Knowledge.created_at.desc()).all())
+
+
+def list_knowledge_with_agent_by_user(db, user_id: int):
+    """查询用户全部资料，并带上所属 Agent 名称。"""
+    return (
+        db.query(Knowledge, Agent.name.label("agent_name"))
+        .join(Agent, Knowledge.agent_id == Agent.id)
+        .filter(Knowledge.user_id == user_id, Agent.user_id == user_id)
+        .order_by(Knowledge.created_at.desc())
+        .all()
+    )
 
 def update_knowledge_status(db,knowledge:Knowledge,status:str,chunk_count:int=None,error_msg:str=None)->Knowledge:
     """更新文档处理状态和切块数"""

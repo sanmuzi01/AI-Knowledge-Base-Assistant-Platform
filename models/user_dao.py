@@ -7,13 +7,17 @@ def get_user_by_id(db, user_id: int) -> Optional[User]:
 def get_user_by_name(db, name: str) -> Optional[User]:
     return db.query(User).filter(User.name == name).first()
 
+# 根据手机号查询
+def get_user_by_phone(db, phone: str) -> Optional[User]:
+    return db.query(User).filter(User.phone == phone).first()
+
 # 查询所有用户
 def get_all_users(db) -> List[User]:
     return db.query(User).all()
 
 # 创建用户
-def create_user(db, name: str, password: str, age: int) -> User:
-    user = User(name=name,password=password,age=age)
+def create_user(db, name: str, password: str, age: int, phone: str = None) -> User:
+    user = User(name=name,password=password,age=age,phone=phone)
     db.add(user)
     db.commit()
     db.refresh(user)

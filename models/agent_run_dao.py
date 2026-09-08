@@ -59,6 +59,36 @@ def list_runs_by_user(db,user_id:int,limit:int=50)-> List[AgentRun]:
         db.query(AgentRun).filter(AgentRun.user_id==user_id)
         .order_by(AgentRun.started_at.desc()).limit(limit).all()
     )
+
+
+def count_finished_runs_by_agent(db, user_id: int, agent_id: int) -> int:
+    """统计某用户某 Agent 已成功完成的运行次数。"""
+    return (
+        db.query(AgentRun)
+        .filter(
+            AgentRun.user_id == user_id,
+            AgentRun.agent_id == agent_id,
+            AgentRun.status == "finished",
+            AgentRun.final_answer.isnot(None),
+        )
+        .count()
+    )
+
+
+def list_finished_runs_by_agent(db, user_id: int, agent_id: int, limit: int = 1000) -> List[AgentRun]:
+    """查询某用户某 Agent 的成功运行记录，按时间倒序返回。"""
+    return (
+        db.query(AgentRun)
+        .filter(
+            AgentRun.user_id == user_id,
+            AgentRun.agent_id == agent_id,
+            AgentRun.status == "finished",
+            AgentRun.final_answer.isnot(None),
+        )
+        .order_by(AgentRun.started_at.desc())
+        .limit(limit)
+        .all()
+    )
 # ========== AgentStep 相关 ==========
 
 def create_step(

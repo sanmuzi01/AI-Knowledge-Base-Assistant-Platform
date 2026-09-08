@@ -1,7 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from models.init_db import BackgroundTask
+
+
+def _utcnow() -> datetime:
+    """返回无时区 UTC 时间，兼容现有数据库字段。"""
+
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def create_task(db, user_id: int, task_type: str, title: str,
@@ -19,6 +25,7 @@ def create_task(db, user_id: int, task_type: str, title: str,
         progress=0,
         retry_count=0,
         parent_task_id=parent_task_id,
+        next_run_at=None,
     )
     db.add(task)
     db.flush()
@@ -53,19 +60,24 @@ def list_all_tasks(db, limit: int = 50,
 
 def update_task(db, task: BackgroundTask, status: str = None,
                 progress: int = None, result: str = None,
-                error_msg: str = None) -> BackgroundTask:
+                error_msg: str = None, next_run_at=None) -> BackgroundTask:
     if status is not None:
         task.status = status
         if status == "running" and not task.started_at:
-            task.started_at = datetime.utcnow()
+            task.started_at = _utcnow()
+        if status == "queued":
+            task.started_at = None
+            task.finished_at = None
         # finished/failed/cancelled 都算结束，记录 finished_at
         if status in {"finished", "failed", "cancelled"}:
-            task.finished_at = datetime.utcnow()
+            task.finished_at = _utcnow()
     if progress is not None:
         task.progress = max(0, min(100, int(progress)))
     if result is not None:
         task.result = result
     if error_msg is not None:
         task.error_msg = error_msg
+    if next_run_at is not None or status in {"running", "finished", "failed", "cancelled"}:
+        task.next_run_at = next_run_at
     db.flush()
     return task
