@@ -49,24 +49,31 @@ class LoginTest(unittest.TestCase):
     def test_login_rejects_unknown_user(self):
         db = _FakeDb()
         with patch.object(auth_service, "get_user_by_name", return_value=None):
-            result = auth_service.login(db, "ghost", "whatever")
-        self.assertEqual(result, {"message": "用户不存在"})
+            with self.assertRaises(HTTPException) as ctx:
+                auth_service.login(db, "ghost", "whatever")
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(ctx.exception.detail, "账号或密码错误")
         self.assertFalse(db.committed)
 
     def test_login_rejects_disabled_account(self):
         db = _FakeDb()
         user = _fake_user(is_disabled=1)
         with patch.object(auth_service, "get_user_by_name", return_value=user):
-            result = auth_service.login(db, "alice", "correct-horse")
-        self.assertEqual(result, {"message": "账号已被禁用，请联系管理员"})
+            with self.assertRaises(HTTPException) as ctx:
+                auth_service.login(db, "alice", "correct-horse")
+        # 禁用信息只在凭证正确后暴露，且用 403 而非 401
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn("禁用", ctx.exception.detail)
         self.assertFalse(db.committed)
 
-    def test_login_rejects_wrong_password(self):
+    def test_login_wrong_password_is_indistinguishable_from_unknown_user(self):
         db = _FakeDb()
         user = _fake_user()
         with patch.object(auth_service, "get_user_by_name", return_value=user):
-            result = auth_service.login(db, "alice", "wrong-password")
-        self.assertEqual(result, {"message": "密码错误"})
+            with self.assertRaises(HTTPException) as ctx:
+                auth_service.login(db, "alice", "wrong-password")
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(ctx.exception.detail, "账号或密码错误")
         self.assertFalse(db.committed)
 
     def test_login_success_returns_token_and_updates_last_login(self):

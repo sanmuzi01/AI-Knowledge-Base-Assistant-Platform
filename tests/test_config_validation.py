@@ -25,6 +25,7 @@ def _valid_env():
         "TRUSTED_HOSTS": "example.test,www.example.test,api",
         "CORS_ALLOW_ORIGINS": "https://example.test,https://www.example.test",
         "GRAFANA_ADMIN_PASSWORD": "strong-grafana-password",
+        "ADMIN_PASSWORD": "strong-admin-password",
     }
 
 
@@ -44,6 +45,23 @@ class ConfigValidationTest(unittest.TestCase):
             self.assertFalse(result["ok"])
             with self.assertRaises(RuntimeError):
                 assert_runtime_config()
+
+    def test_production_config_requires_admin_password(self):
+        env = _valid_env()
+        env.pop("ADMIN_PASSWORD", None)
+        with patch.dict(os.environ, env, clear=True):
+            result = validate_runtime_config()
+            self.assertFalse(result["ok"])
+            self.assertTrue(
+                any(item["name"] == "ADMIN_PASSWORD" for item in result["checks"] if item["level"] == "error")
+            )
+
+    def test_production_config_rejects_weak_admin_password(self):
+        env = _valid_env()
+        env["ADMIN_PASSWORD"] = "admin123"
+        with patch.dict(os.environ, env, clear=True):
+            result = validate_runtime_config()
+            self.assertFalse(result["ok"])
 
     def test_development_config_allows_missing_redis(self):
         env = _valid_env()

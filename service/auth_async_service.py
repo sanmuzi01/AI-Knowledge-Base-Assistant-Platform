@@ -25,30 +25,39 @@ async def login(db, name: str, password: str):
     """异步登录：数据库走 AsyncSession，bcrypt 放线程池。"""
 
     start = time.time()
+    # 统一的失败响应：不区分“用户不存在”和“密码错误”，避免账号枚举。
+    invalid_credentials = HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        detail="账号或密码错误",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     user = await get_user_by_name_async(db, name)
     if not user:
         logger.warning(f"登录失败-用户不存在: name={name}")
         log_user_behavior(0, "login", "fail", start)
-        return {"message": "用户不存在"}
-    if getattr(user, "is_disabled", 0) == 1:
-        logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
-        log_user_behavior(user.id, "login", "fail", start)
-        return {"message": "账号已被禁用，请联系管理员"}
+        raise invalid_credentials
 
     if user.password.startswith("$2b$"):
         ok = await run_in_threadpool(verify_password, password, user.password)
         if not ok:
             logger.warning(f"登录失败-密码错误: name={name}")
             log_user_behavior(user.id, "login", "fail", start)
-            return {"message": "密码错误"}
+            raise invalid_credentials
     else:
         if user.password != password:
             logger.warning(f"登录失败-密码错误: name={name}")
             log_user_behavior(user.id, "login", "fail", start)
-            return {"message": "密码错误"}
+            raise invalid_credentials
         hashed = await run_in_threadpool(hash_password, password)
         await update_user_password_async(db, user.id, hashed)
         user.password = hashed
+
+    # 凭证正确后再校验账号状态：禁用信息只对本人可见，不作为枚举入口。
+    if getattr(user, "is_disabled", 0) == 1:
+        logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
+        log_user_behavior(user.id, "login", "fail", start)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
 
     now = datetime.utcnow()
     await update_user_login_seen_async(db, user.id, now)

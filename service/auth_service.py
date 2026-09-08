@@ -20,32 +20,39 @@ def verify_password(password: str, hashed: str) -> bool:
 # 登录业务
 def login(db, name: str, password: str):
     start = time.time()  # 记录开始时间，用于计算耗时
+    # 统一的失败响应：不区分“用户不存在”和“密码错误”，避免账号枚举。
+    invalid_credentials = HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        detail="账号或密码错误",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     # 1. 查询用户
     user = get_user_by_name(db,name)
     if not user:
         logger.warning(f"登录失败-用户不存在: name={name}")#日志
         log_user_behavior(0, "login", "fail", start)   # ← user_id 未知传 0
-        return {"message": "用户不存在"}
-    if getattr(user, "is_disabled", 0) == 1:
-        logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
-        log_user_behavior(user.id, "login", "fail", start)
-        return {"message": "账号已被禁用，请联系管理员"}
+        raise invalid_credentials
     # 2. 验证密码
     if user.password.startswith("$2b$"):
         # 新哈希密码：用 verify 校验
         if not verify_password(password, user.password):
             logger.warning(f"登录失败-密码错误: name={name}")#日志
             log_user_behavior(user.id, "login", "fail", start)
-            return {"message": "密码错误"}
+            raise invalid_credentials
     else:
         # 老明文密码：直接比对
         if user.password != password:
             logger.warning(f"登录失败-密码错误: name={name}")#日志
             log_user_behavior(user.id, "login", "fail", start)
-            return {"message": "密码错误"}
+            raise invalid_credentials
         # 顺手升级为哈希
         hashed = hash_password(password)
         update_user_password(db, user, hashed)
+    # 3. 凭证正确后再校验账号状态：禁用信息只对本人可见，不作为枚举入口。
+    if getattr(user, "is_disabled", 0) == 1:
+        logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
+        log_user_behavior(user.id, "login", "fail", start)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
     now = datetime.utcnow()
     user.last_login_at = now
     user.last_seen_at = now
