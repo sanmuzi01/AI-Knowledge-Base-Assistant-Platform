@@ -2,6 +2,7 @@ fastapi==0.140.13
 uvicorn==0.52.0
 SQLAlchemy==2.0.51
 PyMySQL==1.2.0
+asyncmy==0.2.10
 python-dotenv==1.2.2
 python-jose==3.5.0
 bcrypt==5.0.0
@@ -18,3 +19,8 @@ langchain-core==1.5.3
 langchain-openai==1.4.3
 langgraph==1.2.10
 sentence-transformers
+httpx
+redis==5.2.1
+prometheus-client==0.23.1
+alembic==1.17.2
+playwright==1.56.0

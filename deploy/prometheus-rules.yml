@@ -1,0 +1,38 @@
+groups:
+  - name: agent-platform
+    rules:
+      - alert: AgentApiDown
+        expr: up{job="agent-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Agent API 不可用
+          description: Prometheus 已连续 1 分钟无法抓取 Agent API 指标。
+
+      - alert: AgentApiHighErrorRate
+        expr: sum(rate(agent_http_errors_total[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Agent API 5xx 错误增多
+          description: 最近 5 分钟服务端错误率偏高，请检查 API 日志和外部模型服务状态。
+
+      - alert: AgentApiHighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(agent_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Agent API P95 延迟过高
+          description: 最近 5 分钟 P95 延迟超过 2 秒，可能存在慢 SQL、连接池紧张或外部调用变慢。
+
+      - alert: AgentDbPoolNearFull
+        expr: agent_db_pool_connections{state="checked_out"} >= agent_db_pool_connections{state="size"}
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: 数据库连接池接近打满
+          description: 数据库连接池借出连接数持续接近池大小，请检查慢查询、连接泄漏或调大连接池。

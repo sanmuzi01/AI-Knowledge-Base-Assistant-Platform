@@ -5,6 +5,22 @@
     "dev": "npm --prefix frontend run dev",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "backend:dev": ".venv\\Scripts\\python.exe -m uvicorn FasdtApi.main:app --reload --host 127.0.0.1 --port 8000"
+    "backend:dev": ".venv\\Scripts\\python.exe -m uvicorn FasdtApi.main:app --reload --host 127.0.0.1 --port 8011",
+    "backend:worker": ".venv\\Scripts\\python.exe -m service.background_worker",
+    "db:current": ".venv\\Scripts\\python.exe -m alembic current",
+    "db:migrate": ".venv\\Scripts\\python.exe -m alembic upgrade head",
+    "db:stamp": ".venv\\Scripts\\python.exe -m alembic stamp head",
+    "crawl:check": ".venv\\Scripts\\python.exe scripts\\crawl_check.py",
+    "load:test": ".venv\\Scripts\\python.exe scripts\\load_test.py",
+    "test:unit": ".venv\\Scripts\\python.exe -m unittest discover -s tests -p \"test_*.py\"",
+    "release:check": ".venv\\Scripts\\python.exe scripts\\release_check.py",
+    "docker:start": "powershell -ExecutionPolicy Bypass -File scripts\\start-one-click.ps1",
+    "docker:stop": "powershell -ExecutionPolicy Bypass -File scripts\\stop-one-click.ps1",
+    "docker:infra": "powershell -ExecutionPolicy Bypass -File scripts\\start-infra.ps1",
+    "docker:app": "powershell -ExecutionPolicy Bypass -File scripts\\start-app.ps1",
+    "docker:monitoring": "powershell -ExecutionPolicy Bypass -File scripts\\start-monitoring.ps1",
+    "docker:all": "powershell -ExecutionPolicy Bypass -File scripts\\start-all.ps1",
+    "docker:stop-app": "powershell -ExecutionPolicy Bypass -File scripts\\stop-app.ps1",
+    "docker:stop-all": "powershell -ExecutionPolicy Bypass -File scripts\\stop-all.ps1"
   }
 }
