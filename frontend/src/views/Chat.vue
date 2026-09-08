@@ -1,20 +1,20 @@
 <template>
-  <div class="h-screen flex bg-gray-50">
+  <div class="h-screen flex bg-transparent">
     <!-- 左侧会话栏 -->
-    <aside class="w-72 bg-white border-r border-gray-200 flex flex-col">
-      <!-- Agent 信息 -->
-      <div class="p-4 border-b border-gray-200">
+    <aside class="w-72 border-r border-sky-200/70 bg-white/78 text-slate-900 shadow-2xl shadow-sky-900/10 backdrop-blur-xl flex flex-col">
+      <!-- 助手信息 -->
+      <div class="p-4 border-b border-sky-200/70">
         <button
           @click="$router.push('/agents')"
-          class="text-sm text-gray-500 hover:text-gray-700 mb-2 inline-flex items-center gap-1"
+          class="text-sm text-sky-600 hover:text-sky-800 mb-2 inline-flex items-center gap-1"
         >
-          ← 返回 Agent 列表
+          ← 返回工作台
         </button>
-        <h2 class="font-semibold text-gray-800 truncate">{{ currentAgent?.name || '加载中...' }}</h2>
+        <h2 class="font-semibold text-slate-900 truncate">{{ currentAgent?.name || '加载中...' }}</h2>
       </div>
 
             <!-- 新建会话按钮 + 知识库管理 -->
-      <div class="px-3 py-3 space-y-2 border-b border-gray-100">
+      <div class="px-3 py-3 space-y-2 border-b border-sky-100">
         <!-- 新建会话（主按钮：蓝底 + hover 深一点 + 柔和阴影） -->
                 <!-- 新建会话（主按钮：淡蓝色 + 柔和蓝色） -->
         <button
@@ -45,7 +45,7 @@
           <span class="w-5 h-5 shrink-0 rounded bg-emerald-500/10 flex items-center justify-center text-emerald-600">
             <BookOpen :size="13" :stroke-width="2" />
           </span>
-          <span>知识库管理</span>
+          <span>个人资料</span>
         </button>
       </div>
 
@@ -181,24 +181,24 @@
       <div ref="messageListRef" class="flex-1 overflow-y-auto px-8 py-6 space-y-5">
         <div class="mx-auto max-w-4xl rounded-lg border border-slate-200 bg-white px-4 py-3">
           <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span class="font-medium text-slate-700">{{ currentAgent?.name || '当前 Agent' }}</span>
+            <span class="font-medium text-slate-700">{{ currentAgent?.name || '当前助手' }}</span>
             <span :class="hasCurrentModelKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'" class="rounded px-2 py-1">
-              模型 {{ hasCurrentModelKey ? '已配置' : '缺 Key' }}
+              模型 {{ hasCurrentModelKey ? '已配置' : '缺密钥' }}
             </span>
             <span :class="currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700') : 'bg-slate-100 text-slate-500'" class="rounded px-2 py-1">
-              RAG {{ currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? '可用' : '缺 Key') : '关闭' }}
+              资料 {{ currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? '可用' : '缺密钥') : '关闭' }}
             </span>
             <span :class="currentAgent?.memory_enabled === 1 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'" class="rounded px-2 py-1">
               记忆 {{ currentAgent?.memory_enabled === 1 ? '开启' : '关闭' }}
             </span>
             <span v-if="currentAgent?.skills?.length" class="rounded bg-violet-50 px-2 py-1 text-violet-700">
-              Skill {{ currentAgent.skills.length }} 个
+              能力 {{ currentAgent.skills.length }} 个
             </span>
           </div>
         </div>
 
         <div v-if="messages.length === 0" class="h-full flex items-center justify-center text-gray-400">
-          开始与 Agent 对话吧
+          开始和助手对话吧
         </div>
 
         <div
@@ -225,15 +225,15 @@
               <div class="whitespace-pre-wrap mt-1">{{ short(evt.content, 200) }}</div>
             </div>
             <div v-else-if="evt.type === 'tool_call'">
-              <span class="text-blue-500 font-semibold">🔧 调用工具</span> {{ evt.name }}
+              <span class="text-blue-500 font-semibold">调用工具</span> {{ evt.name }}
               <pre class="mt-1 text-xs text-gray-600">{{ JSON.stringify(evt.args, null, 2) }}</pre>
             </div>
             <div v-else-if="evt.type === 'tool_result'">
-              <span class="text-green-500 font-semibold">✅ 工具结果</span> {{ evt.name }}
+              <span class="text-green-500 font-semibold">工具结果</span> {{ evt.name }}
               <div class="mt-1 text-gray-600">{{ short(evt.result, 200) }}</div>
             </div>
             <div v-else-if="evt.type === 'retrieval'">
-              <span class="text-amber-500 font-semibold">📚 知识库检索</span> 命中 {{ evt.hit_count }} 条
+              <span class="text-amber-500 font-semibold">资料检索</span> 命中 {{ evt.hit_count }} 条
             </div>
           </div>
         </div>
@@ -264,7 +264,7 @@
               @click="router.push('/llm-configs')"
               class="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 hover:bg-amber-100"
             >
-              配置 Key
+              连接模型
             </button>
           </div>
         </div>
@@ -308,7 +308,7 @@
         <span class="w-6 h-6 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
           <GitBranch :size="14" :stroke-width="2" />
         </span>
-        <span class="text-sm font-medium text-gray-700">运行轨迹</span>
+        <span class="text-sm font-medium text-gray-700">回答过程</span>
         <span v-if="runs.length > 0" class="text-xs px-1.5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center">
           {{ runs.length }}
         </span>
@@ -337,7 +337,7 @@
               <GitBranch :size="16" />
             </span>
             <div>
-              <h3 class="text-sm font-semibold text-gray-800">运行轨迹</h3>
+              <h3 class="text-sm font-semibold text-gray-800">回答过程</h3>
               <p class="text-xs text-gray-500">{{ currentAgent?.name || '' }}</p>
             </div>
           </div>
@@ -355,7 +355,7 @@
           <div class="w-[210px] shrink-0 border-r border-gray-200 flex flex-col bg-gray-50/70">
             <div class="px-3 py-2 border-b border-gray-200">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-medium text-gray-500">最近运行</span>
+                <span class="text-xs font-medium text-gray-500">最近回答</span>
                 <button
                   @click="loadRuns()"
                   class="text-xs text-purple-600 hover:text-purple-700"
@@ -364,7 +364,7 @@
             </div>
             <div class="flex-1 overflow-y-auto p-2 space-y-1">
               <div v-if="runs.length === 0" class="text-xs text-gray-400 text-center py-8 px-2">
-                暂无运行记录<br>发送一次对话后出现
+                暂无回答记录<br>发送一次对话后出现
               </div>
               <button
                 v-for="r in runs"
@@ -393,7 +393,7 @@
           <!-- 右列：Step 详情时间轴 -->
           <div class="flex-1 min-w-0 flex flex-col">
             <div v-if="!selectedRunDetail" class="flex-1 flex items-center justify-center text-xs text-gray-400 px-4 text-center">
-              从左侧选择一次运行，查看详细步骤
+              从左侧选择一次回答，查看详细步骤
             </div>
             <template v-else>
               <!-- Run 概览 -->
@@ -433,7 +433,7 @@
                         Step {{ step.step_no }} · {{ stepLabel(step) }}
                       </span>
                       <span v-if="step.tokens" class="text-[10px] text-gray-400 ml-auto">
-                        {{ step.tokens }} tokens
+                        约 {{ step.tokens }} 字符消耗
                       </span>
                     </div>
 
@@ -451,7 +451,7 @@
                         <summary class="text-gray-500 cursor-pointer select-none hover:text-gray-700 list-none">
                           <span class="inline-flex items-center gap-1">
                             <span class="group-open:rotate-90 transition-transform">▶</span>
-                            参数 (JSON)
+                            工具参数
                           </span>
                         </summary>
                         <pre class="mt-1 p-2 rounded bg-gray-50 text-[11px] text-gray-700 overflow-x-auto">{{ prettyJson(step.tool_args) }}</pre>
@@ -599,9 +599,9 @@ const hasEmbeddingKey = computed(() => configs.value.some((config) => {
 }))
 const chatBlockedReason = computed(() => {
   if (configLoadError.value) return configLoadError.value
-  if (!currentAgent.value) return '当前 Agent 不存在或无权限访问'
-  if (!hasCurrentModelKey.value) return `当前用户还没有配置「${currentAgent.value.model_name || '聊天模型'}」的 API Key`
-  if (currentAgent.value.rag_enabled === 1 && !hasEmbeddingKey.value) return '当前 Agent 已开启 RAG，但还没有配置向量模型 API Key'
+  if (!currentAgent.value) return '当前助手不存在或无权限访问'
+  if (!hasCurrentModelKey.value) return `当前用户还没有配置「${currentAgent.value.model_name || '聊天模型'}」的密钥`
+  if (currentAgent.value.rag_enabled === 1 && !hasEmbeddingKey.value) return '当前助手已开启资料库，但还没有配置资料检索模型密钥'
   return ''
 })
 const chatReady = computed(() => !chatBlockedReason.value)
@@ -642,8 +642,8 @@ const loadCurrentAgent = async () => {
     const agentList = await agentApi.listAgents()
     currentAgent.value = agentList.find((agent: any) => agent.id === agentId.value) || null
   } catch (e: any) {
-    console.error('加载 Agent 信息失败:', e)
-    toastError(getErrorMessage(e, '加载 Agent 信息失败'))
+    console.error('加载助手信息失败:', e)
+    toastError(getErrorMessage(e, '加载助手信息失败'))
     currentAgent.value = null
   }
 }
@@ -654,7 +654,7 @@ const loadConfigs = async () => {
     configs.value = await llmConfigApi.listConfigs()
   } catch (e: any) {
     configs.value = []
-    configLoadError.value = getErrorMessage(e, '无法读取模型 Key 配置')
+    configLoadError.value = getErrorMessage(e, '无法读取模型连接')
   }
 }
 

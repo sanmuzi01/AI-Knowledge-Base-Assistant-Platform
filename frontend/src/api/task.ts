@@ -21,6 +21,7 @@ export interface Task {
   created_at: string | null
   started_at: string | null
   finished_at: string | null
+  next_run_at: string | null
 }
 
 /** 兼容旧名（Knowledge.vue 等在用） */
@@ -56,12 +57,6 @@ export async function listTasks(arg: number | TaskQuery = {}): Promise<Task[]> {
 /** 管理员查询全局后台任务（支持筛选） */
 export async function listAllTasks(params: TaskQuery = {}): Promise<Task[]> {
   const { data } = await request.get<Task[]>('/task/all', { params })
-  return data
-}
-
-/** 查询单个任务详情 */
-export async function getTask(taskId: number): Promise<Task> {
-  const { data } = await request.get<Task>(`/task/${taskId}`)
   return data
 }
 

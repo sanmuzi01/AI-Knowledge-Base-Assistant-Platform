@@ -27,7 +27,7 @@
               v-model="userQuery"
               type="text"
               class="h-9 w-full rounded border border-slate-300 pl-8 pr-3 text-sm outline-none focus:border-indigo-500"
-              placeholder="搜索用户名或 ID"
+              placeholder="搜索用户名、手机号或 ID"
             />
           </div>
           <div class="grid grid-cols-5 gap-1 rounded bg-slate-100 p-1 text-xs">
@@ -58,8 +58,8 @@
             <tr v-for="user in filteredUsers" :key="user.id" class="border-b border-slate-100 hover:bg-slate-50/50">
               <td class="px-4 py-3">
                 <p class="font-medium text-slate-900">{{ user.name }}</p>
-                <p class="text-xs text-slate-400">ID {{ user.id }} · 年龄 {{ user.age ?? '-' }}</p>
-                <p class="text-xs text-slate-400">最后登录 {{ user.last_login_at || '-' }}</p>
+                <p class="text-xs text-slate-400">ID {{ user.id }} · 手机 {{ user.phone || '-' }}</p>
+                <p class="text-xs text-slate-400">年龄 {{ user.age ?? '-' }} · 最后登录 {{ user.last_login_at || '-' }}</p>
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap gap-1.5">
@@ -92,7 +92,7 @@
                 </div>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500">
-                Agent {{ user.agent_count }} · Skill {{ user.skill_count }} · 文档 {{ user.knowledge_count }} · 任务 {{ user.task_count }}
+                助手 {{ user.agent_count }} · 能力 {{ user.skill_count }} · 文档 {{ user.knowledge_count }} · 任务 {{ user.task_count }}
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap gap-1.5">
@@ -167,6 +167,10 @@
             <p class="mt-1 font-semibold text-slate-900">{{ detailDialog.user.roles.join(', ') || '无' }}</p>
           </article>
           <article class="rounded border border-slate-100 p-3">
+            <p class="text-xs text-slate-500">手机号</p>
+            <p class="mt-1 font-semibold text-slate-900">{{ detailDialog.user.phone || '-' }}</p>
+          </article>
+          <article class="rounded border border-slate-100 p-3">
             <p class="text-xs text-slate-500">最后登录</p>
             <p class="mt-1 font-semibold text-slate-900">{{ detailDialog.user.last_login_at || '-' }}</p>
           </article>
@@ -238,7 +242,7 @@ const detailDialog = ref<{
 })
 
 const detailLabels: Record<string, string> = {
-  llm_configs: '模型 Key',
+  llm_configs: '模型连接',
   conversations: '会话',
   messages: '消息',
   runs: '运行记录',
@@ -268,7 +272,9 @@ const filteredUsers = computed(() => {
     if (userFilter.value === 'online' && !user.is_online) return false
     if (userFilter.value === 'admin' && !user.roles.includes('admin')) return false
     if (!query) return true
-    return user.name.toLowerCase().includes(query) || String(user.id).includes(query)
+    return user.name.toLowerCase().includes(query)
+      || String(user.id).includes(query)
+      || (user.phone || '').includes(query)
   })
 })
 
@@ -350,7 +356,7 @@ const submitPassword = async () => {
 }
 
 const deleteUser = async (user: AdminUser) => {
-  if (!confirm(`确认删除用户「${user.name}」？该用户的所有 Agent/Skill/知识库/会话都会被删除，此操作不可撤销。`)) return
+  if (!confirm(`确认删除用户「${user.name}」？该用户的所有助手、能力、资料库和会话都会被删除，此操作不可撤销。`)) return
   try {
     await adminApi.deleteAdminUser(user.id)
     await loadUsers()

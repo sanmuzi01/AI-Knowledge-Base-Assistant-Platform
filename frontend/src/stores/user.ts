@@ -53,8 +53,19 @@ export const useUserStore = defineStore('user', {
       localStorage.setItem(USER_KEY, JSON.stringify(user))
       return user
     },
-    async register(name: string, password: string, age: number) {
-      const { data } = await request.post('/user/register', { name, password, age })
+    async sendRegisterSmsCode(phone: string) {
+      const { data } = await request.post('/user/register/sms-code', { phone })
+      return data
+    },
+    async register(name: string, password: string, age: number, phone: string, smsCode: string, acceptedTerms: boolean) {
+      const { data } = await request.post('/user/register', {
+        name,
+        password,
+        age,
+        phone,
+        sms_code: smsCode,
+        accepted_terms: acceptedTerms,
+      })
       return data
     },
     async changePassword(oldPassword: string, newPassword: string) {

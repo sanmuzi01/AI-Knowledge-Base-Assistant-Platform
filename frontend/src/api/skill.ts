@@ -189,3 +189,8 @@ export async function exportSkill(skillId: number): Promise<Blob> {
   const { data } = await request.get(`/skill/${skillId}/export`, { responseType: 'blob' })
   return data as Blob
 }
+
+export async function installPublicSkill(skillId: number): Promise<Skill> {
+  const { data } = await request.post<SkillResponse<Skill>>(`/skill/${skillId}/install`)
+  return data.data
+}

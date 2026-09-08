@@ -7,9 +7,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 前端请求 /api/xxx → 代理到 http://127.0.0.1:8000/xxx ，避免 CORS
+      // 前端请求 /api/xxx → 代理到 http://127.0.0.1:8011/xxx ，避免 CORS
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8011',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

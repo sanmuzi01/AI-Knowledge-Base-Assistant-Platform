@@ -27,7 +27,7 @@
           <input
             v-model="taskQuery"
             type="search"
-            placeholder="搜索任务、用户或 Agent"
+            placeholder="搜索任务、用户或助手"
             class="h-8 w-full rounded border border-slate-200 bg-white pl-8 pr-2 text-xs outline-none focus:border-blue-500"
           />
         </div>
@@ -75,11 +75,18 @@
             <p class="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
               <span>{{ task.task_type }}</span>
               <span>用户 #{{ task.user_id }}</span>
-              <span v-if="task.agent_id">Agent #{{ task.agent_id }}</span>
+              <span v-if="task.agent_id">助手 #{{ task.agent_id }}</span>
               <span v-if="task.target_type">{{ task.target_type }} #{{ task.target_id }}</span>
               <span>{{ task.created_at || '-' }}</span>
+              <span v-if="task.next_run_at">下次重试 {{ task.next_run_at }}</span>
             </p>
-            <p v-if="task.error_msg" class="mt-2 line-clamp-2 rounded border border-red-100 bg-red-50 px-2 py-1 text-xs text-red-700">
+            <p
+              v-if="task.error_msg"
+              class="mt-2 line-clamp-2 rounded border px-2 py-1 text-xs"
+              :class="task.status === 'queued' && task.next_run_at
+                ? 'border-amber-100 bg-amber-50 text-amber-700'
+                : 'border-red-100 bg-red-50 text-red-700'"
+            >
               {{ task.error_msg }}
             </p>
             <details v-if="task.result" class="mt-2">
@@ -166,6 +173,7 @@ const filteredTasks = computed(() => {
       task.task_type,
       task.status,
       task.error_msg || '',
+      task.next_run_at || '',
       String(task.id),
       String(task.user_id),
       task.agent_id ? String(task.agent_id) : '',
@@ -233,9 +241,9 @@ const handleCancel = async (task: Task) => {
 }
 
 const statusText = (s: string) => ({
-  queued: '排队中',
-  running: '执行中',
-  finished: '成功',
+  queued: '等待处理',
+  running: '处理中',
+  finished: '已完成',
   failed: '失败',
   cancelled: '已取消',
 }[s] || s)

@@ -51,6 +51,11 @@ const router = createRouter({
       component: () => import('../views/TaskCenter.vue'),
     },
     {
+      path: '/web-monitor',
+      name: 'WebMonitor',
+      component: () => import('../views/WebMonitor.vue'),
+    },
+    {
       path: '/chat/:agentId',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),

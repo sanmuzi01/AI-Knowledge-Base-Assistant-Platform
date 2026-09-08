@@ -1,14 +1,69 @@
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { toastError } from './toast'
 
+const REQUEST_ID_HEADER = 'X-Request-ID'
+
+const createRequestId = () => {
+  if (crypto?.randomUUID) return crypto.randomUUID()
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export const getErrorMessage = (err: any, fallback = '请求失败') => {
-  const detail = err?.response?.data?.detail || err?.response?.data?.message
-  if (detail) return detail
-  if (err?.code === 'ECONNABORTED') return '请求超时，请稍后重试或检查后端任务是否仍在处理'
-  if (!err?.response && (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')) {
-    return '无法连接后端服务，请确认后端已启动并监听 127.0.0.1:8000'
+  const requestId = err?.response?.headers?.['x-request-id'] || err?.config?.headers?.[REQUEST_ID_HEADER]
+  const status = err?.response?.status
+  const rawDetail = err?.response?.data?.detail || err?.response?.data?.message || err?.response?.data?.error
+  const withRequestId = (message: string) => requestId ? `${message}（请求ID：${requestId}）` : message
+
+  const statusMessages: Record<number, string> = {
+    400: '提交内容有误，请检查填写项后再试',
+    401: '登录状态已过期，请重新登录',
+    403: '当前账号没有权限执行这个操作',
+    404: '没有找到对应内容，请刷新页面后再试',
+    409: '当前操作和已有数据冲突，请刷新后重试',
+    422: '填写内容格式不正确，请检查后再提交',
+    429: '操作太频繁了，请稍后再试',
+    500: '服务器内部出错，请稍后重试',
+    502: '后端服务暂时不可用，请稍后重试',
+    503: '后端服务正在启动或维护，请稍后重试',
+    504: '后端处理超时，请稍后重试',
   }
-  return err?.message || fallback
+
+  const detailToText = (detail: any): string => {
+    if (!detail) return ''
+    if (typeof detail === 'string') return detail
+    if (typeof detail === 'object') return detail.message || detail.error || detail.detail || ''
+    return String(detail)
+  }
+
+  const translateEnglishError = (message: string): string => {
+    if (!message) return fallback
+    const masked = message
+      .replace(/\*{2,}[a-z0-9_-]+/gi, '已隐藏')
+      .replace(/sk-[a-z0-9_-]+/gi, '已隐藏')
+    const lower = masked.toLowerCase()
+    if (lower.includes('authentication') || lower.includes('api key') || lower.includes('apikey') || lower.includes('api_key')) {
+      return '访问密钥无效或没有权限，请检查后重新粘贴'
+    }
+    if (/[\u4e00-\u9fff]/.test(masked)) return masked
+    if (lower.includes('request failed with status code') && status && statusMessages[status]) return statusMessages[status]
+    if (lower.includes('network error') || lower.includes('failed to fetch')) return '无法连接后端服务，请确认后端已启动并监听 127.0.0.1:8011'
+    if (lower.includes('timeout')) return '请求超时，请稍后重试或检查后端任务是否仍在处理'
+    if (lower.includes('unauthorized') || lower.includes('invalid token')) return '登录状态已过期，请重新登录'
+    if (lower.includes('forbidden')) return '当前账号没有权限执行这个操作'
+    if (lower.includes('not found')) return '没有找到对应内容，请刷新页面后再试'
+    if (lower.includes('connection') || lower.includes('connect')) return '连接外部服务失败，请检查网络、密钥或服务地址'
+    if (lower.includes('model')) return '所选 AI 服务暂时不可用，请换一个推荐方案或稍后重试'
+    return fallback
+  }
+
+  const detail = detailToText(rawDetail)
+  if (detail) return withRequestId(translateEnglishError(detail))
+  if (err?.code === 'ECONNABORTED') return withRequestId('请求超时，请稍后重试或检查后端任务是否仍在处理')
+  if (!err?.response && (err?.message === 'Network Error' || err?.code === 'ERR_NETWORK')) {
+    return withRequestId('无法连接后端服务，请确认后端已启动并监听 127.0.0.1:8011')
+  }
+  if (status && statusMessages[status]) return withRequestId(statusMessages[status])
+  return withRequestId(translateEnglishError(err?.message || fallback))
 }
 
 // Axios 单例：统一前缀 /api（匹配 vite.config.ts 的代理）、JWT 注入、401 清理
@@ -19,8 +74,9 @@ const request: AxiosInstance = axios.create({
 
 request.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
+  config.headers = config.headers || {}
+  config.headers[REQUEST_ID_HEADER] = config.headers[REQUEST_ID_HEADER] || createRequestId()
   if (token) {
-    config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
   }
   return config

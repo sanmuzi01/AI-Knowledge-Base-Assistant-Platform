@@ -5,6 +5,267 @@ html, body, #app {
   margin: 0;
 }
 
+body {
+  background: #eef7ff;
+}
+
+.app-starry {
+  position: relative;
+  min-height: 100%;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(248, 252, 255, 0.9), rgba(230, 244, 255, 0.82)),
+    url("./assets/space-map-light-bg.webp") center / cover fixed,
+    #eef7ff;
+  color: #0f172a;
+}
+
+.app-starry::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 22% 20%, rgba(14, 165, 233, 0.16), transparent 28%),
+    radial-gradient(circle at 78% 28%, rgba(139, 92, 246, 0.1), transparent 34%),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.35), rgba(235, 248, 255, 0.74));
+}
+
+.app-starry::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 0 42%, rgba(14, 165, 233, 0.1) 49%, transparent 58%),
+    repeating-linear-gradient(90deg, transparent 0 92px, rgba(14, 165, 233, 0.05) 93px, transparent 94px);
+  opacity: 0.65;
+  transform: translateX(-8%);
+  animation: sci-sky-drift 16s ease-in-out infinite alternate;
+}
+
+.app-starry > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sci-glass {
+  border: 1px solid rgba(125, 211, 252, 0.42);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 24px 80px rgba(56, 119, 172, 0.16);
+  backdrop-filter: blur(24px);
+}
+
+.sci-panel {
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 18px 52px rgba(56, 119, 172, 0.14);
+  backdrop-filter: blur(18px);
+}
+
+.sci-field {
+  border-color: rgba(148, 163, 184, 0.46);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.sci-field:focus {
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18);
+}
+
+.sci-primary {
+  background: linear-gradient(135deg, #06b6d4, #3b82f6 56%, #8b5cf6);
+  box-shadow: 0 12px 32px rgba(59, 130, 246, 0.24);
+}
+
+.sci-primary:hover {
+  filter: brightness(1.08);
+}
+
+.sci-orbit-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.sci-orbit-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(14, 165, 233, 0.26), transparent);
+  opacity: 0.6;
+  transform: translateX(-100%);
+  animation: sci-panel-scan 7s ease-in-out infinite;
+}
+
+.sci-orbit-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: inherit;
+}
+
+.sci-orbit-visual {
+  position: relative;
+  min-height: 230px;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(14, 165, 233, 0.14), transparent 22%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.9), transparent 38%),
+    linear-gradient(180deg, rgba(240, 249, 255, 0.86), rgba(255, 255, 255, 0.68));
+  overflow: hidden;
+}
+
+.sci-orbit-visual::before,
+.sci-orbit-visual::after {
+  content: "";
+  position: absolute;
+  inset: 50%;
+  width: 220px;
+  height: 220px;
+  border: 1px solid rgba(14, 165, 233, 0.24);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(0deg);
+}
+
+.sci-orbit-visual::before {
+  animation: sci-orbit-spin 18s linear infinite;
+}
+
+.sci-orbit-visual::after {
+  width: 310px;
+  height: 120px;
+  border-color: rgba(139, 92, 246, 0.18);
+  transform: translate(-50%, -50%) rotate(-16deg);
+  animation: sci-orbit-pulse 5s ease-in-out infinite;
+}
+
+.sci-orbit-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 86px;
+  height: 30px;
+  border: 1px solid rgba(14, 165, 233, 0.36);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.92), rgba(186, 230, 253, 0.46));
+  box-shadow: 0 0 30px rgba(14, 165, 233, 0.3);
+  transform: translate(-50%, -50%);
+}
+
+.sci-orbit-particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 18px rgba(14, 165, 233, 0.58);
+  animation: sci-particle-fall 3.8s ease-in-out infinite;
+}
+
+.sci-login-orbit {
+  position: absolute;
+  right: 64px;
+  top: 118px;
+  width: 260px;
+  height: 260px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 999px;
+  transform: rotate(-18deg);
+}
+
+.sci-login-orbit::before,
+.sci-login-orbit::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+}
+
+.sci-login-orbit::before {
+  inset: 38px;
+  border: 1px solid rgba(139, 92, 246, 0.16);
+  animation: sci-login-pulse 4.8s ease-in-out infinite;
+}
+
+.sci-login-orbit::after {
+  left: 48%;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  background: #38bdf8;
+  box-shadow: 0 0 22px rgba(14, 165, 233, 0.7);
+  animation: sci-login-dot 7s linear infinite;
+  transform-origin: 8px 134px;
+}
+
+@keyframes sci-orbit-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes sci-orbit-pulse {
+  0%, 100% {
+    opacity: 0.42;
+    transform: translate(-50%, -50%) rotate(-16deg) scale(0.98);
+  }
+  50% {
+    opacity: 0.88;
+    transform: translate(-50%, -50%) rotate(-16deg) scale(1.04);
+  }
+}
+
+@keyframes sci-particle-fall {
+  0% {
+    opacity: 0;
+    transform: translateY(-44px) scale(0.8);
+  }
+  30%, 80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(58px) scale(1);
+  }
+}
+
+@keyframes sci-login-pulse {
+  0%, 100% {
+    opacity: 0.46;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes sci-login-dot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sci-sky-drift {
+  from {
+    transform: translateX(-8%) translateY(0);
+  }
+  to {
+    transform: translateX(6%) translateY(-2%);
+  }
+}
+
+@keyframes sci-panel-scan {
+  0%, 46% {
+    transform: translateX(-100%);
+  }
+  72%, 100% {
+    transform: translateX(100%);
+  }
+}
+
 /* 滚动条美化 */
 ::-webkit-scrollbar {
   width: 6px;

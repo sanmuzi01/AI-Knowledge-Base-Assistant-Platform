@@ -33,7 +33,7 @@
           <article v-for="task in tasks" :key="task.id" class="grid gap-3 px-4 py-3 text-sm md:grid-cols-[1fr_120px_90px] md:items-center">
             <div class="min-w-0">
               <p class="truncate font-medium text-slate-900">{{ task.title }}</p>
-              <p class="mt-1 text-xs text-slate-400">用户 {{ task.user_id }} · Agent {{ task.agent_id ?? '-' }} · {{ task.created_at || '-' }}</p>
+              <p class="mt-1 text-xs text-slate-400">用户 {{ task.user_id }} · 助手 {{ task.agent_id ?? '-' }} · {{ task.created_at || '-' }}</p>
               <p v-if="task.error_msg" class="mt-1 line-clamp-2 text-xs text-red-600">{{ task.error_msg }}</p>
             </div>
             <div class="h-1.5 rounded bg-slate-200">
@@ -95,9 +95,9 @@ const errorMsg = ref('')
 const countLabels: Record<string, string> = {
   users: '用户',
   online_users: '在线用户',
-  agents: 'Agent',
-  skills: 'Skill',
-  llm_configs: '模型 Key',
+  agents: '助手',
+  skills: '能力',
+  llm_configs: '模型连接',
   knowledge_docs: '文档',
   background_tasks: '后台任务',
 }

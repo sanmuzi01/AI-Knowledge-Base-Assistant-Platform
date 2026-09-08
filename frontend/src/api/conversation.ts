@@ -19,12 +19,6 @@ export interface Message {
   create_time: string
 }
 
-/** POST /conversation 新建会话 */
-export async function createConversation(agentId: number, title?: string): Promise<Conversation> {
-  const { data } = await request.post('/conversation', { agent_id: agentId, title: title || '新会话' })
-  return data as Conversation
-}
-
 /** GET /conversation/agent/{agent_id} 查 Agent 的会话列表 */
 export async function listConversations(agentId: number): Promise<Conversation[]> {
   const { data } = await request.get(`/conversation/agent/${agentId}`)

@@ -1,23 +1,23 @@
 <template>
-  <div class="flex h-screen flex-col bg-slate-50">
-    <header class="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-6">
+  <div class="flex h-screen flex-col bg-transparent">
+    <header class="flex h-16 items-center justify-between border-b border-sky-200/70 bg-white/78 px-6 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
       <div class="flex min-w-0 items-center gap-3">
         <button
           @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
-          title="返回 Agent 列表"
+          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+          title="返回工作台"
         >
           <ArrowLeft :size="16" />
         </button>
         <div class="min-w-0">
           <h1 class="truncate text-base font-semibold text-slate-900">长期记忆</h1>
-          <p class="truncate text-xs text-slate-500">{{ currentAgent?.name || `Agent #${agentId}` }} 的摘要、事实与偏好</p>
+          <p class="truncate text-xs text-slate-500">{{ currentAgent?.name || `助手 #${agentId}` }} 会长期记住的重要信息</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <button
           @click="loadData"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
           title="刷新"
         >
           <RefreshCcw :size="15" />
@@ -34,16 +34,16 @@
     </header>
 
     <main class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <section class="border-r border-slate-200 bg-white p-5">
+      <section class="sci-panel m-5 rounded-lg p-5 lg:mr-0">
         <h2 class="text-sm font-semibold text-slate-800">添加记忆</h2>
-        <p class="mt-1 text-xs text-slate-500">这些内容会随 Agent 对话一起进入长期上下文。</p>
+        <p class="mt-1 text-xs text-slate-500">这些内容会在后续对话中提醒助手，帮助它更懂你的偏好和项目背景。</p>
 
         <div class="mt-5 space-y-4">
           <label class="block">
             <span class="mb-1 block text-xs font-medium text-slate-600">类型</span>
             <select
               v-model="form.memory_type"
-              class="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+              class="sci-field h-10 w-full rounded px-3 text-sm outline-none"
             >
               <option v-for="option in memoryTypes" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
@@ -54,15 +54,15 @@
             <textarea
               v-model="form.content"
               rows="8"
-              class="w-full resize-none rounded border border-slate-300 px-3 py-2 text-sm leading-relaxed outline-none focus:border-blue-500"
-              placeholder="例如：用户偏好简洁回答；当前项目是本地 Agent 平台；用户希望每完成一项等待确认。"
+              class="sci-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
+              placeholder="例如：用户偏好简洁回答；当前项目是 AI 助手工作台；用户希望每完成一项等待确认。"
             />
           </label>
 
           <button
             @click="handleCreate"
             :disabled="saving || !form.content.trim()"
-            class="inline-flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-300"
+            class="sci-primary inline-flex w-full items-center justify-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:bg-blue-300 disabled:shadow-none"
           >
             <Plus :size="15" />
             {{ saving ? '保存中...' : '添加记忆' }}
@@ -70,7 +70,7 @@
         </div>
 
         <div class="mt-6 rounded border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
-          自动总结会生成 summary；手动添加的 fact、preference、note 便于你直接控制 Agent 应该长期记住什么。
+          系统会自动总结常用信息；你也可以手动添加“事实、偏好、备注”，直接控制助手应该长期记住什么。
         </div>
       </section>
 
@@ -85,7 +85,7 @@
               v-for="filter in filters"
               :key="filter.value"
               @click="activeFilter = filter.value"
-              :class="activeFilter === filter.value ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'"
+              :class="activeFilter === filter.value ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-500 hover:bg-sky-50'"
               class="rounded px-3 py-1.5 text-xs"
             >
               {{ filter.label }}
@@ -93,7 +93,7 @@
           </div>
         </div>
 
-        <div v-if="loading" class="flex flex-1 items-center justify-center rounded border border-dashed border-slate-300 bg-white text-sm text-slate-500">
+        <div v-if="loading" class="flex flex-1 items-center justify-center rounded border border-dashed border-sky-300/70 bg-white/62 text-sm text-slate-500 backdrop-blur">
           加载中...
         </div>
 
@@ -101,12 +101,12 @@
           {{ loadError }}
         </div>
 
-        <div v-else-if="filteredMemories.length === 0" class="flex flex-1 items-center justify-center rounded border border-dashed border-slate-300 bg-white px-6 text-center text-sm text-slate-500">
-          暂无匹配记忆。可以手动添加，或在 Agent 对话达到总结轮数后自动生成。
+        <div v-else-if="filteredMemories.length === 0" class="flex flex-1 items-center justify-center rounded border border-dashed border-sky-300/70 bg-white/62 px-6 text-center text-sm text-slate-500 backdrop-blur">
+          暂无匹配记忆。可以手动添加，或多聊几轮后由系统自动总结。
         </div>
 
         <div v-else class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          <article v-for="memory in filteredMemories" :key="memory.id" class="rounded-lg border border-slate-200 bg-white p-4">
+          <article v-for="memory in filteredMemories" :key="memory.id" class="sci-panel rounded-lg p-4 transition hover:border-sky-300">
             <div v-if="editingId !== memory.id" class="space-y-3">
               <div class="flex items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-2">
@@ -143,14 +143,14 @@
             <div v-else class="space-y-3">
               <select
                 v-model="editForm.memory_type"
-                class="h-9 rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500"
+                class="sci-field h-9 rounded px-3 text-sm outline-none"
               >
                 <option v-for="option in memoryTypes" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
               <textarea
                 v-model="editForm.content"
                 rows="6"
-                class="w-full resize-none rounded border border-slate-300 px-3 py-2 text-sm leading-relaxed outline-none focus:border-blue-500"
+                class="sci-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
               />
               <div class="flex justify-end gap-2">
                 <button
@@ -163,7 +163,7 @@
                 <button
                   @click="handleUpdate(memory)"
                   :disabled="saving || !editForm.content.trim()"
-                  class="inline-flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-800 disabled:bg-slate-400"
+                  class="sci-primary inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm text-white disabled:bg-slate-400 disabled:shadow-none"
                 >
                   <Save :size="15" />
                   保存
@@ -297,7 +297,7 @@ const handleDelete = async (memory: MemoryItem) => {
 }
 
 const handleClear = async () => {
-  if (!confirm('确认清空该 Agent 的全部长期记忆？')) return
+  if (!confirm('确认清空该助手的全部长期记忆？')) return
   await memoryApi.clearMemories(agentId.value)
   cancelEdit()
   await loadData()

@@ -52,11 +52,6 @@ export async function testConfig(modelName: string): Promise<LlmConfigTestResult
   return data as LlmConfigTestResult
 }
 
-export async function listSupportedModels(): Promise<string[]> {
-  const { data } = await request.get('/llm_config/supported_models')
-  return data.models as string[]
-}
-
 export async function listSupportedModelCatalog(): Promise<{
   chat: SupportedModel[]
   embedding: SupportedModel[]

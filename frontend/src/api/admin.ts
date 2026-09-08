@@ -9,6 +9,7 @@ export interface AdminOverview {
 export interface AdminUser {
   id: number
   name: string
+  phone?: string | null
   age?: number | null
   is_disabled?: number
   last_login_at?: string | null

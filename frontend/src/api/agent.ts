@@ -67,6 +67,7 @@ export interface AgentDebugInfo {
   prompt: {
     raw: Record<string, any>
     base_prompt: string
+    profile_prompt: string
     skill_prompt: string
     final_prompt: string
   }
@@ -125,6 +126,7 @@ export interface AgentDryRunInfo {
   resources?: AgentDebugInfo['resources']
   prompt: {
     base_prompt: string
+    profile_prompt: string
     skill_prompt: string
     final_prompt: string
   }

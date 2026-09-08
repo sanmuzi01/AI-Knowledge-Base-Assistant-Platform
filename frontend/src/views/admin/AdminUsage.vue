@@ -3,7 +3,7 @@
     <div class="mb-5 flex items-center justify-between">
       <div>
         <p class="text-sm font-semibold text-slate-900">使用情况分析</p>
-        <p class="mt-1 text-xs text-slate-500">运行质量、调用趋势、Token 消耗和活跃用户排行</p>
+        <p class="mt-1 text-xs text-slate-500">运行质量、调用趋势、模型消耗和活跃用户排行</p>
       </div>
       <div class="flex items-center gap-2">
         <select v-model.number="days" class="h-8 rounded border border-slate-200 bg-white px-2 text-xs outline-none focus:border-blue-500">
@@ -116,7 +116,7 @@
                   {{ user.run_count }}
                 </div>
               </div>
-              <span class="text-right text-xs text-slate-500">{{ formatNumber(user.tokens) }} Token</span>
+              <span class="text-right text-xs text-slate-500">约 {{ formatNumber(user.tokens) }} 字符消耗</span>
             </div>
             <div v-if="!topUserRows.length && !loading" class="py-10 text-center text-sm text-slate-500">暂无活跃用户数据。</div>
           </div>
@@ -136,7 +136,7 @@
               <th class="px-4 py-3 font-medium">日期</th>
               <th class="px-4 py-3 font-medium">运行次数</th>
               <th class="px-4 py-3 font-medium">消息数</th>
-              <th class="px-4 py-3 font-medium">Token</th>
+              <th class="px-4 py-3 font-medium">消耗</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -182,7 +182,7 @@ const summaryItems = computed(() => {
   return [
     { label: '运行次数', value: formatNumber(summary?.total_runs || 0), hint: `${days.value} 天趋势已同步`, icon: Activity, tone: 'bg-blue-50 text-blue-700' },
     { label: '成功率', value: `${summary?.success_rate || 0}%`, hint: `${formatNumber(summary?.failed_runs || 0)} 次失败`, icon: Zap, tone: 'bg-emerald-50 text-emerald-700' },
-    { label: 'Token 消耗', value: formatNumber(summary?.total_tokens || 0), hint: '累计模型调用消耗', icon: ListChecks, tone: 'bg-amber-50 text-amber-700' },
+    { label: '模型消耗', value: formatNumber(summary?.total_tokens || 0), hint: '累计模型调用消耗', icon: ListChecks, tone: 'bg-amber-50 text-amber-700' },
     { label: '消息总数', value: formatNumber(summary?.total_messages || 0), hint: '用户与助手消息合计', icon: MessageSquare, tone: 'bg-violet-50 text-violet-700' },
   ]
 })

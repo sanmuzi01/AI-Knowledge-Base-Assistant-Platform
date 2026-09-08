@@ -2,7 +2,7 @@
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @click.self="$emit('close')">
     <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-lg bg-white shadow-xl">
       <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
-        <h2 class="text-base font-semibold text-slate-900">{{ agent ? '编辑 Agent' : '新建 Agent' }}</h2>
+        <h2 class="text-base font-semibold text-slate-900">{{ agent ? '编辑助手' : '新建助手' }}</h2>
         <button
           @click="$emit('close')"
           class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -31,7 +31,7 @@
             </button>
           </div>
           <div v-if="templateLoading" class="rounded border border-slate-100 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
-            模板加载中...
+            样板加载中...
           </div>
           <div v-else class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
@@ -60,21 +60,21 @@
                   v-if="template.editable"
                   @click.stop="removeTemplate(template)"
                   class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                  title="删除模板"
+                  title="删除样板"
                 >
                   <Trash2 :size="14" />
                 </span>
               </span>
               <span class="mt-1 block text-xs leading-5 text-slate-500">{{ template.description }}</span>
               <span class="mt-2 flex flex-wrap gap-1">
-                <span v-if="template.rag_enabled === 1" class="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">RAG</span>
+                <span v-if="template.rag_enabled === 1" class="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">资料</span>
                 <span v-if="template.memory_enabled === 1" class="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">记忆</span>
-                <span v-if="template.skill_names.length" class="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">Skill</span>
+                <span v-if="template.skill_names.length" class="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">能力</span>
               </span>
             </button>
           </div>
           <p v-if="selectedTemplateId && missingTemplateSkillNames.length" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            模板建议绑定的 Skill 未找到：{{ missingTemplateSkillNames.join('、') }}。可以先保存 Agent，之后在 Skill 管理中补充。
+            样板建议的能力未找到：{{ missingTemplateSkillNames.join('、') }}。可以先保存助手，之后在技能中心补充。
           </p>
         </section>
 
@@ -89,13 +89,13 @@
             <span class="flex h-6 w-6 items-center justify-center rounded bg-white">
               <KeyRound :size="14" />
             </span>
-            <span>模型 Key</span>
+            <span>连接模型</span>
           </div>
           <div :class="stepClass(ragReady)">
             <span class="flex h-6 w-6 items-center justify-center rounded bg-white">
               <Database :size="14" />
             </span>
-            <span>知识库</span>
+            <span>个人资料</span>
           </div>
         </div>
 
@@ -125,7 +125,7 @@
                 class="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
               >
                 <Settings :size="13" />
-                配置 Key
+                连接模型
               </button>
             </div>
 
@@ -146,7 +146,7 @@
               <option value="gpt-4o-mini" />
             </datalist>
                 <p :class="modelReady ? 'text-emerald-600' : 'text-amber-600'" class="mt-1 text-xs">
-                  {{ modelReady ? '当前用户已保存该模型 Key' : '当前用户还没有保存该模型 Key' }}
+                  {{ modelReady ? '该模型已连接' : '该模型还未连接' }}
                 </p>
           </div>
 
@@ -169,8 +169,8 @@
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
                 <span>
-                  <span class="block text-sm font-medium text-slate-800">知识库 RAG</span>
-                  <span class="block text-xs text-slate-500">{{ ragReady ? '会在回答前检索知识库' : '需要先保存向量模型 Key' }}</span>
+                  <span class="block text-sm font-medium text-slate-800">使用资料库</span>
+                  <span class="block text-xs text-slate-500">{{ ragReady ? '回答前会参考上传资料' : '需要先连接资料检索模型' }}</span>
                 </span>
                 <input type="checkbox" v-model="ragEnabledBool" class="h-4 w-4" />
               </label>
@@ -183,14 +183,14 @@
               </label>
             </div>
             <div v-if="ragEnabledBool && !ragReady" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              开启 RAG 后，上传和检索需要配置 embedding-3 或 text-embedding-3-small 这类向量模型 Key。
+              使用资料库前，需要先连接 embedding-3 或 text-embedding-3-small 这类资料检索模型。
             </div>
           </section>
 
           <section class="md:col-span-2 rounded-lg border border-slate-200 p-4">
             <div class="mb-3 flex items-center gap-2">
               <FileText :size="16" class="text-slate-500" />
-              <h3 class="text-sm font-semibold text-slate-800">提示词</h3>
+              <h3 class="text-sm font-semibold text-slate-800">助手设定</h3>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div class="md:col-span-2">
@@ -199,7 +199,7 @@
                   v-model="form.role"
                   rows="3"
                   class="w-full resize-y rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                  placeholder="这个 Agent 应该扮演什么角色"
+                  placeholder="这个助手应该扮演什么角色"
                 />
               </div>
 
@@ -239,7 +239,7 @@
             <div class="mb-3 flex items-center justify-between gap-3">
               <div class="flex items-center gap-2">
                 <Zap :size="16" class="text-slate-500" />
-                <h3 class="text-sm font-semibold text-slate-800">绑定 Skill</h3>
+                <h3 class="text-sm font-semibold text-slate-800">添加能力</h3>
               </div>
               <span class="text-xs text-slate-400">{{ form.skill_ids.length }} 个已选</span>
             </div>
@@ -267,7 +267,7 @@
                   @click.prevent="openSkillPreview(s.id)"
                   type="button"
                   class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  title="查看校验结果"
+                  title="查看可用性检查"
                 >
                   <Info :size="14" />
                 </button>
@@ -275,10 +275,10 @@
                   {{ s.is_public === 1 ? '公开' : '私有' }}
                 </span>
               </label>
-              <div v-if="skills.length === 0" class="py-6 text-center text-sm text-slate-400">暂无 Skill，可稍后在 Skill 管理中创建</div>
+              <div v-if="skills.length === 0" class="py-6 text-center text-sm text-slate-400">暂无能力，可稍后在能力库中创建</div>
             </div>
             <div v-if="selectedInvalidSkillNames.length" class="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              已选 Skill 中存在不可用项：{{ selectedInvalidSkillNames.join('、') }}
+              已选能力中存在不可用项：{{ selectedInvalidSkillNames.join('、') }}
             </div>
           </section>
           </div>
@@ -287,7 +287,7 @@
       <footer class="border-t border-slate-200 px-5 py-4">
         <div class="flex items-center justify-between gap-3">
           <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
-          <span v-else class="text-xs text-slate-400">保存后会同步更新 Agent 的提示词文件和 Skill 绑定</span>
+          <span v-else class="text-xs text-slate-400">保存后即可在工作台继续添加资料或开始聊天</span>
           <div class="flex shrink-0 justify-end gap-2">
             <button
               v-if="!agent"
@@ -296,7 +296,7 @@
               class="inline-flex items-center gap-1 rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:text-slate-300"
             >
               <BookmarkPlus :size="14" />
-              {{ savingTemplate ? '保存模板中...' : '保存为模板' }}
+              {{ savingTemplate ? '保存样板中...' : '保存为样板' }}
             </button>
             <button
               @click="$emit('close')"
@@ -321,7 +321,7 @@
         <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
           <div>
             <h3 class="text-sm font-semibold text-slate-900">{{ previewSkillValidation.name }}</h3>
-            <p class="text-xs text-slate-500">{{ previewSkillValidation.config_file }}</p>
+            <p class="text-xs text-slate-500">能力可用性检查</p>
           </div>
           <button @click="previewSkillValidation = null" class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100">
             <X :size="16" />
@@ -329,13 +329,13 @@
         </header>
         <main class="space-y-3 p-5 text-sm">
           <div :class="previewSkillValidation.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'" class="rounded border px-3 py-2">
-            {{ previewSkillValidation.ok ? '该 Skill 可以被当前用户绑定和运行' : '该 Skill 当前不可用' }}
+            {{ previewSkillValidation.ok ? '该能力可以被当前用户添加和运行' : '该能力当前不可用' }}
           </div>
           <div>
             <p class="mb-1 text-xs font-medium text-slate-500">可用工具</p>
             <div class="flex flex-wrap gap-1.5">
               <span v-for="tool in previewSkillValidation.tool_names" :key="tool" class="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">{{ tool }}</span>
-              <span v-if="previewSkillValidation.tool_names.length === 0" class="text-xs text-slate-400">无</span>
+              <span v-if="previewSkillValidation.tool_names.length === 0" class="text-xs text-slate-400">不需要额外工具</span>
             </div>
           </div>
           <div v-if="previewSkillValidation.errors.length">
@@ -461,7 +461,7 @@ const loadSkillValidations = async () => {
     } catch {
       return [skill.id, {
         ok: false,
-        errors: ['无法校验该 Skill，可能不存在或无权限访问'],
+        errors: ['无法检查该能力，可能不存在或无权限访问'],
         warnings: [],
         tool_names: [],
         missing_tool_names: [],
@@ -545,9 +545,9 @@ const saveCurrentAsTemplate = async () => {
     })
     templates.value = [template, ...templates.value]
     selectedTemplateId.value = template.id
-    toastSuccess('已保存为自定义模板')
+    toastSuccess('已保存为自定义样板')
   } catch (e: any) {
-    errorMsg.value = getErrorMessage(e, '保存模板失败')
+    errorMsg.value = getErrorMessage(e, '保存样板失败')
   } finally {
     savingTemplate.value = false
   }
@@ -555,24 +555,24 @@ const saveCurrentAsTemplate = async () => {
 
 const removeTemplate = async (template: AgentTemplate) => {
   if (!template.editable) return
-  if (!confirm(`确认删除模板「${template.name}」？`)) return
+  if (!confirm(`确认删除样板「${template.name}」？`)) return
   try {
     await agentApi.deleteAgentTemplate(template.id)
     templates.value = templates.value.filter((item) => item.id !== template.id)
     if (selectedTemplateId.value === template.id) {
       selectedTemplateId.value = ''
     }
-    toastSuccess('模板已删除')
+    toastSuccess('样板已删除')
   } catch (e: any) {
-    errorMsg.value = getErrorMessage(e, '删除模板失败')
+    errorMsg.value = getErrorMessage(e, '删除样板失败')
   }
 }
 
 const skillSummary = (skillId: number) => {
   const validation = skillValidationMap.value[skillId]
-  if (!validation) return '校验中...'
+  if (!validation) return '检查中...'
   if (!validation.ok) return validation.errors[0] || '不可用'
-  if (validation.tool_names.length === 0) return '提示词 Skill，无工具'
+  if (validation.tool_names.length === 0) return '提示词能力，无工具'
   return `工具：${validation.tool_names.join('、')}`
 }
 
@@ -609,15 +609,15 @@ watch(() => props.agent, (a: any) => {
 const submit = async () => {
   if (!form.value.name.trim()) return
   if (!modelReady.value) {
-    errorMsg.value = `请先在模型 Key 页面配置「${form.value.model_name.trim() || '当前模型'}」的 API Key`
+    errorMsg.value = `请先在连接模型页面添加「${form.value.model_name.trim() || '当前模型'}」的密钥`
     return
   }
   if (!ragReady.value) {
-    errorMsg.value = '开启 RAG 前请先配置向量模型 Key'
+    errorMsg.value = '使用资料库前请先连接资料检索模型'
     return
   }
   if (selectedInvalidSkillNames.value.length) {
-    errorMsg.value = `请先移除不可用 Skill：${selectedInvalidSkillNames.value.join('、')}`
+    errorMsg.value = `请先移除不可用能力：${selectedInvalidSkillNames.value.join('、')}`
     return
   }
   submitting.value = true

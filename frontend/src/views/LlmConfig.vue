@@ -1,235 +1,331 @@
 <template>
-  <div class="h-screen flex flex-col bg-slate-50">
-    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6">
-      <div class="flex items-center gap-3">
-        <button
-          @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
-          title="返回 Agent 列表"
-        >
-          <ArrowLeft :size="16" />
-        </button>
-        <div>
-          <h1 class="text-base font-semibold text-slate-900">模型与 RAG Key 配置</h1>
-          <p class="text-xs text-slate-500">聊天模型和知识库向量模型都使用当前用户自己保存的 API Key</p>
+  <div class="flex h-screen flex-col bg-transparent text-slate-950">
+    <header class="border-b border-slate-200/80 bg-white/88 px-5 py-4 shadow-sm backdrop-blur-xl lg:px-8">
+      <div class="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex items-start gap-3">
+          <button
+            @click="router.push('/agents')"
+            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            title="返回工作台"
+          >
+            <ArrowLeft :size="16" />
+          </button>
+          <div>
+            <h1 class="text-xl font-semibold text-slate-950">连接 AI 服务</h1>
+            <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              选择你已有的平台，粘贴一次访问密钥，系统会自动准备“回答问题”和“读取资料”两项能力。
+            </p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 lg:w-[330px]">
+          <StatusCard label="回答问题" :ok="chatConfigs.length > 0" :text="chatConfigs.length ? '已开启' : '未开启'" />
+          <StatusCard label="读取资料" :ok="embeddingConfigs.length > 0" :text="embeddingConfigs.length ? '已开启' : '未开启'" />
         </div>
       </div>
-      <button
-        @click="openCreate"
-        class="inline-flex items-center gap-2 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-      >
-        <Plus :size="15" />
-        新增配置
-      </button>
     </header>
 
-    <main class="flex-1 overflow-y-auto p-6">
-      <div class="mx-auto grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
-        <section class="bg-white border border-slate-200 rounded-lg p-5">
-          <h2 class="text-sm font-semibold text-slate-800 mb-4">{{ editingName ? '更新配置' : '新增配置' }}</h2>
-
-          <div class="mb-4 grid grid-cols-2 gap-2">
-            <button
-              v-for="preset in presets"
-              :key="preset.model"
-              @click="applyPreset(preset)"
-              class="rounded border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
-            >
-              <span class="block text-xs font-medium text-slate-800">{{ preset.label }}</span>
-              <span class="block truncate text-xs text-slate-400">{{ preset.model }}</span>
-            </button>
-          </div>
-
-          <div class="space-y-4">
-            <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">用途</label>
-              <select v-model="form.kind" class="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500">
-                <option value="chat">聊天模型</option>
-                <option value="embedding">RAG 向量模型</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">模型名称</label>
-              <input
-                v-model="form.model_name"
-                list="model-options"
-                class="h-10 w-full rounded border border-slate-300 px-3 text-sm outline-none focus:border-slate-500"
-                placeholder="例如 glm-4 或 embedding-3"
-              />
-              <datalist id="model-options">
-                <option v-for="m in modelOptions" :key="m" :value="m" />
-              </datalist>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">API Key</label>
-              <input
-                v-model="form.api_key"
-                type="password"
-                class="h-10 w-full rounded border border-slate-300 px-3 text-sm outline-none focus:border-slate-500"
-                placeholder="输入当前用户自己的 API Key"
-              />
-            </div>
-
-            <div class="rounded bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
-              只需要选择模型并填写 API Key，服务端会按模型名称自动适配官方 URL。RAG 会优先使用已配置的向量模型 Key。
-            </div>
-
-            <div class="flex items-center justify-end gap-2 pt-2">
-              <button
-                v-if="editingName"
-                @click="resetForm"
-                class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                取消
-              </button>
-              <button
-                @click="submit"
-                :disabled="submitting || !form.model_name.trim() || !form.api_key.trim()"
-                class="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
-              >
-                {{ submitting ? '保存中...' : '保存' }}
+    <main class="flex-1 overflow-y-auto px-5 py-6 lg:px-8">
+      <div class="mx-auto grid max-w-6xl gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section class="space-y-5">
+          <section class="sci-panel rounded-lg p-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-medium text-sky-700">快速开始</p>
+                <h2 class="mt-1 text-lg font-semibold text-slate-950">一步开启助手能力</h2>
+                <p class="mt-1 text-sm text-slate-500">普通用户只需要选平台、勾能力、粘贴密钥；推荐方案会自动处理。</p>
+              </div>
+              <button @click="reload" class="rounded border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+                刷新状态
               </button>
             </div>
-            <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
-          </div>
-        </section>
 
-        <section class="min-w-0">
-          <div class="mb-3 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-slate-800">已配置</h2>
-            <button @click="reload" class="text-xs text-slate-500 hover:text-slate-900">刷新</button>
-          </div>
-
-          <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <div class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <MessageSquare :size="16" />
-                聊天模型 Key
-              </div>
-              <p class="mt-2 text-xs text-slate-500">Agent 对话时按 Agent 的模型名读取，例如 glm-4、deepseek-chat、gpt-4o。</p>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-4">
-              <div class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                <Database :size="16" />
-                RAG 向量 Key
-              </div>
-              <p class="mt-2 text-xs text-slate-500">知识库上传和检索时读取 embedding-3 或 text-embedding-3-small 等向量模型配置。</p>
-            </div>
-          </div>
-
-          <div v-if="configs.length === 0" class="rounded-lg border border-dashed border-slate-300 bg-white py-16 text-center text-sm text-slate-500">
-            还没有模型配置。先添加聊天模型 Key，再添加 RAG 向量模型 Key。
-          </div>
-
-          <div v-else class="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <article
-              v-for="cfg in configs"
-              :key="cfg.id"
-              class="bg-white border border-slate-200 rounded-lg p-4"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
-                    <component :is="isEmbeddingModel(cfg.model_name) ? Database : Cpu" :size="16" class="text-slate-500" />
-                    <h3 class="truncate text-sm font-semibold text-slate-900">{{ cfg.model_name }}</h3>
+            <div class="mt-4 grid gap-3 md:grid-cols-3">
+              <button
+                v-for="provider in providerOptions"
+                :key="provider.key"
+                @click="selectProvider(provider.key)"
+                class="rounded-lg border p-4 text-left transition"
+                :class="selectedProvider === provider.key ? 'border-slate-950 bg-slate-950 text-white shadow-md' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-base font-semibold">{{ provider.label }}</p>
+                    <p class="mt-1 text-sm leading-6" :class="selectedProvider === provider.key ? 'text-slate-300' : 'text-slate-600'">
+                      {{ provider.description }}
+                    </p>
                   </div>
-                  <p class="mt-2 text-xs text-slate-500 font-mono">{{ cfg.api_key }}</p>
-                  <p class="mt-1 truncate text-xs text-slate-400">{{ providerText(cfg.provider || providerOf(cfg.model_name)) }} · URL 自动适配</p>
-                  <p
-                    v-if="testResults[cfg.model_name]"
-                    :class="testResults[cfg.model_name].ok ? 'text-emerald-700' : 'text-red-600'"
-                    class="mt-2 text-xs"
-                  >
-                    {{ testResultText(testResults[cfg.model_name]) }}
-                  </p>
+                  <CheckCircle2 v-if="selectedProvider === provider.key" :size="18" />
                 </div>
-                <span
-                  :class="isEmbeddingModel(cfg.model_name) ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'"
-                  class="rounded px-2 py-1 text-xs"
-                >
-                  {{ isEmbeddingModel(cfg.model_name) ? 'RAG' : '聊天' }}
-                </span>
-              </div>
-              <div class="mt-4 flex justify-end gap-2">
+                <div class="mt-3 flex flex-wrap gap-1.5">
+                  <span
+                    v-for="tag in provider.tags"
+                    :key="tag"
+                    class="rounded px-2 py-1 text-xs"
+                    :class="selectedProvider === provider.key ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-500'"
+                  >
+                    {{ tag }}
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            <div class="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <section class="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 class="text-sm font-semibold text-slate-900">这次要开启什么</h3>
+                <div class="mt-3 grid gap-2 md:grid-cols-2">
+                  <label
+                    v-for="item in capabilityChoices"
+                    :key="item.key"
+                    class="flex cursor-pointer items-start gap-3 rounded border border-slate-200 bg-slate-50 p-3"
+                  >
+                    <input v-model="selectedCapabilities" :value="item.key" type="checkbox" class="mt-1 h-4 w-4 accent-blue-600" :disabled="item.disabled" />
+                    <span>
+                      <span class="block text-sm font-semibold text-slate-800">{{ item.title }}</span>
+                      <span class="mt-1 block text-xs leading-5 text-slate-500">{{ item.description }}</span>
+                    </span>
+                  </label>
+                </div>
+
+                <details class="mt-4 rounded border border-slate-200 bg-slate-50">
+                  <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">技术人员选项</summary>
+                  <div class="grid gap-3 border-t border-slate-200 p-3 md:grid-cols-2">
+                    <label class="block">
+                      <span class="mb-1 block text-xs font-medium text-slate-600">回答方案</span>
+                      <select v-model="selectedChatModel" class="sci-field h-10 w-full rounded px-3 text-sm outline-none">
+                        <option v-for="model in chatModelOptions" :key="model.model_name" :value="model.model_name">
+                          {{ modelLabel(model.model_name) }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="block">
+                      <span class="mb-1 block text-xs font-medium text-slate-600">资料读取方案</span>
+                      <select v-model="selectedEmbeddingModel" class="sci-field h-10 w-full rounded px-3 text-sm outline-none" :disabled="!embeddingModelOptions.length">
+                        <option v-if="!embeddingModelOptions.length" value="">该平台暂不支持资料读取</option>
+                        <option v-for="model in embeddingModelOptions" :key="model.model_name" :value="model.model_name">
+                          {{ modelLabel(model.model_name) }}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                </details>
+              </section>
+
+              <section class="rounded-lg border border-slate-200 bg-white p-4">
+                <h3 class="text-sm font-semibold text-slate-900">访问密钥</h3>
+                <p class="mt-1 text-xs leading-5 text-slate-500">从平台控制台复制密钥粘贴到这里。保存后只显示隐藏后的结果。</p>
+                <div class="relative mt-3">
+                  <KeyRound :size="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    v-model="apiKey"
+                    :type="showKey ? 'text' : 'password'"
+                    class="sci-field h-11 w-full rounded pl-10 pr-16 text-sm outline-none"
+                    :placeholder="`粘贴 ${selectedProviderMeta.label} 的访问密钥`"
+                  />
+                  <button type="button" @click="showKey = !showKey" class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+                    {{ showKey ? '隐藏' : '显示' }}
+                  </button>
+                </div>
                 <button
-                  @click="testConfig(cfg)"
-                  :disabled="testingName === cfg.model_name"
-                  class="inline-flex h-8 items-center justify-center rounded border border-emerald-100 px-3 text-xs text-emerald-700 hover:bg-emerald-50 disabled:text-slate-300"
-                  title="测试连接"
+                  @click="pasteKey"
+                  class="mt-2 inline-flex h-8 items-center gap-2 rounded border border-slate-200 px-3 text-xs text-slate-600 hover:bg-slate-50"
                 >
-                  {{ testingName === cfg.model_name ? '测试中...' : '测试' }}
+                  <Clipboard :size="14" />
+                  从剪贴板粘贴
                 </button>
+
+                <p v-if="errorMsg" class="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-700">{{ errorMsg }}</p>
+
                 <button
-                  @click="editConfig(cfg)"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
-                  title="更新"
+                  @click="saveQuickConnect"
+                  :disabled="!canQuickSave || submitting"
+                  class="sci-primary mt-4 h-11 w-full rounded text-sm font-semibold text-white disabled:bg-slate-300 disabled:shadow-none"
                 >
-                  <Pencil :size="14" />
+                  {{ submitting ? '正在连接...' : quickSaveText }}
                 </button>
-                <button
-                  @click="removeConfig(cfg)"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded border border-red-100 text-red-500 hover:bg-red-50"
-                  title="删除"
-                >
-                  <Trash2 :size="14" />
-                </button>
-              </div>
-            </article>
-          </div>
+              </section>
+            </div>
+          </section>
         </section>
+
+        <aside class="space-y-5">
+          <section class="sci-panel rounded-lg p-5 xl:sticky xl:top-6">
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-semibold text-slate-950">当前能力</h2>
+              <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-500">{{ configs.length }} 项</span>
+            </div>
+            <div class="mt-4 space-y-3">
+              <ConnectionList
+                title="回答问题"
+                empty-text="先开启回答问题能力"
+                :items="chatConfigs"
+                :testing-name="testingName"
+                :test-results="testResults"
+                @test="testConfig"
+                @remove="removeConfig"
+              />
+              <ConnectionList
+                title="读取资料"
+                empty-text="要让助手引用资料，需要先开启这项能力"
+                :items="embeddingConfigs"
+                :testing-name="testingName"
+                :test-results="testResults"
+                @test="testConfig"
+                @remove="removeConfig"
+              />
+            </div>
+          </section>
+        </aside>
       </div>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Cpu, Database, MessageSquare, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, CheckCircle2, Clipboard, KeyRound, Trash2 } from 'lucide-vue-next'
 import * as llmApi from '../api/llmConfig'
 import type { LlmConfig, LlmConfigTestResult, SupportedModel } from '../api/llmConfig'
 import { getErrorMessage } from '../utils/request'
 import { toastError, toastSuccess } from '../utils/toast'
 
+type ProviderKey = 'zhipu' | 'deepseek' | 'openai'
+type CapabilityKey = 'chat' | 'embedding'
+
 const router = useRouter()
 const configs = ref<LlmConfig[]>([])
 const supportedCatalog = ref<{ chat: SupportedModel[]; embedding: SupportedModel[] }>({ chat: [], embedding: [] })
+const selectedProvider = ref<ProviderKey>('zhipu')
+const selectedCapabilities = ref<CapabilityKey[]>(['chat', 'embedding'])
+const selectedChatModel = ref('glm-4')
+const selectedEmbeddingModel = ref('embedding-3')
+const apiKey = ref('')
+const showKey = ref(false)
 const submitting = ref(false)
 const testingName = ref('')
 const errorMsg = ref('')
-const editingName = ref('')
 const testResults = ref<Record<string, LlmConfigTestResult>>({})
 
-const presets = [
-  { kind: 'chat', label: '智谱聊天', model: 'glm-4' },
-  { kind: 'embedding', label: '智谱 RAG', model: 'embedding-3' },
-  { kind: 'chat', label: 'DeepSeek', model: 'deepseek-chat' },
-  { kind: 'embedding', label: 'OpenAI RAG', model: 'text-embedding-3-small' },
+const providerOptions = [
+  {
+    key: 'zhipu' as const,
+    label: '智谱',
+    description: '中文项目最省心，一次配置就能回答问题和读取资料。',
+    tags: ['推荐', '中文友好', '一次配置'],
+    chat: 'glm-4',
+    embedding: 'embedding-3',
+  },
+  {
+    key: 'deepseek' as const,
+    label: 'DeepSeek',
+    description: '适合代码、推理和日常问答；暂不负责读取资料。',
+    tags: ['代码', '推理', '问答'],
+    chat: 'deepseek-chat',
+    embedding: '',
+  },
+  {
+    key: 'openai' as const,
+    label: 'OpenAI',
+    description: '通用能力强，适合英文资料和中英混合场景。',
+    tags: ['通用', '英文资料', '稳定'],
+    chat: 'gpt-4o-mini',
+    embedding: 'text-embedding-3-small',
+  },
 ]
-const fallbackModels = ['glm-4', 'glm-4-plus', 'deepseek-chat', 'gpt-4o', 'gpt-4o-mini', 'embedding-3', 'embedding-2', 'text-embedding-3-small', 'text-embedding-3-large']
-const modelOptions = computed(() => {
-  const catalog = form.value.kind === 'embedding' ? supportedCatalog.value.embedding : supportedCatalog.value.chat
-  return [...new Set([...catalog.map((item) => item.model_name), ...fallbackModels.filter((name) => form.value.kind === 'embedding' ? isEmbeddingModel(name) : !isEmbeddingModel(name))])]
-})
 
-const form = ref({
-  kind: 'chat',
-  model_name: '',
-  api_key: '',
-})
-
-const isEmbeddingModel = (model: string) => {
-  const m = model.toLowerCase()
-  return m.includes('embedding') || m.startsWith('baai/')
+const modelNames: Record<string, string> = {
+  'glm-4': '中文通用助手',
+  'glm-4-flash': '轻量快速助手',
+  'glm-4-plus': '复杂任务助手',
+  'deepseek-chat': 'DeepSeek 问答',
+  'deepseek-reasoner': 'DeepSeek 推理',
+  'deepseek-coder': 'DeepSeek 编程',
+  'gpt-4o': 'OpenAI 高能力助手',
+  'gpt-4o-mini': 'OpenAI 轻量助手',
+  'embedding-3': '中文资料读取',
+  'embedding-2': '兼容资料读取',
+  'text-embedding-3-small': 'OpenAI 轻量资料读取',
+  'text-embedding-3-large': 'OpenAI 高精度资料读取',
+  'text-embedding-ada-002': 'OpenAI 旧版资料读取',
+  'BAAI/bge-small-zh-v1.5': '本地中文轻量资料读取',
+  'BAAI/bge-base-zh-v1.5': '本地中文标准资料读取',
+  'BAAI/bge-large-zh-v1.5': '本地中文高精度资料读取',
 }
 
-const reload = async () => {
+const fallbackModels: SupportedModel[] = [
+  { model_name: 'glm-4', provider: 'zhipu', kind: 'chat' },
+  { model_name: 'deepseek-chat', provider: 'deepseek', kind: 'chat' },
+  { model_name: 'deepseek-reasoner', provider: 'deepseek', kind: 'chat' },
+  { model_name: 'gpt-4o-mini', provider: 'openai', kind: 'chat' },
+  { model_name: 'embedding-3', provider: 'zhipu', kind: 'embedding' },
+  { model_name: 'text-embedding-3-small', provider: 'openai', kind: 'embedding' },
+  { model_name: 'text-embedding-3-large', provider: 'openai', kind: 'embedding' },
+]
+
+const selectedProviderMeta = computed(() => providerOptions.find((item) => item.key === selectedProvider.value) || providerOptions[0])
+const chatConfigs = computed(() => configs.value.filter((config) => (config.kind || inferKind(config.model_name)) !== 'embedding'))
+const embeddingConfigs = computed(() => configs.value.filter((config) => (config.kind || inferKind(config.model_name)) === 'embedding'))
+const allCatalogModels = computed(() => [...supportedCatalog.value.chat, ...supportedCatalog.value.embedding].length
+  ? [...supportedCatalog.value.chat, ...supportedCatalog.value.embedding]
+  : fallbackModels)
+const chatModelOptions = computed(() => allCatalogModels.value.filter((model) => model.provider === selectedProvider.value && model.kind === 'chat'))
+const embeddingModelOptions = computed(() => allCatalogModels.value.filter((model) => model.provider === selectedProvider.value && model.kind === 'embedding'))
+const capabilityChoices = computed(() => [
+  {
+    key: 'chat' as const,
+    title: '让助手回答问题',
+    description: selectedChatModel.value ? `推荐：${friendlyModelName(selectedChatModel.value)}` : '让助手能聊天、写作、分析和调用工具。',
+    disabled: !selectedChatModel.value,
+  },
+  {
+    key: 'embedding' as const,
+    title: '让助手读取资料',
+    description: selectedEmbeddingModel.value ? `推荐：${friendlyModelName(selectedEmbeddingModel.value)}` : '该平台暂不支持读取资料。',
+    disabled: !selectedEmbeddingModel.value,
+  },
+])
+const selectedModels = computed(() => {
+  const models: string[] = []
+  if (selectedCapabilities.value.includes('chat') && selectedChatModel.value) models.push(selectedChatModel.value)
+  if (selectedCapabilities.value.includes('embedding') && selectedEmbeddingModel.value) models.push(selectedEmbeddingModel.value)
+  return Array.from(new Set(models))
+})
+const canQuickSave = computed(() => selectedModels.value.length > 0 && apiKey.value.trim().length > 0)
+const quickSaveText = computed(() => `保存并测试 ${selectedModels.value.length || 0} 项能力`)
+
+function inferKind(modelName: string): CapabilityKey {
+  const name = modelName.toLowerCase()
+  return name.includes('embedding') || name.startsWith('baai/') ? 'embedding' : 'chat'
+}
+
+function modelLabel(modelName: string) {
+  return `${modelNames[modelName] || modelName} · ${modelName}`
+}
+
+function friendlyModelName(modelName: string) {
+  return modelNames[modelName] || '推荐方案'
+}
+
+function selectProvider(provider: ProviderKey) {
+  selectedProvider.value = provider
+}
+
+function applyProviderDefaults() {
+  const meta = selectedProviderMeta.value
+  selectedChatModel.value = chatModelOptions.value.some((item) => item.model_name === meta.chat)
+    ? meta.chat
+    : chatModelOptions.value[0]?.model_name || ''
+  selectedEmbeddingModel.value = embeddingModelOptions.value.some((item) => item.model_name === meta.embedding)
+    ? meta.embedding
+    : embeddingModelOptions.value[0]?.model_name || ''
+  selectedCapabilities.value = selectedEmbeddingModel.value ? ['chat', 'embedding'] : ['chat']
+}
+
+async function reload() {
   configs.value = await llmApi.listConfigs()
 }
 
-const loadSupportedModels = async () => {
+async function loadSupportedModels() {
   try {
     supportedCatalog.value = await llmApi.listSupportedModelCatalog()
   } catch {
@@ -237,101 +333,171 @@ const loadSupportedModels = async () => {
   }
 }
 
-const resetForm = () => {
-  editingName.value = ''
-  form.value = { kind: 'chat', model_name: '', api_key: '' }
-  errorMsg.value = ''
-}
-
-const openCreate = () => resetForm()
-
-const applyPreset = (preset: typeof presets[number]) => {
-  form.value.kind = preset.kind
-  form.value.model_name = preset.model
-}
-
-const editConfig = (cfg: LlmConfig) => {
-  editingName.value = cfg.model_name
-  form.value = {
-    kind: isEmbeddingModel(cfg.model_name) ? 'embedding' : 'chat',
-    model_name: cfg.model_name,
-    api_key: '',
+async function pasteKey() {
+  try {
+    apiKey.value = await navigator.clipboard.readText()
+    toastSuccess('已粘贴访问密钥')
+  } catch {
+    toastError('浏览器未允许读取剪贴板，请手动粘贴')
   }
-  errorMsg.value = ''
 }
 
-const submit = async () => {
-  if (!form.value.model_name.trim() || !form.value.api_key.trim()) return
+async function saveQuickConnect() {
+  if (!canQuickSave.value) return
   submitting.value = true
   errorMsg.value = ''
+  const key = apiKey.value.trim()
+  const savedModels = [...selectedModels.value]
   try {
-    await llmApi.saveConfig({
-      model_name: form.value.model_name.trim(),
-      api_key: form.value.api_key.trim(),
-    })
+    for (const modelName of savedModels) {
+      await llmApi.saveConfig({ model_name: modelName, api_key: key })
+    }
     await reload()
-    resetForm()
+    apiKey.value = ''
+    showKey.value = false
+    toastSuccess(`已保存 ${savedModels.length} 项能力`)
+    for (const modelName of savedModels) {
+      const cfg = configs.value.find((item) => item.model_name === modelName)
+      if (cfg) await testConfig(cfg, false)
+    }
   } catch (e: any) {
-    errorMsg.value = getErrorMessage(e, '保存失败')
+    errorMsg.value = getErrorMessage(e, 'AI 服务连接失败，请检查访问密钥后再试')
   } finally {
     submitting.value = false
   }
 }
 
-const removeConfig = async (cfg: LlmConfig) => {
-  if (!confirm(`确认删除模型配置「${cfg.model_name}」？使用该模型的功能将无法继续调用。`)) return
+async function removeConfig(cfg: LlmConfig) {
+  if (!confirm(`确认删除「${modelNames[cfg.model_name] || cfg.model_name}」？删除后相关能力会停用。`)) return
   await llmApi.deleteConfig(cfg.model_name)
   await reload()
-  if (editingName.value === cfg.model_name) resetForm()
 }
 
-const testConfig = async (cfg: LlmConfig) => {
+async function testConfig(cfg: LlmConfig, toast = true) {
   testingName.value = cfg.model_name
   try {
     const result = await llmApi.testConfig(cfg.model_name)
     testResults.value[cfg.model_name] = result
-    toastSuccess(`${cfg.model_name} 连接正常`)
+    if (toast) toastSuccess(`${modelNames[cfg.model_name] || cfg.model_name} 连接正常`)
   } catch (e: any) {
     const detail = e?.response?.data?.detail
     const result = typeof detail === 'object'
       ? detail as LlmConfigTestResult
-      : {
-          ok: false,
-          model_name: cfg.model_name,
-          message: getErrorMessage(e, '连接测试失败'),
-        }
+      : { ok: false, model_name: cfg.model_name, message: getErrorMessage(e, '连接测试失败，请检查访问密钥或稍后重试') }
     testResults.value[cfg.model_name] = result
-    toastError(testResultText(result))
+    if (toast) toastError(testResultText(result))
   } finally {
     testingName.value = ''
   }
 }
 
-const testResultText = (result: LlmConfigTestResult) => {
+function testResultText(result?: LlmConfigTestResult) {
+  if (!result) return ''
   if (result.ok) {
     const elapsed = result.elapsed_ms !== undefined ? ` · ${result.elapsed_ms}ms` : ''
-    if (result.kind === 'embedding') return `${result.message} · ${result.dimension || 0}维${elapsed}`
+    if (result.kind === 'embedding') return `资料读取连接正常 · ${result.dimension || 0}维${elapsed}`
     return `${result.message}${elapsed}${result.preview ? ` · ${result.preview}` : ''}`
   }
-  return `${result.message}${result.error ? `：${result.error}` : ''}`
+  const error = cleanProviderError(result.error)
+  return `${result.message}${error ? `：${error}` : ''}`
 }
+
+function cleanProviderError(error?: string) {
+  if (!error) return ''
+  const masked = error
+    .replace(/\*{2,}[a-z0-9_-]+/gi, '已隐藏')
+    .replace(/sk-[a-z0-9_-]+/gi, '已隐藏')
+  const lower = masked.toLowerCase()
+  if (lower.includes('authentication') || lower.includes('unauthorized') || lower.includes('invalid') || lower.includes('api key')) {
+    return '访问密钥无效或没有权限，请检查后重新粘贴'
+  }
+  if (lower.includes('rate limit') || lower.includes('too many requests')) {
+    return '服务调用太频繁，请稍后再试'
+  }
+  if (lower.includes('insufficient') || lower.includes('quota') || lower.includes('balance')) {
+    return '账号额度不足，请检查服务商后台余额或套餐'
+  }
+  if (lower.includes('timeout')) {
+    return '连接超时，请稍后重试'
+  }
+  if (lower.includes('connection') || lower.includes('connect')) {
+    return '连接外部服务失败，请检查网络或服务状态'
+  }
+  return getErrorMessage({ message: masked }, '连接外部服务失败，请稍后重试')
+}
+
+const StatusCard = defineComponent({
+  props: {
+    label: { type: String, required: true },
+    ok: { type: Boolean, required: true },
+    text: { type: String, required: true },
+  },
+  setup(props) {
+    return () => h('div', {
+      class: [
+        'rounded-lg border px-3 py-2',
+        props.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800',
+      ],
+    }, [
+      h('p', { class: 'text-[11px] font-medium opacity-70' }, props.label),
+      h('p', { class: 'mt-0.5 text-sm font-semibold' }, props.text),
+    ])
+  },
+})
+
+const ConnectionList = defineComponent({
+  props: {
+    title: { type: String, required: true },
+    emptyText: { type: String, required: true },
+    items: { type: Array as () => LlmConfig[], required: true },
+    testingName: { type: String, default: '' },
+    testResults: { type: Object as () => Record<string, LlmConfigTestResult>, required: true },
+  },
+  emits: ['test', 'remove'],
+  setup(props, { emit }) {
+    return () => h('div', { class: 'rounded-lg border border-slate-200 bg-white p-3' }, [
+      h('div', { class: 'mb-3 flex items-center justify-between' }, [
+        h('p', { class: 'text-sm font-semibold text-slate-800' }, props.title),
+        h('span', { class: 'rounded bg-slate-100 px-2 py-1 text-xs text-slate-500' }, `${props.items.length} 个`),
+      ]),
+      props.items.length
+        ? h('div', { class: 'space-y-2' }, props.items.map((cfg) => {
+            const result = props.testResults[cfg.model_name]
+            return h('article', { key: cfg.id, class: 'rounded border border-slate-100 bg-slate-50 p-3' }, [
+              h('div', { class: 'flex items-start justify-between gap-2' }, [
+                h('div', { class: 'min-w-0' }, [
+                  h('p', { class: 'truncate text-sm font-medium text-slate-900' }, friendlyModelName(cfg.model_name)),
+                  h('p', { class: 'mt-1 text-xs text-slate-500' }, cfg.api_key ? '访问密钥已保存' : '已保存'),
+                  h('details', { class: 'mt-2 text-xs text-slate-400' }, [
+                    h('summary', { class: 'cursor-pointer select-none hover:text-slate-600' }, '查看技术信息'),
+                    h('p', { class: 'mt-1 break-all font-mono' }, cfg.model_name),
+                  ]),
+                ]),
+              ]),
+              result ? h('p', { class: result.ok ? 'mt-2 text-xs text-emerald-700' : 'mt-2 text-xs text-red-600' }, testResultText(result)) : null,
+              h('div', { class: 'mt-3 flex justify-end gap-1.5' }, [
+                h('button', {
+                  class: 'h-8 rounded border border-slate-200 bg-white px-3 text-xs text-slate-600 hover:bg-slate-50 disabled:text-slate-300',
+                  disabled: props.testingName === cfg.model_name,
+                  onClick: () => emit('test', cfg),
+                }, props.testingName === cfg.model_name ? '测试中' : '测试'),
+                h('button', {
+                  class: 'inline-flex h-8 w-8 items-center justify-center rounded border border-red-100 bg-white text-red-500 hover:bg-red-50',
+                  title: '删除',
+                  onClick: () => emit('remove', cfg),
+                }, [h(Trash2, { size: 14 })]),
+              ]),
+            ])
+          }))
+        : h('p', { class: 'rounded border border-dashed border-slate-200 bg-slate-50 py-7 text-center text-sm text-slate-500' }, props.emptyText),
+    ])
+  },
+})
+
+watch(selectedProvider, applyProviderDefaults)
 
 onMounted(async () => {
   await Promise.all([reload(), loadSupportedModels()])
+  applyProviderDefaults()
 })
-
-const providerOf = (modelName: string) => {
-  const name = modelName.toLowerCase()
-  if (name.startsWith('deepseek')) return 'deepseek'
-  if (name.startsWith('gpt') || name.startsWith('text-embedding')) return 'openai'
-  if (name.startsWith('baai/')) return 'local'
-  return 'zhipu'
-}
-
-const providerText = (provider: string) => ({
-  zhipu: '智谱',
-  deepseek: 'DeepSeek',
-  openai: 'OpenAI',
-  local: '本地模型',
-}[provider] || provider)
 </script>

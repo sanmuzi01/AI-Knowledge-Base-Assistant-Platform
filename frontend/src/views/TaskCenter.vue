@@ -1,13 +1,14 @@
 <template>
-  <div class="h-screen flex flex-col bg-gray-50">
-    <!-- 顶栏 -->
-    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm">
+  <div class="h-screen flex flex-col bg-transparent">
+    <header class="min-h-16 border-b border-sky-200/70 bg-white/78 px-5 py-3 shadow-lg shadow-sky-900/8 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-center gap-3">
-        <button @click="$router.push('/agents')" class="text-sm text-gray-500 hover:text-gray-700">
-          ← 返回
+        <button @click="$router.push('/agents')" class="inline-flex h-8 items-center rounded border border-sky-200 bg-white/80 px-3 text-sm text-slate-600 hover:bg-sky-50">
+          返回工作台
         </button>
-        <span class="text-gray-300">|</span>
-        <h1 class="text-lg font-semibold text-gray-800">后台任务中心</h1>
+        <div>
+          <h1 class="text-base font-semibold text-slate-900">处理进度</h1>
+          <p class="text-xs text-slate-500">查看资料入库、重建索引等后台任务。</p>
+        </div>
         <span v-if="isAdmin && showAll" class="text-xs px-2 py-0.5 bg-red-50 text-red-600 rounded">
           管理员·全局
         </span>
@@ -16,20 +17,20 @@
         <button
           v-if="isAdmin"
           @click="toggleScope"
-          class="px-3 py-1.5 text-xs border rounded-lg transition-colors"
+          class="px-3 py-1.5 text-xs border rounded transition-colors"
           :class="showAll
             ? 'border-red-200 text-red-600 bg-red-50'
-            : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+            : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
         >
-          {{ showAll ? '看全局任务' : '看我的任务' }}
+          {{ showAll ? '全局任务' : '我的任务' }}
         </button>
-        <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+        <label class="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
           <input type="checkbox" v-model="autoRefresh" class="rounded" />
           自动刷新
         </label>
         <button
           @click="reload()"
-          class="px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1"
+          class="px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors flex items-center gap-1"
         >
           <RefreshCw :size="14" :class="loading ? 'animate-spin' : ''" />
           刷新
@@ -38,9 +39,9 @@
     </header>
 
     <!-- 筛选栏 -->
-    <div class="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4">
+    <div class="border-b border-sky-100 bg-white/58 px-5 py-3 backdrop-blur flex flex-wrap items-center gap-4">
       <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-500">状态</span>
+        <span class="text-xs text-slate-500">状态</span>
         <div class="flex gap-1">
           <button
             v-for="opt in statusOptions"
@@ -49,8 +50,8 @@
             :class="[
               'px-2.5 py-1 text-xs rounded-full transition-colors',
               filterStatus === opt.value
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'
+                : 'bg-white/80 text-slate-600 hover:bg-sky-50'
             ]"
           >
             {{ opt.label }}
@@ -58,16 +59,16 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-500">类型</span>
+        <span class="text-xs text-slate-500">类型</span>
         <select
           v-model="filterType"
-          class="text-xs border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+          class="text-xs border border-slate-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
         >
           <option value="">全部</option>
           <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
         </select>
       </div>
-      <div class="ml-auto text-xs text-gray-400">
+      <div class="ml-auto text-xs text-slate-400">
         共 {{ tasks.length }} 条
       </div>
     </div>
@@ -75,22 +76,22 @@
     <!-- 任务列表 -->
     <main class="flex-1 overflow-y-auto p-6">
       <div class="max-w-5xl mx-auto">
-        <div v-if="!loading && tasks.length === 0" class="text-center py-16 text-gray-400">
-          暂无任务
+        <div v-if="!loading && tasks.length === 0" class="rounded-lg border border-dashed border-sky-300/70 bg-white/62 py-16 text-center text-sm text-slate-500 backdrop-blur">
+          暂无处理任务。上传资料、抓取网页或重建索引后会显示在这里。
         </div>
 
         <div v-else class="space-y-3">
           <div
             v-for="task in tasks"
             :key="task.id"
-            class="bg-white border rounded-xl p-4 hover:shadow-sm transition-shadow"
+            class="sci-panel rounded-lg p-4 transition hover:border-sky-300 hover:shadow-xl hover:shadow-sky-900/8"
             :class="statusBorder(task.status)"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
                 <!-- 标题行 -->
                 <div class="flex items-center gap-2 mb-1">
-                  <span class="font-medium text-gray-800 truncate">{{ task.title }}</span>
+                  <span class="font-medium text-slate-800 truncate">{{ task.title }}</span>
                   <span
                     class="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1"
                     :class="statusBadge(task.status)"
@@ -98,42 +99,48 @@
                     <component :is="statusIcon(task.status)" :size="11" />
                     {{ statusLabel(task.status) }}
                   </span>
-                  <span class="text-xs text-gray-400 font-mono">#{{ task.id }}</span>
+                  <span class="text-xs text-slate-400 font-mono">#{{ task.id }}</span>
                   <span v-if="task.retry_count > 0" class="text-xs px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">
                     重试 {{ task.retry_count }} 次
                   </span>
                 </div>
                 <!-- 元数据行 -->
-                <div class="text-xs text-gray-500 flex items-center gap-3 flex-wrap">
-                  <span class="font-mono">{{ task.task_type }}</span>
+                <div class="text-xs text-slate-500 flex items-center gap-3 flex-wrap">
+                  <span>{{ taskTypeLabel(task.task_type) }}</span>
                   <span v-if="showAll">用户 #{{ task.user_id }}</span>
-                  <span v-if="task.agent_id">Agent #{{ task.agent_id }}</span>
-                  <span v-if="task.target_type">→ {{ task.target_type }} #{{ task.target_id }}</span>
+                  <span v-if="task.agent_id">助手 #{{ task.agent_id }}</span>
+                  <span v-if="task.target_type">对象 #{{ task.target_id }}</span>
                   <span>创建: {{ task.created_at }}</span>
+                  <span v-if="task.next_run_at">下次重试: {{ task.next_run_at }}</span>
                   <span v-if="task.finished_at">完成: {{ task.finished_at }}</span>
                 </div>
                 <!-- 进度条（running 时显示） -->
                 <div v-if="task.status === 'running' || task.progress > 0" class="mt-2">
                   <div class="flex items-center gap-2">
-                    <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                       <div
                         class="h-full bg-blue-500 rounded-full transition-all duration-300"
                         :style="{ width: task.progress + '%' }"
                       ></div>
                     </div>
-                    <span class="text-xs text-gray-500 w-9 text-right">{{ task.progress }}%</span>
+                    <span class="text-xs text-slate-500 w-9 text-right">{{ task.progress }}%</span>
                   </div>
                 </div>
                 <!-- 错误信息（failed 时显示） -->
-                <div v-if="task.status === 'failed' && task.error_msg" class="mt-2">
-                  <div class="text-xs bg-red-50 border border-red-100 rounded p-2 text-red-700 font-mono whitespace-pre-wrap break-all">
+                <div v-if="task.error_msg" class="mt-2">
+                  <div
+                    class="text-xs rounded p-2 font-mono whitespace-pre-wrap break-all"
+                    :class="task.status === 'queued' && task.next_run_at
+                      ? 'bg-amber-50 border border-amber-100 text-amber-800'
+                      : 'bg-red-50 border border-red-100 text-red-700'"
+                  >
                     {{ task.error_msg }}
                   </div>
                 </div>
                 <!-- 结果（finished 时显示，可折叠） -->
                 <details v-if="task.status === 'finished' && task.result" class="mt-2">
-                  <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700">查看结果</summary>
-                  <pre class="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto text-gray-700">{{ JSON.stringify(task.result, null, 2) }}</pre>
+                  <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700">查看结果</summary>
+                  <pre class="text-xs bg-slate-50 rounded p-2 mt-1 overflow-x-auto text-slate-700">{{ JSON.stringify(task.result, null, 2) }}</pre>
                 </details>
               </div>
               <!-- 操作按钮 -->
@@ -249,6 +256,11 @@ watch([filterStatus, filterType], () => reload())
 const canRetry = (t: Task) => t.status === 'failed' || t.status === 'cancelled'
 const canCancel = (t: Task) => t.status === 'queued'
 
+const taskTypeLabel = (type: string) => ({
+  knowledge_index: '资料入库',
+  knowledge_reindex: '重建资料',
+}[type] || type)
+
 const handleRetry = async (t: Task) => {
   if (!confirm(`确认重试任务「${t.title}」？将创建新任务并重新执行。`)) return
   actingId.value = t.id
@@ -277,7 +289,7 @@ const handleCancel = async (t: Task) => {
 
 // ===== 状态辅助 =====
 const statusLabel = (s: TaskStatus) => ({
-  queued: '排队中', running: '执行中', finished: '成功', failed: '失败', cancelled: '已取消',
+  queued: '等待处理', running: '处理中', finished: '已完成', failed: '失败', cancelled: '已取消',
 }[s] || s)
 
 const statusIcon = (s: TaskStatus) => ({
@@ -285,20 +297,20 @@ const statusIcon = (s: TaskStatus) => ({
 }[s] || Clock)
 
 const statusBadge = (s: TaskStatus) => ({
-  queued: 'bg-gray-100 text-gray-600',
+  queued: 'bg-slate-100 text-slate-600',
   running: 'bg-blue-50 text-blue-600',
-  finished: 'bg-green-50 text-green-600',
+  finished: 'bg-emerald-50 text-emerald-600',
   failed: 'bg-red-50 text-red-600',
   cancelled: 'bg-amber-50 text-amber-600',
-}[s] || 'bg-gray-100 text-gray-600')
+}[s] || 'bg-slate-100 text-slate-600')
 
 const statusBorder = (s: TaskStatus) => ({
-  queued: 'border-gray-200',
+  queued: 'border-slate-200',
   running: 'border-blue-200',
-  finished: 'border-green-200',
+  finished: 'border-emerald-200',
   failed: 'border-red-200',
   cancelled: 'border-amber-200',
-}[s] || 'border-gray-200')
+}[s] || 'border-slate-200')
 
 onMounted(() => reload())
 </script>

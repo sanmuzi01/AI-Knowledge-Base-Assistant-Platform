@@ -2,6 +2,8 @@ import request from '../utils/request'
 
 export interface KnowledgeDoc {
   id: number
+  agent_id?: number
+  agent_name?: string | null
   file_name: string
   file_type: string
   file_size: number
@@ -35,6 +37,62 @@ export interface KnowledgeChunk {
   created_at: string | null
 }
 
+export interface KnowledgeRecommendation {
+  key: string
+  level: 'danger' | 'warn' | 'info'
+  title: string
+  description: string
+  action_text: string
+  action_path: string
+}
+
+export interface KnowledgeDiagnostics {
+  agent: {
+    id: number
+    name: string
+    rag_enabled: number
+  }
+  score: number
+  embedding: {
+    ready: boolean
+    models: string[]
+  }
+  documents: {
+    status: Record<string, number>
+    searchable_count: number
+    working_count: number
+    failed_count: number
+  }
+  tasks: {
+    status: Record<string, number>
+    active_count: number
+    failed_count: number
+  }
+  crawler: {
+    app_env: string
+    browser_fallback: boolean
+    allow_private_network: boolean
+    allow_private_dns: boolean
+    timeout_seconds: number
+    max_bytes: number
+    min_text_length: number
+    user_agent: string
+  }
+  recommendations: KnowledgeRecommendation[]
+}
+
+export interface CrawlCheckResult {
+  count: number
+  ok_count: number
+  failed_count: number
+  items: Array<{
+    url: string
+    normalized_url: string
+    ok: boolean
+    error: string
+  }>
+}
+
 /** 上传文档（multipart/form-data） */
 export async function uploadDocument(agentId: number, file: File): Promise<any> {
   const formData = new FormData()
@@ -64,15 +122,56 @@ export async function uploadDocuments(agentId: number, files: File[]): Promise<{
   return data
 }
 
+/** 抓取网页并作为 Markdown 文档入库 */
+export async function crawlDocuments(agentId: number, urls: string[]): Promise<{
+  message: string
+  count: number
+  failed_count?: number
+  items: Array<{
+    file_name: string
+    knowledge_id: number
+    task_id: number
+    status: string
+    url?: string
+    title?: string
+  }>
+  failed_items?: Array<{
+    url: string
+    error: string
+  }>
+}> {
+  const { data } = await request.post(`/knowledge/${agentId}/crawl`, { urls })
+  return data
+}
+
+/** 检测网页地址是否允许抓取，不创建入库任务 */
+export async function checkCrawlUrls(urls: string[]): Promise<CrawlCheckResult> {
+  const { data } = await request.post('/knowledge/crawl/check', { urls })
+  return data
+}
+
+/** 知识库健康诊断 */
+export async function getDiagnostics(agentId: number): Promise<KnowledgeDiagnostics> {
+  const { data } = await request.get(`/knowledge/${agentId}/diagnostics`)
+  return data
+}
+
 /** 文档列表 */
 export async function listDocuments(agentId: number): Promise<KnowledgeDoc[]> {
   const { data } = await request.get(`/knowledge/${agentId}/list`)
   return data as KnowledgeDoc[]
 }
 
-export async function getDocument(agentId: number, knowledgeId: number): Promise<KnowledgeDocDetail> {
-  const { data } = await request.get(`/knowledge/${agentId}/${knowledgeId}`)
-  return data as KnowledgeDocDetail
+/** 我的全部资料（跨助手） */
+export async function listMyDocuments(): Promise<KnowledgeDoc[]> {
+  const { data } = await request.get('/knowledge/my/list')
+  return data as KnowledgeDoc[]
+}
+
+/** 把已有资料导入当前助手 */
+export async function importDocumentToAgent(agentId: number, knowledgeId: number): Promise<any> {
+  const { data } = await request.post(`/knowledge/${agentId}/import/${knowledgeId}`)
+  return data
 }
 
 /** 检索测试 */

@@ -1,20 +1,20 @@
 <template>
-  <div class="h-screen flex flex-col bg-slate-50">
-    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6">
+  <div class="h-screen flex flex-col bg-transparent">
+    <header class="min-h-16 border-b border-sky-200/70 bg-white/78 px-5 py-3 text-slate-900 shadow-lg shadow-sky-900/8 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-center gap-3">
         <button
           @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
-          title="返回 Agent 列表"
+          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+          title="返回工作台"
         >
           <ArrowLeft :size="16" />
         </button>
         <div>
-          <h1 class="text-base font-semibold text-slate-900">Skill 管理</h1>
-          <p class="text-xs text-slate-500">创建、导入并绑定可被 Agent 加载的能力包</p>
+          <h1 class="text-base font-semibold text-slate-950">技能中心</h1>
+          <p class="text-xs text-slate-500">把常用工作流程保存成能力，让助手按固定方法完成任务。</p>
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <input
           ref="importInput"
           type="file"
@@ -25,24 +25,24 @@
         <button
           @click="importInput?.click()"
           :disabled="importing"
-          class="inline-flex items-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
         >
           <Upload :size="15" />
-          {{ importing ? '导入中...' : '导入 Skill' }}
+          {{ importing ? '导入中...' : '导入能力包' }}
         </button>
         <button
           @click="openCreate"
-          class="inline-flex items-center gap-2 rounded bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-700"
+          class="sci-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
         >
           <Plus :size="15" />
-          新建 Skill
+          新建能力
         </button>
         <button
           @click="openTemplateCreate"
-          class="inline-flex items-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
         >
           <Plus :size="15" />
-          新建模板
+          新建样板
         </button>
       </div>
     </header>
@@ -51,14 +51,14 @@
       <div class="mx-auto max-w-6xl">
         <section class="mb-5">
           <div class="mb-2 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-slate-900">Skill 模板</h2>
-            <span class="text-xs text-slate-500">内置模板可直接使用，用户模板可编辑复用</span>
+            <h2 class="text-sm font-semibold text-slate-950">从样板开始</h2>
+            <span class="text-xs text-slate-500">适合不知道怎么写能力的新用户</span>
           </div>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             <article
               v-for="template in templates"
               :key="template.filename"
-              class="rounded-lg border border-slate-200 bg-white p-4"
+              class="sci-panel rounded-lg p-4"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -66,10 +66,10 @@
                   <p class="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{{ template.description || template.filename }}</p>
                 </div>
                 <span :class="template.editable ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'" class="shrink-0 rounded px-2 py-1 text-xs">
-                  {{ template.editable ? '用户模板' : '内置' }}
+                  {{ template.editable ? '我的样板' : '内置' }}
                 </span>
               </div>
-              <p class="mt-3 truncate text-xs text-slate-400">{{ (template.tool_names || []).join(' / ') || '未配置工具' }}</p>
+              <p class="mt-3 truncate text-xs text-slate-400">{{ (template.tool_names || []).join(' / ') || '不需要额外工具' }}</p>
               <div class="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
                 <button
                   @click="createFromTemplate(template)"
@@ -97,37 +97,37 @@
         </section>
 
         <div class="mb-4 flex items-center justify-between">
-          <div class="inline-flex rounded border border-slate-200 bg-white p-1">
+          <div class="inline-flex rounded border border-sky-200 bg-white/70 p-1 backdrop-blur">
             <button
               @click="activeTab = 'mine'"
-              :class="activeTab === 'mine' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'"
+              :class="activeTab === 'mine' ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50'"
               class="rounded px-3 py-1.5 text-sm"
             >
-              我的 Skill
+              我的能力
             </button>
             <button
               @click="activeTab = 'public'"
-              :class="activeTab === 'public' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'"
+              :class="activeTab === 'public' ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50'"
               class="rounded px-3 py-1.5 text-sm"
             >
-              公开 Skill
+              能力商店
             </button>
           </div>
           <div class="flex items-center gap-3">
             <span v-if="importError" class="text-xs text-red-600">{{ importError }}</span>
-            <button @click="reload" class="text-xs text-slate-500 hover:text-slate-900">刷新</button>
+            <button @click="reload" class="text-xs text-sky-600 hover:text-sky-800">刷新</button>
           </div>
         </div>
 
-        <div v-if="shownSkills.length === 0" class="rounded-lg border border-dashed border-slate-300 bg-white py-16 text-center text-sm text-slate-500">
-          {{ activeTab === 'mine' ? '你还没有创建 Skill。' : '暂无公开 Skill。' }}
+        <div v-if="shownSkills.length === 0" class="rounded-lg border border-dashed border-sky-300/70 bg-white/62 py-16 text-center text-sm text-slate-500 backdrop-blur">
+          {{ activeTab === 'mine' ? '你还没有创建能力。可以导入能力包，或从样板创建。' : '暂无可安装能力。' }}
         </div>
 
         <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <article
             v-for="skill in shownSkills"
             :key="skill.id"
-            class="bg-white border border-slate-200 rounded-lg p-4 hover:border-slate-300 hover:shadow-sm"
+            class="sci-panel rounded-lg p-4 transition hover:border-cyan-300/45 hover:shadow-xl hover:shadow-cyan-950/20"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">
@@ -136,7 +136,7 @@
                 </span>
                 <div class="min-w-0">
                   <h2 class="truncate text-sm font-semibold text-slate-900">{{ skill.name }}</h2>
-                  <p class="truncate text-xs text-slate-500">{{ skill.config_file }}</p>
+                  <p class="truncate text-xs text-slate-500">{{ skill.description || '可添加到助手的工作能力' }}</p>
                 </div>
               </div>
               <span :class="skill.is_public === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'" class="shrink-0 rounded px-2 py-1 text-xs">
@@ -154,7 +154,7 @@
                 <button
                   @click="openValidationPreview(skill.id)"
                   class="shrink-0 rounded px-1.5 py-0.5 hover:bg-white/70"
-                  title="查看校验详情"
+                  title="查看可用性检查详情"
                 >
                   详情
                 </button>
@@ -170,19 +170,28 @@
               </div>
               <div class="mt-2 flex flex-wrap gap-1">
                 <span class="rounded bg-white/70 px-1.5 py-0.5 text-[11px]">
-                  资源 {{ validationMap[skill.id]?.allowed_resource_count || 0 }}/{{ validationMap[skill.id]?.resource_count || 0 }}
+                  文件资源 {{ validationMap[skill.id]?.allowed_resource_count || 0 }}/{{ validationMap[skill.id]?.resource_count || 0 }}
                 </span>
                 <span
                   v-if="validationMap[skill.id]?.permissions?.network"
                   class="rounded bg-white/70 px-1.5 py-0.5 text-[11px]"
                 >
-                  网络
+                  可联网
                 </span>
               </div>
             </div>
 
             <div class="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
               <button
+                v-if="activeTab === 'public' && !isMySkill(skill)"
+                @click="handleInstall(skill)"
+                :disabled="installingId === skill.id"
+                class="rounded border border-sky-200 px-3 py-1.5 text-xs text-sky-700 hover:bg-sky-50 disabled:text-slate-300"
+              >
+                {{ installingId === skill.id ? '安装中...' : '安装' }}
+              </button>
+              <button
+                v-if="activeTab === 'mine' || isMySkill(skill)"
                 @click="openEdit(skill)"
                 class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                 title="编辑"
@@ -190,6 +199,7 @@
                 <Pencil :size="15" />
               </button>
               <button
+                v-if="activeTab === 'mine' || isMySkill(skill)"
                 @click="handleExport(skill)"
                 class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-blue-50 hover:text-blue-700"
                 title="导出"
@@ -197,6 +207,7 @@
                 <Download :size="15" />
               </button>
               <button
+                v-if="activeTab === 'mine' || isMySkill(skill)"
                 @click="handleDelete(skill)"
                 class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600"
                 title="删除"
@@ -212,7 +223,7 @@
     <div v-if="showDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @click.self="closeDialog">
       <div class="w-full max-w-2xl rounded-lg bg-white shadow-xl">
         <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
-          <h2 class="text-base font-semibold text-slate-900">{{ editing ? '编辑 Skill' : '新建 Skill' }}</h2>
+          <h2 class="text-base font-semibold text-slate-900">{{ editing ? '编辑能力' : '新建能力' }}</h2>
           <button @click="closeDialog" class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100" title="关闭">
             <X :size="16" />
           </button>
@@ -231,9 +242,9 @@
                 :disabled="!!editing"
                 class="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm outline-none focus:border-violet-500 disabled:bg-slate-100"
               >
-                <option value="">自定义 Skill</option>
+                <option value="">自定义能力</option>
                 <option v-for="t in templates" :key="t.filename" :value="t.filename">
-                  从模板创建：{{ t.name }}
+                  从样板创建：{{ t.name }}
                 </option>
               </select>
             </div>
@@ -246,8 +257,8 @@
               :class="!form.template_filename ? 'border-violet-500 bg-violet-50' : 'border-slate-200 bg-white hover:bg-slate-50'"
               class="rounded border p-3 text-left"
             >
-              <span class="block text-sm font-medium text-slate-900">自定义 Skill</span>
-              <span class="mt-1 block text-xs leading-relaxed text-slate-500">从零选择工具、填写指令，适合完全自定义能力。</span>
+              <span class="block text-sm font-medium text-slate-900">自定义能力</span>
+              <span class="mt-1 block text-xs leading-relaxed text-slate-500">从零选择工具、填写工作规则，适合完全自定义能力。</span>
             </button>
             <button
               v-for="template in templates"
@@ -259,19 +270,19 @@
             >
               <span class="block text-sm font-medium text-slate-900">{{ template.name }}</span>
               <span class="mt-1 line-clamp-2 block text-xs leading-relaxed text-slate-500">{{ template.description || template.filename }}</span>
-              <span class="mt-2 block truncate text-xs text-slate-400">{{ (template.tool_names || []).join(' / ') || '未配置工具' }}</span>
+              <span class="mt-2 block truncate text-xs text-slate-400">{{ (template.tool_names || []).join(' / ') || '不需要额外工具' }}</span>
             </button>
           </div>
 
           <div>
             <label class="mb-1 block text-xs font-medium text-slate-600">描述</label>
-            <textarea v-model="form.description" rows="3" class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500" placeholder="说明这个 Skill 提供的能力" />
+            <textarea v-model="form.description" rows="3" class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500" placeholder="说明这个能力可以帮助手做什么" />
           </div>
 
           <div>
             <div class="mb-2 flex items-center justify-between">
-              <label class="block text-xs font-medium text-slate-600">可用工具</label>
-              <span class="text-xs text-slate-400">选择后会写入 Skill 配置</span>
+              <label class="block text-xs font-medium text-slate-600">这个能力可以使用的工具</label>
+              <span class="text-xs text-slate-400">选择后会写入能力配置</span>
             </div>
             <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
               <label
@@ -289,19 +300,19 @@
           </div>
 
           <div>
-            <label class="mb-1 block text-xs font-medium text-slate-600">Skill 指令</label>
+            <label class="mb-1 block text-xs font-medium text-slate-600">能力说明</label>
             <textarea
               v-model="form.system_prompt"
               rows="7"
               class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500"
-              placeholder="写下这个 Skill 的工作流程、约束、输出格式。"
+              placeholder="写下这个能力的工作流程、约束、输出格式。"
             />
           </div>
 
           <div class="rounded border border-slate-200 p-3">
             <div class="mb-3 flex items-center justify-between">
               <div>
-                <p class="text-xs font-medium text-slate-600">权限与资源</p>
+                <p class="text-xs font-medium text-slate-600">联网与文件权限</p>
                 <p class="mt-1 text-xs text-slate-400">每行一个 resources 内的相对路径</p>
               </div>
               <label class="flex items-center gap-2 text-xs text-slate-600">
@@ -316,7 +327,7 @@
               placeholder="例如：guide.md&#10;examples/sample.json"
             />
             <div v-if="form.resources.length" class="mt-3 space-y-1">
-              <p class="text-xs font-medium text-slate-500">已随 Skill 导入的资源</p>
+              <p class="text-xs font-medium text-slate-500">能力包自带文件</p>
               <div class="flex flex-wrap gap-1.5">
                 <button
                   v-for="resource in form.resources"
@@ -335,7 +346,7 @@
 
           <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
             <span>
-              <span class="block text-sm font-medium text-slate-800">公开 Skill</span>
+                  <span class="block text-sm font-medium text-slate-800">公开给其他用户使用</span>
               <span class="block text-xs text-slate-500">其他用户可以在公开列表中使用</span>
             </span>
             <input type="checkbox" v-model="isPublicBool" class="h-4 w-4" />
@@ -344,7 +355,7 @@
 
         <footer class="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
           <p v-if="errorMsg" class="text-sm text-red-600">{{ errorMsg }}</p>
-          <span v-else class="text-xs text-slate-400">{{ editing ? '保存后会同步更新 Skill 配置文件。' : '保存后会生成一个用户专属 Skill 配置文件。' }}</span>
+          <span v-else class="text-xs text-slate-400">{{ editing ? '保存后会同步更新能力配置文件。' : '保存后会生成一个用户专属能力配置文件。' }}</span>
           <div class="flex shrink-0 gap-2">
             <button @click="closeDialog" class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
             <button
@@ -352,7 +363,7 @@
               :disabled="submitting || !form.name.trim() || form.tool_names.length === 0 || !form.system_prompt.trim()"
               class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
             >
-              另存为模板
+              另存为样板
             </button>
             <button
               @click="submit"
@@ -369,7 +380,7 @@
     <div v-if="showTemplateDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @click.self="closeTemplateDialog">
       <div class="w-full max-w-2xl rounded-lg bg-white shadow-xl">
         <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
-          <h2 class="text-base font-semibold text-slate-900">{{ templateEditing ? '编辑模板' : '新建模板' }}</h2>
+          <h2 class="text-base font-semibold text-slate-900">{{ templateEditing ? '编辑样板' : '新建样板' }}</h2>
           <button @click="closeTemplateDialog" class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100" title="关闭">
             <X :size="16" />
           </button>
@@ -377,17 +388,17 @@
 
         <main class="max-h-[72vh] space-y-4 overflow-y-auto p-5">
           <div>
-            <label class="mb-1 block text-xs font-medium text-slate-600">模板名称</label>
-            <input v-model="templateForm.name" class="h-10 w-full rounded border border-slate-300 px-3 text-sm outline-none focus:border-violet-500" placeholder="例如：投研分析模板" />
+            <label class="mb-1 block text-xs font-medium text-slate-600">样板名称</label>
+            <input v-model="templateForm.name" class="h-10 w-full rounded border border-slate-300 px-3 text-sm outline-none focus:border-violet-500" placeholder="例如：投研分析样板" />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-slate-600">模板描述</label>
-            <textarea v-model="templateForm.description" rows="3" class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500" placeholder="说明这个模板适合什么场景" />
+            <label class="mb-1 block text-xs font-medium text-slate-600">样板描述</label>
+            <textarea v-model="templateForm.description" rows="3" class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500" placeholder="说明这个样板适合什么场景" />
           </div>
           <div>
             <div class="mb-2 flex items-center justify-between">
-              <label class="block text-xs font-medium text-slate-600">模板工具</label>
-              <span class="text-xs text-slate-400">创建 Skill 时会默认带出</span>
+              <label class="block text-xs font-medium text-slate-600">样板工具</label>
+              <span class="text-xs text-slate-400">创建能力时会默认带出</span>
             </div>
             <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
               <label v-for="tool in tools" :key="tool.name" class="flex items-start gap-2 rounded border border-slate-200 px-3 py-2">
@@ -400,14 +411,14 @@
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-slate-600">模板指令</label>
+            <label class="mb-1 block text-xs font-medium text-slate-600">工作规则</label>
             <textarea v-model="templateForm.system_prompt" rows="8" class="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500" placeholder="写下默认工作流程、约束和输出格式" />
           </div>
         </main>
 
         <footer class="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
           <p v-if="templateErrorMsg" class="text-sm text-red-600">{{ templateErrorMsg }}</p>
-          <span v-else class="text-xs text-slate-400">模板会保存为当前用户专属配置。</span>
+          <span v-else class="text-xs text-slate-400">样板会保存到你的账号里，之后创建能力时可复用。</span>
           <div class="flex shrink-0 gap-2">
             <button @click="closeTemplateDialog" class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
             <button
@@ -415,7 +426,7 @@
               :disabled="templateSubmitting || !templateForm.name.trim() || templateForm.tool_names.length === 0 || !templateForm.system_prompt.trim()"
               class="rounded bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:bg-violet-300"
             >
-              {{ templateSubmitting ? '保存中...' : '保存模板' }}
+              {{ templateSubmitting ? '保存中...' : '保存样板' }}
             </button>
           </div>
         </footer>
@@ -435,29 +446,29 @@
         </header>
         <main class="space-y-4 p-5">
           <div :class="previewValidation.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'" class="rounded border px-3 py-2 text-sm">
-            {{ previewValidation.ok ? '该 Skill 当前可被 Agent 正常加载' : '该 Skill 当前不可用' }}
+            {{ previewValidation.ok ? '该能力当前可被助手正常加载' : '该能力当前不可用' }}
           </div>
           <div>
-            <p class="mb-2 text-xs font-medium text-slate-500">工具</p>
+            <p class="mb-2 text-xs font-medium text-slate-500">可使用的工具</p>
             <div class="flex flex-wrap gap-1.5">
               <span v-for="toolName in previewValidation.tool_names" :key="toolName" class="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">{{ toolName }}</span>
-              <span v-if="previewValidation.tool_names.length === 0" class="text-xs text-slate-400">没有可用工具</span>
+              <span v-if="previewValidation.tool_names.length === 0" class="text-xs text-slate-400">不需要额外工具</span>
             </div>
           </div>
           <div>
-            <p class="mb-2 text-xs font-medium text-slate-500">Prompt</p>
+            <p class="mb-2 text-xs font-medium text-slate-500">工作规则</p>
             <span :class="previewValidation.system_prompt_ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'" class="rounded px-2 py-1 text-xs">
               {{ previewValidation.system_prompt_ready ? '已填写' : '为空' }}
             </span>
           </div>
           <div>
-            <p class="mb-2 text-xs font-medium text-slate-500">权限与资源</p>
+            <p class="mb-2 text-xs font-medium text-slate-500">联网与文件权限</p>
             <div class="flex flex-wrap gap-1.5">
               <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600">
                 网络 {{ previewValidation.permissions?.network ? '允许' : '关闭' }}
               </span>
               <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                资源 {{ previewValidation.allowed_resource_count }}/{{ previewValidation.resource_count }}
+                文件资源 {{ previewValidation.allowed_resource_count }}/{{ previewValidation.resource_count }}
               </span>
             </div>
             <div v-if="previewValidation.resources?.length" class="mt-2 max-h-28 overflow-y-auto rounded border border-slate-200 p-2">
@@ -502,6 +513,7 @@ const errorMsg = ref('')
 const importing = ref(false)
 const importError = ref('')
 const importInput = ref<HTMLInputElement | null>(null)
+const installingId = ref<number | null>(null)
 const showTemplateDialog = ref(false)
 const templateEditing = ref<SkillTemplate | null>(null)
 const templateSubmitting = ref(false)
@@ -530,6 +542,8 @@ const templateForm = ref({
 })
 
 const shownSkills = computed(() => activeTab.value === 'mine' ? mySkills.value : publicSkills.value)
+const mySkillIds = computed(() => new Set(mySkills.value.map((skill) => skill.id)))
+const isMySkill = (skill: Skill) => mySkillIds.value.has(skill.id)
 const isPublicBool = computed<boolean>({
   get: () => form.value.is_public === 1,
   set: (v) => { form.value.is_public = v ? 1 : 0 },
@@ -544,7 +558,7 @@ const loadValidations = async (skills: Skill[]) => {
       } catch (e: any) {
         return [skill.id, {
           ok: false,
-          errors: [getErrorMessage(e, '无法校验该 Skill')],
+          errors: [getErrorMessage(e, '无法检查该能力')],
           warnings: [],
           tool_names: [],
           missing_tool_names: [],
@@ -568,10 +582,10 @@ const loadValidations = async (skills: Skill[]) => {
 
 const validationText = (skillId: number) => {
   const validation = validationMap.value[skillId]
-  if (!validation || validating.value) return '校验中...'
+  if (!validation || validating.value) return '检查中...'
   if (!validation.ok) return validation.errors[0] || '不可用'
   if (validation.warnings.length) return validation.warnings[0]
-  return validation.tool_names.length ? '可正常加载' : '提示词 Skill'
+  return validation.tool_names.length ? '可正常加载' : '提示词能力'
 }
 
 const validationBoxClass = (skillId: number) => {
@@ -674,7 +688,7 @@ const openEdit = async (skill: Skill) => {
   try {
     detail = await skillApi.getSkill(skill.id)
   } catch (e: any) {
-    errorMsg.value = getErrorMessage(e, '读取Skill配置失败')
+    errorMsg.value = getErrorMessage(e, '读取能力配置失败')
   }
   form.value = {
     name: detail.name,
@@ -709,7 +723,7 @@ const openTemplateEdit = async (template: SkillTemplate) => {
   try {
     detail = await skillApi.getTemplate(template.filename)
   } catch (e: any) {
-    templateErrorMsg.value = getErrorMessage(e, '读取模板失败')
+    templateErrorMsg.value = getErrorMessage(e, '读取样板失败')
   }
   templateForm.value = {
     name: detail.name,
@@ -742,19 +756,19 @@ const submitTemplate = async () => {
     await reload()
     closeTemplateDialog()
   } catch (e: any) {
-    templateErrorMsg.value = getErrorMessage(e, '保存模板失败')
+    templateErrorMsg.value = getErrorMessage(e, '保存样板失败')
   } finally {
     templateSubmitting.value = false
   }
 }
 
 const handleTemplateDelete = async (template: SkillTemplate) => {
-  if (!confirm(`确认删除模板「${template.name}」？`)) return
+  if (!confirm(`确认删除样板「${template.name}」？`)) return
   try {
     await skillApi.deleteTemplate(template.filename)
     await reload()
   } catch (e: any) {
-    importError.value = getErrorMessage(e, '删除模板失败')
+    importError.value = getErrorMessage(e, '删除样板失败')
   }
 }
 
@@ -770,7 +784,7 @@ const saveCurrentAsTemplate = async () => {
     })
     await reload()
   } catch (e: any) {
-    errorMsg.value = getErrorMessage(e, '另存模板失败')
+    errorMsg.value = getErrorMessage(e, '另存样板失败')
   } finally {
     submitting.value = false
   }
@@ -829,7 +843,7 @@ const toggleResource = (path: string) => {
 }
 
 const handleDelete = async (skill: Skill) => {
-  if (!confirm(`确认删除 Skill「${skill.name}」？已绑定该 Skill 的 Agent 会自动解绑。`)) return
+  if (!confirm(`确认删除能力「${skill.name}」？已添加该能力的助手会自动解绑。`)) return
   await skillApi.deleteSkill(skill.id)
   await reload()
 }
@@ -842,7 +856,22 @@ const handleExport = async (skill: Skill) => {
   link.download = `${skill.name}_${skill.id}.zip`
   link.click()
   URL.revokeObjectURL(url)
-  toastSuccess('Skill 已导出')
+  toastSuccess('能力已导出')
+}
+
+const handleInstall = async (skill: Skill) => {
+  installingId.value = skill.id
+  importError.value = ''
+  try {
+    await skillApi.installPublicSkill(skill.id)
+    toastSuccess('已安装到我的能力库')
+    activeTab.value = 'mine'
+    await reload()
+  } catch (e: any) {
+    importError.value = getErrorMessage(e, '安装失败')
+  } finally {
+    installingId.value = null
+  }
 }
 
 const handleImportSelect = async (e: Event) => {
@@ -856,7 +885,7 @@ const handleImportSelect = async (e: Event) => {
     await skillApi.importSkill(file)
     activeTab.value = 'mine'
     await reload()
-    toastSuccess('Skill 导入成功')
+    toastSuccess('能力导入成功')
   } catch (err: any) {
     importError.value = getErrorMessage(err, '导入失败')
   } finally {

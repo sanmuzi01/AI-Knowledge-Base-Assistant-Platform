@@ -1,5 +1,3 @@
-import request from '../utils/request'
-
 // SSE 事件类型（与 react_engine.py 中 sse_events.make_* 生成的一致）
 export type SseEventType =
   | 'ready'      // { run_id }
@@ -35,17 +33,6 @@ export interface SendStreamOptions {
   message: string
   onEvent: (evt: SseEvent) => void
   signal?: AbortSignal
-}
-
-/**
- * 同步对话（非必要用，目前聊天页默认走流式）
- */
-export async function sendSync(agentId: number, message: string, conversationId?: number | null) {
-  const { data } = await request.post(`/chat/${agentId}`, {
-    message,
-    conversation_id: conversationId ?? undefined,
-  })
-  return data
 }
 
 /**
