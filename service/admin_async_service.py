@@ -305,3 +305,22 @@ async def reset_user_password(db, user_id: int, new_password: str) -> Dict:
     await db.flush()
     await db.commit()
     return {"message": "密码已重置", "user_id": user.id}
+
+
+async def delete_user(user_id: int, operator_id: int) -> Dict:
+    """删除用户及其级联数据。
+
+    级联删除逻辑（含逐个 agent 清理）较复杂且已在同步实现中验证过，
+    这里用独立同步会话在线程池执行，避免重复维护两套删除逻辑。
+    """
+    from models.init_db import SessionLocal
+    from service import admin_service
+
+    def _run() -> Dict:
+        session = SessionLocal()
+        try:
+            return admin_service.delete_user(session, user_id, operator_id)
+        finally:
+            session.close()
+
+    return await run_in_threadpool(_run)

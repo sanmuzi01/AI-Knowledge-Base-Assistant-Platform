@@ -2,12 +2,11 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from models.init_db import User, get_db
+from models.init_db import User
 from models.async_db import get_async_db
 from service import admin_async_service, admin_service
-from service.dependencies import get_current_admin_user, get_current_admin_user_async
+from service.dependencies import get_current_admin_user_async
 from service import operation_log_async_service
 
 router = APIRouter(prefix="/admin", tags=["管理员后台"])
@@ -98,12 +97,11 @@ async def admin_reset_user_password(
 
 
 @router.delete("/users/{user_id}", summary="删除用户")
-def admin_delete_user(
+async def admin_delete_user(
         user_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_admin_user),
+        current_user: User = Depends(get_current_admin_user_async),
 ):
-    result = admin_service.delete_user(db, user_id, current_user.id)
+    result = await admin_async_service.delete_user(user_id, current_user.id)
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
     return result

@@ -51,6 +51,7 @@ class AsyncRouteCoverageTest(unittest.TestCase):
             admin.admin_update_user_roles,
             admin.admin_update_user_status,
             admin.admin_reset_user_password,
+            admin.admin_delete_user,
         ]
         sync_handlers = [handler.__name__ for handler in route_handlers if not inspect.iscoroutinefunction(handler)]
         self.assertEqual([], sync_handlers)
