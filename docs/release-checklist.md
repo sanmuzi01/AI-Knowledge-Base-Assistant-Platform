@@ -39,6 +39,17 @@ npm run db:stamp
 npm run db:current
 ```
 
+### 升级到「移除明文口令兜底」版本时（仅需一次）
+
+登录已不再接受非 bcrypt 的存储口令。发布前先在目标库跑：
+
+```powershell
+.venv\Scripts\python.exe -m scripts.migrate_plaintext_passwords          # 预演统计
+.venv\Scripts\python.exe -m scripts.migrate_plaintext_passwords --apply  # 确认后写库
+```
+
+必须确认「非 bcrypt（待迁移）」统计归零后再发布，否则存量明文用户会登录失败。
+
 后续正式结构变更：
 
 ```powershell

@@ -94,19 +94,33 @@ class LoginTest(unittest.TestCase):
         self.assertIsNotNone(user.last_login_at)
         mock_token.assert_called_once_with({"user_id": 1, "username": "alice"})
 
-    def test_login_upgrades_legacy_plaintext_password(self):
+    def test_login_rejects_non_bcrypt_stored_password(self):
+        """存量明文口令不再被接受：必须先跑 migrate_plaintext_passwords。"""
         db = _FakeDb()
         user = _fake_user(password="plain-text-password")
-        with patch.object(auth_service, "get_user_by_name", return_value=user), \
-             patch.object(auth_service, "update_user_password") as mock_update, \
-             patch.object(auth_service, "create_access_token", return_value="tok"), \
-             patch.object(auth_service, "role_names", return_value=[]), \
-             patch.object(auth_service, "current_user_payload", return_value={"is_admin": False}):
-            result = auth_service.login(db, "alice", "plain-text-password")
+        with patch.object(auth_service, "get_user_by_name", return_value=user):
+            with self.assertRaises(HTTPException) as ctx:
+                auth_service.login(db, "alice", "plain-text-password")
+        self.assertEqual(ctx.exception.status_code, 401)
+        self.assertEqual(ctx.exception.detail, "账号或密码错误")
+        self.assertFalse(db.committed)
 
-        self.assertEqual(result["message"], "登录成功")
-        mock_update.assert_called_once()
-        self.assertTrue(mock_update.call_args.args[2].startswith("$2b$"))
+
+class PasswordHelperTest(unittest.TestCase):
+    def test_is_bcrypt_hash(self):
+        self.assertTrue(auth_service.is_bcrypt_hash(auth_service.hash_password("x")))
+        self.assertFalse(auth_service.is_bcrypt_hash("plain"))
+        self.assertFalse(auth_service.is_bcrypt_hash(""))
+        self.assertFalse(auth_service.is_bcrypt_hash(None))
+
+    def test_password_matches_only_accepts_bcrypt(self):
+        hashed = auth_service.hash_password("s3cret")
+        self.assertTrue(auth_service.password_matches("s3cret", hashed))
+        self.assertFalse(auth_service.password_matches("wrong", hashed))
+        # 非 bcrypt 存储值一律不匹配，即使明文完全相等
+        self.assertFalse(auth_service.password_matches("plain", "plain"))
+        # 损坏的哈希不抛异常
+        self.assertFalse(auth_service.password_matches("x", "$2b$not-a-real-hash"))
 
 
 class RegisterTest(unittest.TestCase):

@@ -10,6 +10,9 @@ import time
 from utils.logger_handler import logger, log_user_behavior
 
 # 密码加密工具（直接使用 bcrypt 库，避免 passlib 与 bcrypt 4.x 的兼容性问题）
+_BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
+
+
 def hash_password(password: str) -> str:
     """使用 bcrypt 对密码进行哈希"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -17,6 +20,25 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     """校验密码是否匹配"""
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+
+def is_bcrypt_hash(value: str) -> bool:
+    """判断存储值是否为 bcrypt 哈希。"""
+    return isinstance(value, str) and value.startswith(_BCRYPT_PREFIXES)
+
+
+def password_matches(plain: str, stored: str) -> bool:
+    """校验明文口令是否匹配已存储的 bcrypt 哈希。
+
+    非 bcrypt 格式（历史明文或脏数据）一律视为不匹配——存量明文口令
+    须先用 scripts/migrate_plaintext_passwords.py 迁移为哈希。
+    """
+    if not is_bcrypt_hash(stored):
+        return False
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), stored.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 # 登录业务
 def login(db, name: str, password: str):
     start = time.time()  # 记录开始时间，用于计算耗时
@@ -32,22 +54,11 @@ def login(db, name: str, password: str):
         logger.warning(f"登录失败-用户不存在: name={name}")#日志
         log_user_behavior(0, "login", "fail", start)   # ← user_id 未知传 0
         raise invalid_credentials
-    # 2. 验证密码
-    if user.password.startswith("$2b$"):
-        # 新哈希密码：用 verify 校验
-        if not verify_password(password, user.password):
-            logger.warning(f"登录失败-密码错误: name={name}")#日志
-            log_user_behavior(user.id, "login", "fail", start)
-            raise invalid_credentials
-    else:
-        # 老明文密码：直接比对
-        if user.password != password:
-            logger.warning(f"登录失败-密码错误: name={name}")#日志
-            log_user_behavior(user.id, "login", "fail", start)
-            raise invalid_credentials
-        # 顺手升级为哈希
-        hashed = hash_password(password)
-        update_user_password(db, user, hashed)
+    # 2. 验证密码（仅接受 bcrypt 哈希；存量明文须先跑迁移脚本）
+    if not password_matches(password, user.password):
+        logger.warning(f"登录失败-密码错误: name={name}")#日志
+        log_user_behavior(user.id, "login", "fail", start)
+        raise invalid_credentials
     # 3. 凭证正确后再校验账号状态：禁用信息只对本人可见，不作为枚举入口。
     if getattr(user, "is_disabled", 0) == 1:
         logger.warning(f"登录失败-用户已禁用: user_id={user.id}, name={name}")
@@ -123,11 +134,7 @@ def register(db, name: str, password: str, age: int, phone: str, sms_code: str, 
 
 def change_password(db, user, old_password: str, new_password: str):
     """当前登录用户修改密码。"""
-    if user.password.startswith("$2b$"):
-        ok = verify_password(old_password, user.password)
-    else:
-        ok = user.password == old_password
-    if not ok:
+    if not password_matches(old_password, user.password):
         logger.warning(f"修改密码失败-旧密码错误: user_id={user.id}")
         return {"message": "旧密码错误"}
     if old_password == new_password:

@@ -16,7 +16,7 @@ from models.user_async_dao import (
 )
 from service.admin_service import current_user_payload, role_names
 from service.auth import create_access_token
-from service.auth_service import hash_password, verify_password
+from service.auth_service import hash_password, password_matches
 from service.phone_verification_service import verify_register_code
 from utils.logger_handler import logger, log_user_behavior
 
@@ -38,20 +38,12 @@ async def login(db, name: str, password: str):
         log_user_behavior(0, "login", "fail", start)
         raise invalid_credentials
 
-    if user.password.startswith("$2b$"):
-        ok = await run_in_threadpool(verify_password, password, user.password)
-        if not ok:
-            logger.warning(f"登录失败-密码错误: name={name}")
-            log_user_behavior(user.id, "login", "fail", start)
-            raise invalid_credentials
-    else:
-        if user.password != password:
-            logger.warning(f"登录失败-密码错误: name={name}")
-            log_user_behavior(user.id, "login", "fail", start)
-            raise invalid_credentials
-        hashed = await run_in_threadpool(hash_password, password)
-        await update_user_password_async(db, user.id, hashed)
-        user.password = hashed
+    # 仅接受 bcrypt 哈希；存量明文须先跑 scripts/migrate_plaintext_passwords.py
+    ok = await run_in_threadpool(password_matches, password, user.password)
+    if not ok:
+        logger.warning(f"登录失败-密码错误: name={name}")
+        log_user_behavior(user.id, "login", "fail", start)
+        raise invalid_credentials
 
     # 凭证正确后再校验账号状态：禁用信息只对本人可见，不作为枚举入口。
     if getattr(user, "is_disabled", 0) == 1:
@@ -128,10 +120,7 @@ async def register(db, name: str, password: str, age: int, phone: str, sms_code:
 async def change_password(db, user, old_password: str, new_password: str):
     """异步修改当前登录用户密码，bcrypt 放线程池执行。"""
 
-    if user.password.startswith("$2b$"):
-        ok = await run_in_threadpool(verify_password, old_password, user.password)
-    else:
-        ok = user.password == old_password
+    ok = await run_in_threadpool(password_matches, old_password, user.password)
     if not ok:
         logger.warning(f"修改密码失败-旧密码错误: user_id={user.id}")
         return {"message": "旧密码错误"}
