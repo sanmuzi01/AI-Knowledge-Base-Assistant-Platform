@@ -86,3 +86,20 @@ npm run backend:worker
 管理员后台 / 系统诊断
 任务中心
 ```
+
+## 同步 / 异步路由现状
+
+路由层正在从同步 `Session`（`get_db`）迁到 `AsyncSession`（`get_async_db`），
+按「先读后写、跟着底层管线走」的节奏推进。
+
+| 路由文件 | 状态 |
+| --- | --- |
+| `login.py` `admin.py` `background_task.py` `conversation_route.py` `agent_run.py` `memory.py` `llm_config.py` `web_monitor.py` | 已全量 async |
+| `agent.py` | 读接口 async；写接口（create/update/delete/clone/select）+ debug/dry-run 仍同步，`agent_service` 把 db/user 当同会话 ORM 对象改写 |
+| `chat.py` | history 等读接口 async；同步/流式对话走 `agent_runtime`（同步 ORM + 生成器），暂留同步 |
+| `evaluation.py` | 端点 async，但 db 同步 —— RAG 检索管线（`rag_service`、ChromaDB、DAO）仍同步 |
+| `knowledge.py` | 列表/诊断 async；上传/入库/重建/检索走同步 RAG 管线 |
+| `skill_route.py` | 部分读接口 async；创建/绑定/导入导出走 `skills_core`（文件系统 + 同步 ORM） |
+
+同步 `def` 端点由 FastAPI 放线程池执行，不阻塞事件循环。彻底收口的前置条件是
+把 `agent_runtime`、RAG 管线、`skills_core` 迁到 AsyncSession，并补接口级集成测试。

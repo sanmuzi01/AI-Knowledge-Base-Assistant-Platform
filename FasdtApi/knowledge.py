@@ -21,6 +21,11 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
 
+# 迁移边界：列表/诊断等纯读接口已走 AsyncSession + *_async_service。
+# 上传 / 入库 / 重建索引 / 检索仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的
+# RAG 管线（rag_service、切分、embedding 落库），FastAPI 会把 def 端点放线程池。
+# 待 RAG 管线 async 化后再统一收口。
+
 # 允许的文件类型
 ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
 

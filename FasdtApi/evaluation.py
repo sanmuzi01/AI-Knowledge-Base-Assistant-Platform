@@ -13,6 +13,11 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/evaluation", tags=["评估"])
 
+# 迁移边界：端点是 async def，但 db 仍用同步 get_db。
+# evaluate_rag_dataset -> rag_service.async_search 内部注释已说明：向量化用异步
+# HTTP 客户端，ChromaDB 和 SQLAlchemy DAO 仍是同步调用。换 AsyncSession 会直接
+# 打断 _build_search_results。待 RAG 检索管线整体 async 化后再迁。
+
 
 class RagEvalCase(BaseModel):
     question: str = Field(min_length=1)

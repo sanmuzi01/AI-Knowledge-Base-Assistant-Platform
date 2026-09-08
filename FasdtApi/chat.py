@@ -4,6 +4,10 @@
   POST /chat/{agent_id}                  同步对话（兼容旧版 + conversation_id 可选）
   POST /chat/{agent_id}/stream           SSE 流式对话（兼容旧版 + conversation_id 可选）
   GET  /chat/{agent_id}/history          旧版（查询Chat表），保留向后兼容
+
+迁移边界：history 等纯读接口走 AsyncSession + chat_async_service。
+同步/流式对话仍用 get_db —— 对话链路走 agent_runtime（同步 ORM + 生成器流式），
+不是换 AsyncSession 就能迁的；待 runtime 层 async 化后再收口。
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field

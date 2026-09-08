@@ -9,6 +9,14 @@ from service import agent_service
 from service import agent_async_service
 from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
 router = APIRouter(prefix="/agent", tags=["agent管理"])
+
+# 迁移边界说明：
+# 读接口（list/get/selected）已走 AsyncSession + agent_async_service。
+# 写接口（create/update/delete/clone/select）以及 debug/dry-run 仍是同步 def +
+# get_db：它们背后的 agent_service 把 db/user 当作同一会话内的 ORM 对象直接改写并
+# 自行 commit（见 update_selected_agent 等），不是简单换 AsyncSession 就行。
+# FastAPI 会把这些 def 端点放线程池执行，不阻塞事件循环。待 agent_service 写逻辑
+# 整体迁移到 AsyncSession 后再统一收口。
 class AgentResponse(BaseModel):
     id: int
     name: str
@@ -71,7 +79,7 @@ class AgentTemplateCreate(BaseModel):
 
 @router.get("/templates", summary="查询内置Agent模板")
 def list_templates(
-        current_user: User = Depends(get_current_user_async)):
+        current_user: User = Depends(get_current_user)):
     """返回内置和用户自定义Agent模板，前端用于一键预填创建表单。"""
     return list_templates_for_user(current_user.id)
 

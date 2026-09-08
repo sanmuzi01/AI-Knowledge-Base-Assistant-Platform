@@ -37,6 +37,11 @@ from service.skill_service import (
 
 router = APIRouter(prefix="/skill", tags=["Skill管理"])
 
+# 迁移边界：部分读接口已走 AsyncSession + skill_async_service。
+# 创建 / 绑定 / 导入导出 / 安装公共 Skill 仍用同步 get_db —— skill_service /
+# skills_core 里混了文件系统操作（写 SKILL.md、打包 zip）和同步 ORM，
+# FastAPI 会把 def 端点放线程池。待 skills_core 迁到 AsyncSession 后再统一收口。
+
 
 class SkillCreate(BaseModel):
     name: str
