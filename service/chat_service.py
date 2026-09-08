@@ -124,8 +124,9 @@ def chat_with_agent_stream(db, user, agent_id: int, user_message: str, conversat
                         data_str = data_line[data_line.index(":") + 1:].strip()
                         data_obj = json.loads(data_str)
                         final_answer = data_obj.get("content", "") or ""
-                    except Exception:
-                        pass
+                    except Exception as parse_err:
+                        # 解析失败不影响流式输出，answer 会在 StopIteration 分支兜底
+                        logger.debug(f"解析 answer 事件失败，走兜底: {parse_err}")
         except StopIteration as si:
             runtime_result = si.value
             if isinstance(runtime_result, dict) and not final_answer:
