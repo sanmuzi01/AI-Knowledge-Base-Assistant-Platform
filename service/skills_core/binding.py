@@ -1,0 +1,168 @@
+"""Skill 与 Agent 的绑定/解绑、合并配置（ToolExecutor 运行时依赖此模块）。"""
+from typing import Any, Dict, List
+
+from sqlalchemy.orm import Session
+
+from service.access_control import can_read_skill, get_owned_agent
+from models.skill_dao import (
+    bind_skill_to_agent as dao_bind,
+    unbind_skill_from_agent as dao_unbind,
+    get_skill_by_id as dao_get,
+    list_skills_by_agent as dao_list_by_agent,
+    unbind_all_skills_from_agent as dao_unbind_all,
+)
+from service.skills.loader import load_skill_config
+from utils.logger_handler import get_logger
+
+from .common import _skill_to_dict
+
+logger = get_logger("skill_service")
+
+
+def bind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
+    """绑定Skill到Agent（校验：Skill必须是当前用户创建的或公开的）"""
+    agent = get_owned_agent(db, user_id, agent_id)
+    if not agent:
+        logger.warning(f"权限拒绝：用户{user_id}无权操作Agent {agent_id}")
+        return False
+    skill = dao_get(db, skill_id)
+    if not skill:
+        return False
+    # 权限：自己创建的 或 公开的Skill 才能绑定
+    if not can_read_skill(skill, user_id):
+        logger.warning(f"权限拒绝：用户{user_id}无权绑定Skill {skill_id}")
+        return False
+    success = dao_bind(db, agent_id, skill_id)
+    if success:
+        db.commit()
+    return success
+
+
+def unbind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
+    """解绑Skill（校验：Agent必须是当前用户的）"""
+    agent = get_owned_agent(db, user_id, agent_id)
+    if not agent:
+        return False
+    success = dao_unbind(db, agent_id, skill_id)
+    if success:
+        db.commit()
+    return success
+
+
+def list_agent_skills(db: Session, agent_id: int, user_id: int = None) -> List[Dict]:
+    if user_id is not None:
+        agent = get_owned_agent(db, user_id, agent_id)
+        if not agent:
+            logger.warning(f"权限拒绝：用户{user_id}无权查看Agent {agent_id}的Skill")
+            return []
+    skills = dao_list_by_agent(db, agent_id)
+    return [_skill_to_dict(s) for s in skills]
+
+
+def update_agent_skills(db: Session, agent_id: int, skill_ids: List[int], user_id: int = None, commit: bool = True) -> bool:
+    """批量更新Agent绑定的Skill（先全部解绑，再绑定新的）"""
+    if user_id is not None:
+        agent = get_owned_agent(db, user_id, agent_id)
+        if not agent:
+            logger.warning(f"权限拒绝：用户{user_id}无权操作Agent {agent_id}")
+            return False
+        for skill_id in skill_ids:
+            skill = dao_get(db, skill_id)
+            if not can_read_skill(skill, user_id):
+                logger.warning(f"权限拒绝：用户{user_id}无权绑定Skill {skill_id}")
+                return False
+    dao_unbind_all(db, agent_id)
+    for skill_id in skill_ids:
+        dao_bind(db, agent_id, skill_id)
+    logger.info(f"更新Agent绑定Skill: agent={agent_id}, skills={skill_ids}")
+    if commit:
+        db.commit()
+    return True
+
+
+def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]:
+    """加载Agent绑定的所有Skill配置并合并ToolExecutor运行时调用：
+      1. 查Agent绑定的所有Skill
+      2. 逐个加载YML配置（调loader）
+      3. 合并工具列表（并集）
+      4. 合并工具默认值（同名的以先绑定的为准，不覆盖）
+      5. 合并system_prompt（所有Skill的prompt拼接）
+    :return: {
+        "skill_names": ["论文写作助手", ...],
+        "tool_names": ["outline_generator", "word_count", ...],  # 工具并集
+        "tool_defaults_map": {"outline_generator": {"sections": 6}, ...},
+        "system_prompt": "合并后的Skill prompt",
+        "skills": [每个Skill的完整配置],
+    }
+    """
+    skills = dao_list_by_agent(db, agent_id)
+    if not skills:
+        return {
+            "skill_names": [],
+            "tool_names": [],
+            "tool_defaults_map": {},
+            "system_prompt": "",
+            "skills": [],
+            "permissions": {"network": False, "file_read": [], "exec": False},
+            "resource_roots": [],
+            "resources": [],
+        }
+    merged_tool_names: List[str] = []
+    merged_defaults: Dict[str, Dict] = {}
+    skill_prompts: List[str] = []
+    skill_configs: List[Dict] = []
+    resource_roots: List[str] = []
+    resources: List[Dict[str, Any]] = []
+    load_errors: List[Dict[str, str]] = []
+    for skill in skills:
+        try:
+            cfg = load_skill_config(skill.config_file)
+        except Exception as e:
+            logger.error(f"加载Skill配置失败: skill={skill.name}, error={e}")
+            load_errors.append({"skill_name": skill.name, "error": str(e)})
+            continue
+        skill_configs.append(cfg)
+        if cfg.get("resource_root") and cfg.get("resource_root") not in resource_roots:
+            resource_roots.append(cfg.get("resource_root"))
+        for resource in cfg.get("resources", []):
+            item = dict(resource)
+            item["skill_name"] = cfg.get("name")
+            resources.append(item)
+        # 工具并集（保持顺序，不重复）
+        for name in cfg["tool_names"]:
+            if name not in merged_tool_names:
+                merged_tool_names.append(name)
+        # 默认值合并（同名的以先绑定的为准，不覆盖）
+        for name, defaults in cfg["tool_defaults_map"].items():
+            if name not in merged_defaults:
+                merged_defaults[name] = defaults
+        # prompt拼接
+        if cfg["system_prompt"]:
+            skill_prompts.append(f"【Skill: {cfg['name']}】\n{cfg['system_prompt']}")
+        if cfg.get("resource_text"):
+            skill_prompts.append(f"【Skill资源: {cfg['name']}】\n{cfg['resource_text']}")
+    merged_prompt = "\n\n".join(skill_prompts) if skill_prompts else ""
+    logger.info(
+        f"合并Agent Skill配置: agent={agent_id}, "
+        f"skills={len(skill_configs)}个, tools={len(merged_tool_names)}个"
+        + (f", 加载失败={len(load_errors)}个" if load_errors else "")
+    )
+    return {
+        "skill_names": [cfg["name"] for cfg in skill_configs],
+        "tool_names": merged_tool_names,
+        "tool_defaults_map": merged_defaults,
+        "system_prompt": merged_prompt,
+        "skills": skill_configs,
+        "permissions": {
+            "network": any(bool(cfg.get("permissions", {}).get("network")) for cfg in skill_configs),
+            "file_read": [
+                path
+                for cfg in skill_configs
+                for path in cfg.get("permissions", {}).get("file_read", [])
+            ],
+            "exec": False,
+        },
+        "resource_roots": resource_roots,
+        "resources": resources,
+        "load_errors": load_errors,
+    }

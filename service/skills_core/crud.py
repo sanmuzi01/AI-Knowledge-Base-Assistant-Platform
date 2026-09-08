@@ -1,0 +1,280 @@
+"""Skill 的增删改查（数据库记录 + 运行时 YML 配置文件）。"""
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+from service.access_control import can_read_skill, can_write_skill
+from models.skill_dao import (
+    create_skill as dao_create,
+    get_skill_by_id as dao_get,
+    list_skills_by_user as dao_list_user,
+    list_public_skills as dao_list_public,
+    list_all_skills as dao_list_all,
+    update_skill as dao_update,
+    delete_skill as dao_delete,
+)
+from service.skills.loader import (
+    invalidate_skill_config,
+    load_skill_config,
+    list_available_templates,
+    get_template_path,
+)
+from utils.logger_handler import get_logger
+
+from .common import _can_use_template, _normalize_permission_payload, _safe_skill_stem, _skill_to_dict
+from .validation import _validate_tool_names
+
+logger = get_logger("skill_service")
+
+
+def create_skill(db: Session, user_id: int, name: str, description: str,
+                 template_filename: str = "", is_public: int = 0,
+                 system_prompt: str = "", tool_names: Optional[List[str]] = None,
+                 permissions: Optional[Dict[str, Any]] = None,
+                 commit: bool = True) -> Optional[Dict]:
+    # 新建 Skill 要生成用户自己的运行时 YML，否则只是数据库里的一条模板引用。
+    import os
+    import uuid
+    import yaml
+    from service.skills.loader import SKILLS_ROOT
+
+    template_cfg = {
+        "name": name,
+        "description": "",
+        "version": "1.0",
+        "tool_names": [],
+        "tool_defaults_map": {},
+        "system_prompt": "",
+        "permissions": {"network": False, "file_read": [], "exec": False},
+        "resources": [],
+        "resource_root": "",
+    }
+    if template_filename:
+        available = list_available_templates()
+        if template_filename not in available or not _can_use_template(user_id, template_filename):
+            logger.warning(f"创建Skill失败：模板不存在 {template_filename}")
+            return None
+        try:
+            template_cfg = load_skill_config(get_template_path(template_filename))
+        except Exception as e:
+            logger.warning(f"创建Skill失败：模板配置不可用 {template_filename}, error={e}")
+            return None
+
+    if not template_filename and not system_prompt.strip():
+        logger.warning("创建Skill失败：空白创建时必须填写Skill指令")
+        return None
+
+    selected_tool_names = _validate_tool_names(tool_names if tool_names is not None else template_cfg.get("tool_names", []))
+    if selected_tool_names is None:
+        logger.warning(f"创建Skill失败：工具不存在或未选择工具 {tool_names}")
+        return None
+    template_defaults = template_cfg.get("tool_defaults_map", {})
+    runtime_tools = [
+        {"name": tool_name, "defaults": template_defaults.get(tool_name, {})}
+        for tool_name in selected_tool_names
+    ]
+
+    prompt_parts = []
+    if template_cfg.get("system_prompt"):
+        prompt_parts.append(template_cfg["system_prompt"])
+    if system_prompt and system_prompt.strip():
+        prompt_parts.append(system_prompt.strip())
+
+    config_file = f"user_created/u{user_id}_{uuid.uuid4().hex[:10]}_{_safe_skill_stem(name)}.yml"
+    config_path = os.path.join(SKILLS_ROOT, config_file)
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+
+    runtime_config = {
+        "name": name,
+        "description": description or template_cfg.get("description", ""),
+        "version": template_cfg.get("version", "1.0"),
+        "tools": runtime_tools,
+        "permissions": _normalize_permission_payload(permissions or template_cfg.get("permissions")),
+        "resource_root": template_cfg.get("resource_root", ""),
+        "resources": template_cfg.get("resources", []),
+        "system_prompt": "\n\n".join(prompt_parts),
+    }
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
+        invalidate_skill_config(config_file)
+        load_skill_config(config_file)
+    except Exception as e:
+        logger.error(f"创建Skill配置文件失败: {e}")
+        return None
+
+    skill = dao_create(db=db,user_id=user_id,name=name,
+        description=description,config_file=config_file,
+        is_public=is_public)
+    if not skill:
+        return None
+    if commit:
+        db.commit()
+    return _skill_to_dict(skill)
+
+
+def _write_skill_config(config_file: str, name: str, description: str,
+                        system_prompt: str, tool_names: List[str],
+                        permissions: Optional[Dict[str, Any]] = None) -> bool:
+    import os
+    import yaml
+    from service.skills.loader import SKILLS_ROOT
+
+    selected_tool_names = _validate_tool_names(tool_names)
+    if selected_tool_names is None:
+        logger.warning(f"保存Skill配置失败：工具不存在或未选择工具 {tool_names}")
+        return False
+
+    config_path = os.path.join(SKILLS_ROOT, config_file)
+    try:
+        old_cfg = load_skill_config(config_file)
+        runtime_config = {
+            "name": name,
+            "description": description,
+            "version": old_cfg.get("version", "1.0"),
+            "tools": [{"name": tool_name, "defaults": old_cfg.get("tool_defaults_map", {}).get(tool_name, {})}
+                      for tool_name in selected_tool_names],
+            "permissions": _normalize_permission_payload(permissions or old_cfg.get("permissions")),
+            "resource_root": old_cfg.get("resource_root", ""),
+            "resources": old_cfg.get("resources", []),
+            "system_prompt": system_prompt,
+        }
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
+        invalidate_skill_config(config_file)
+        load_skill_config(config_file)
+        return True
+    except Exception as e:
+        logger.error(f"保存Skill配置失败: config_file={config_file}, error={e}")
+        return False
+
+
+def update_skill_config(db: Session, skill_id: int, user_id: int, *,
+                        system_prompt: Optional[str] = None,
+                        tool_names: Optional[List[str]] = None,
+                        permissions: Optional[Dict[str, Any]] = None) -> bool:
+    skill = dao_get(db, skill_id)
+    if not can_write_skill(skill, user_id):
+        return False
+    if not skill.config_file.startswith(("user_created/", "imported/")):
+        logger.warning(f"拒绝修改内置模板Skill配置: skill_id={skill_id}, config={skill.config_file}")
+        return False
+    cfg = load_skill_config(skill.config_file)
+    return _write_skill_config(
+        config_file=skill.config_file,
+        name=skill.name,
+        description=skill.description or cfg.get("description", ""),
+        system_prompt=cfg.get("system_prompt", "") if system_prompt is None else system_prompt,
+        tool_names=cfg.get("tool_names", []) if tool_names is None else tool_names,
+        permissions=cfg.get("permissions", {}) if permissions is None else permissions,
+    )
+
+
+def get_skill_config(db: Session, skill_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    skill = dao_get(db, skill_id)
+    if not can_read_skill(skill, user_id):
+        return None
+    cfg = load_skill_config(skill.config_file)
+    return {
+        "name": cfg.get("name", skill.name),
+        "description": cfg.get("description", skill.description or ""),
+        "version": cfg.get("version", "1.0"),
+        "tools": cfg.get("tools", []),
+        "tool_names": cfg.get("tool_names", []),
+        "system_prompt": cfg.get("system_prompt", ""),
+        "permissions": cfg.get("permissions", {"network": False, "file_read": [], "exec": False}),
+        "resources": cfg.get("resources", []),
+    }
+
+
+def get_skill(db: Session, skill_id: int, user_id: int = None) -> Optional[Dict]:
+    skill = dao_get(db, skill_id)
+    if skill and user_id is not None and not can_read_skill(skill, user_id):
+        logger.warning(f"权限拒绝：用户{user_id}尝试查看私有Skill {skill_id}")
+        return None
+    return _skill_to_dict(skill) if skill else None
+
+
+def list_user_skills(db: Session, user_id: int) -> List[Dict]:
+    skills = dao_list_user(db, user_id)
+    return [_skill_to_dict(s) for s in skills]
+
+
+def list_public_skills(db: Session) -> List[Dict]:
+    skills = dao_list_public(db)
+    return [_skill_to_dict(s) for s in skills]
+
+
+def list_all_skills(db: Session) -> List[Dict]:
+    skills = dao_list_all(db)
+    return [_skill_to_dict(s) for s in skills]
+
+
+def update_skill(db: Session, skill_id: int, user_id: int, commit: bool = True, **kwargs) -> Optional[Dict]:
+    # 先查Skill是否存在
+    skill = dao_get(db, skill_id)
+    if not skill:
+        logger.warning(f"更新Skill失败：不存在 id={skill_id}")
+        return None
+    # 权限校验：只有创建者能更新
+    if not can_write_skill(skill, user_id):
+        logger.warning(f"权限拒绝：用户{user_id}尝试更新别人的Skill {skill_id}")
+        return None
+    # 如果更新了模板文件，校验是否存在
+    if "template_filename" in kwargs:
+        template = kwargs.pop("template_filename")
+        if template:
+            available = list_available_templates()
+            if template not in available:
+                logger.warning(f"更新Skill失败：模板不存在 {template}")
+                return None
+            kwargs["config_file"] = get_template_path(template)
+
+    updated_skill = dao_update(db, skill_id, **kwargs)
+    if updated_skill and commit:
+        db.commit()
+    return _skill_to_dict(updated_skill) if updated_skill else None
+
+
+def update_skill_with_config(
+        db: Session,
+        skill_id: int,
+        user_id: int,
+        fields: Dict[str, Any],
+        config_fields: Dict[str, Any],
+) -> Optional[Dict]:
+    """统一更新 Skill 基础信息和运行配置。
+
+    路由层不再拆分事务；基础字段和 YML 运行配置都成功后，才提交数据库变更。
+    """
+    if not fields and not config_fields:
+        return None
+    if fields:
+        skill = update_skill(db, skill_id, user_id=user_id, commit=False, **fields)
+        if not skill:
+            return None
+    if config_fields:
+        if not update_skill_config(db, skill_id, user_id=user_id, **config_fields):
+            return None
+    db.commit()
+    skill = get_skill(db, skill_id, user_id=user_id)
+    if skill:
+        skill["config"] = get_skill_config(db, skill_id, user_id=user_id)
+    return skill
+
+
+def delete_skill(db: Session, skill_id: int, user_id: int) -> bool:
+    """删除Skill（加权限校验：只有创建者能删除）"""
+    skill = dao_get(db, skill_id)
+    if not skill:
+        return False
+    if not can_write_skill(skill, user_id):
+        logger.warning(f"权限拒绝：用户{user_id}尝试删除别人的Skill {skill_id}")
+        return False
+    config_file = skill.config_file
+    success = dao_delete(db, skill_id)
+    if success:
+        invalidate_skill_config(config_file)
+        db.commit()
+    return success
