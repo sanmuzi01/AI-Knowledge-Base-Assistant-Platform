@@ -1,4 +1,5 @@
 .env
+.env.docker
 __pycache__/
 *.pyc
 .idea/
@@ -9,6 +10,13 @@ vector_db/
 knowledge_files/
 static/charts/
 agent_templates/
+backups/
+release-*/
+*.zip
+/test_*.txt
+/test_*.py
 
 .env.*
 !.env.example
+!.env.production.example
+!.env.docker.example
