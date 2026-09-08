@@ -416,9 +416,9 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
 
-#Base.metadata.drop_all(engine)
-# 创建所有表
-Base.metadata.create_all(engine)
+# 建表 / 幂等迁移 / 内置管理员初始化统一由 bootstrap_database() 触发，
+# 不再在模块导入时执行——这样导入 ORM 模型、跑单测、执行离线脚本都不需要连库。
+# 运行时由 FastAPI lifespan 和后台 Worker 启动时各调用一次。
 
 # ========== 幂等迁移：为已存在的表补新增列（避免 ALTER TABLE 手动操作） ==========
 def _run_migrations():
@@ -522,7 +522,6 @@ def _run_migrations():
                     print(f"[Migration] 已为 {table} 添加索引 {index_name}")
                 except Exception as e:
                     print(f"[Migration] 添加索引 {index_name} 失败: {e}")
-_run_migrations()
 # ========== 迁移结束 ==========
 # 创建Session
 SessionLocal = sessionmaker(bind=engine)
@@ -588,7 +587,31 @@ def _ensure_builtin_admin():
         db.close()
 
 
-_ensure_builtin_admin()
+_BOOTSTRAP_DONE = False
+
+
+def bootstrap_database(*, seed_admin: bool = True, force: bool = False) -> None:
+    """建表 + 幂等迁移 + 内置管理员初始化。
+
+    运行时的唯一入口：由 FastAPI lifespan、后台 Worker 启动、以及
+    `python -m models.init_db` 调用。进程内只会真正执行一次。
+
+    可用环境变量 DB_AUTO_BOOTSTRAP=0 关闭（改由 Alembic 管理表结构的部署），
+    此时仍可传 force=True 强制执行。
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if not force and not _env_bool("DB_AUTO_BOOTSTRAP", True):
+        print("[Bootstrap] DB_AUTO_BOOTSTRAP=0，跳过自动建表/迁移")
+        _BOOTSTRAP_DONE = True
+        return
+
+    Base.metadata.create_all(engine)
+    _run_migrations()
+    if seed_admin:
+        _ensure_builtin_admin()
+    _BOOTSTRAP_DONE = True
 
 
 def get_db() -> Generator:
@@ -597,3 +620,9 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
+
+
+if __name__ == "__main__":
+    # 允许离线执行：python -m models.init_db
+    bootstrap_database(force=True)
+    print("[Bootstrap] 建表与迁移完成")

@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from service.config_validation import assert_runtime_config, validate_runtime_config
@@ -27,7 +28,7 @@ from FasdtApi.background_task import router as background_task_router
 from FasdtApi.admin import router as admin_router
 from FasdtApi.evaluation import router as evaluation_router
 from FasdtApi.web_monitor import router as web_monitor_router
-from models.init_db import SessionLocal, engine
+from models.init_db import SessionLocal, engine, bootstrap_database
 from service.operation_log_middleware import OperationLogMiddleware
 from service.background_task_service import task_execution_mode
 from service.http_resilience import circuit_breaker
@@ -53,7 +54,15 @@ def _env_int(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 建表 / 幂等迁移 / 内置管理员初始化：只在服务启动时执行，不在模块导入时执行。
+    # DDL 是同步阻塞操作，放线程池避免占用事件循环。
+    await run_in_threadpool(bootstrap_database)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     TrustedHostMiddleware,

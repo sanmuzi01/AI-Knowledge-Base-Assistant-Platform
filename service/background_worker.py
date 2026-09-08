@@ -1,7 +1,7 @@
 import os
 import time
 
-from models.init_db import SessionLocal
+from models.init_db import SessionLocal, bootstrap_database
 from service import background_task_service
 from utils.logger_handler import get_logger
 
@@ -68,6 +68,8 @@ def run_forever() -> None:
 
     生产环境应由 Docker、systemd 或进程管理器托管该进程；进程退出后由外部系统拉起。
     """
+    # Worker 可能先于 API 启动，需保证表结构就绪（幂等，进程内只跑一次）。
+    bootstrap_database()
     poll_seconds = _env_float("TASK_WORKER_POLL_SECONDS", 2.0)
     logger.info(f"后台任务 Worker 已启动，poll={poll_seconds}s")
     while True:

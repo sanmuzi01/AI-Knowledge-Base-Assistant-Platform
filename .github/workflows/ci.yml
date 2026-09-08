@@ -66,6 +66,12 @@ jobs:
       - name: Byte-compile sources
         run: python -m compileall -q FasdtApi service models utils scripts tests
 
+      - name: Bootstrap database (schema + idempotent migration smoke test)
+        run: |
+          python -c "from models.init_db import bootstrap_database; bootstrap_database(force=True)"
+          # 再跑一次（新进程），验证幂等：不应报错、不应重复建列/索引
+          python -c "from models.init_db import bootstrap_database; bootstrap_database(force=True)"
+
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 

@@ -6,9 +6,12 @@
 
 当前仍是兼容过渡期：
 
-- `models/init_db.py` 继续保留 `create_all` 和幂等补字段逻辑，保证你现有本地库和 Docker 首次启动不被破坏。
+- `models/init_db.py` 继续保留 `create_all` 和幂等补字段逻辑，但已收敛进 `bootstrap_database()` 函数，
+  不再在模块导入时执行。运行时由 FastAPI lifespan（`FasdtApi/main.py`）和后台 Worker（`service/background_worker.py`）
+  启动时各调用一次；离线执行用 `python -m models.init_db`。
+- 用 `DB_AUTO_BOOTSTRAP=0` 可关闭自动建表/迁移（改由 Alembic 完全接管表结构的部署场景）。
 - `migrations/versions/20260830_0001_baseline.py` 是基线版本，用来把已有数据库纳入 Alembic 版本管理。
-- 暂时不启用自动生成迁移，因为当前模型文件导入时会连接数据库并执行初始化。后续应拆分“模型定义”和“数据库启动初始化”。
+- 导入模型不再连接数据库，因此可以逐步开启 Alembic 自动生成迁移（把 `target_metadata` 接入 `Base.metadata`）。
 
 ## 已有数据库接入
 
