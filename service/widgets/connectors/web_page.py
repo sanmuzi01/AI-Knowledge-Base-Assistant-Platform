@@ -83,7 +83,8 @@ class WebPageConnector(BaseConnector):
         try:
             doc = await asyncio.to_thread(crawl_url_to_markdown, url)
         except CrawlerError as exc:
-            raise RuntimeError(f"这个网页抓不了：{exc}") from exc
+            from service.exceptions import UpstreamError
+            raise UpstreamError(f"这个网页抓不了：{exc}") from exc
 
         content_bytes = doc.get("content") or b""
         full_text = content_bytes.decode("utf-8", errors="replace") if isinstance(content_bytes, bytes) else str(content_bytes)

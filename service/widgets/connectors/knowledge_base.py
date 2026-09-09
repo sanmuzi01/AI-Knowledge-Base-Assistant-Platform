@@ -51,7 +51,8 @@ class KnowledgeBaseConnector(BaseConnector):
         try:
             hits = await asyncio.to_thread(search_for_widget, ctx.user_id, agent_id, query, top_k)
         except PermissionError as exc:
-            raise RuntimeError(str(exc)) from exc
+            from service.exceptions import PermissionDenied
+            raise PermissionDenied(str(exc)) from exc
 
         return {
             "query": query,

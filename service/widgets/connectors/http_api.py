@@ -82,7 +82,8 @@ class HttpConnector(BaseConnector):
         try:
             url = await asyncio.to_thread(validate_crawl_url, raw_url)
         except CrawlerError as exc:
-            raise RuntimeError(f"这个接口地址不允许访问：{exc}") from exc
+            from service.exceptions import InvalidInput
+            raise InvalidInput(f"这个接口地址不允许访问：{exc}") from exc
 
         host = url.split("//", 1)[-1].split("/", 1)[0]
         response = await async_request_with_retry(
@@ -95,7 +96,8 @@ class HttpConnector(BaseConnector):
 
         content = response.content or b""
         if len(content) > _max_bytes():
-            raise RuntimeError(f"接口返回内容过大（超过 {_max_bytes()} 字节），请缩小范围或换一个接口")
+            from service.exceptions import UpstreamError
+            raise UpstreamError(f"接口返回内容过大（超过 {_max_bytes()} 字节），请缩小范围或换一个接口")
 
         text = content.decode(response.encoding or "utf-8", errors="replace")
         parsed: Any

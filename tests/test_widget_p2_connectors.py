@@ -9,6 +9,8 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from service.exceptions import AppError
+
 from service.widgets.connectors import CONNECTORS
 from service.widgets.context import WidgetRunContext
 
@@ -61,7 +63,7 @@ class HttpConnectorTest(unittest.IsolatedAsyncioTestCase):
         with patch("service.web_crawler_service.validate_crawl_url", lambda u: u), \
              patch("service.http_resilience.async_request_with_retry",
                    lambda **kw: _async(_Resp(content=b"x" * (2 * 1024 * 1024)))):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(AppError):
                 await self.conn.fetch(_ctx(), {"url": "https://api.example.com/big"})
 
     async def test_fetch_blocked_url_becomes_friendly_error(self):
@@ -71,7 +73,7 @@ class HttpConnectorTest(unittest.IsolatedAsyncioTestCase):
             raise CrawlerError("不允许抓取内网")
 
         with patch("service.web_crawler_service.validate_crawl_url", boom):
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(AppError) as ctx:
                 await self.conn.fetch(_ctx(), {"url": "http://169.254.169.254/"})
         self.assertIn("不允许", str(ctx.exception))
 
@@ -138,7 +140,7 @@ class KnowledgeBaseConnectorTest(unittest.IsolatedAsyncioTestCase):
             raise PermissionError("知识库不存在或无权访问")
 
         with patch("service.rag.widget_search.search_for_widget", denies):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(AppError):
                 await self.conn.fetch(_ctx(db=object()), {"agent_id": 9, "query": "x", "top_k": 3})
 
 

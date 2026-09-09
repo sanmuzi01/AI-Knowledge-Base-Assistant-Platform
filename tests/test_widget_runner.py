@@ -106,7 +106,8 @@ class RunnerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.widget.fail_count, 1)
 
     async def test_missing_widget_raises(self):
-        with self.assertRaises(LookupError):
+        from service.exceptions import NotFound
+        with self.assertRaises(NotFound):
             await runner.run_widget(_FakeDB(), user_id=1, widget_id=999)
 
 

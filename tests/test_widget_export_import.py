@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from service.exceptions import AppError
 
 from FasdtApi import user_widget
 from service import widget_async_service as svc
@@ -45,9 +45,9 @@ class ExportTest(unittest.IsolatedAsyncioTestCase):
             return None
 
         with patch.object(svc.dao, "get_owned_widget_async", none_get):
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(AppError) as ctx:
                 await svc.export_widget(object(), SimpleNamespace(id=1), 999)
-        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertEqual(ctx.exception.http_status, 404)
 
 
 class ImportTest(unittest.IsolatedAsyncioTestCase):
@@ -74,7 +74,7 @@ class ImportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["id"], 11)
 
     async def test_import_rejects_garbage(self):
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(AppError):
             await svc.import_widget(object(), SimpleNamespace(id=1), {"hello": "world"})
 
 

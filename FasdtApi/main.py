@@ -9,12 +9,15 @@ from service.config_validation import assert_runtime_config, validate_runtime_co
 # 避免应用已经连接数据库或初始化业务模块后才暴露配置错误。
 assert_runtime_config()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import text
+from service.exceptions import AppError
+from utils.logger_handler import get_logger
 from FasdtApi.login import router as login_router
 from FasdtApi.agent import router as agent_router
 from FasdtApi.llm_config import router as llm_config_router
@@ -101,6 +104,17 @@ app.include_router(admin_router)
 app.include_router(evaluation_router)
 app.include_router(web_monitor_router)
 app.include_router(user_widget_router)
+
+_error_logger = get_logger("app_error")
+
+
+@app.exception_handler(AppError)
+async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+    """领域异常统一出口：按 code 记一行日志，按 http_status 返回 {detail, code}。"""
+    log = _error_logger.warning if exc.http_status < 500 else _error_logger.error
+    log(f"[{exc.code}] {request.method} {request.url.path} -> {exc.message}"
+        + (f" | {exc.context}" if exc.context else ""))
+    return JSONResponse(status_code=exc.http_status, content={"detail": exc.message, "code": exc.code})
 
 
 @app.get("/")

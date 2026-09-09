@@ -7,7 +7,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import HTTPException, status
+from service.exceptions import InvalidInput, NotFound
 
 from models import user_widget_async_dao as dao
 from utils.timeutil import utcnow
@@ -117,9 +117,9 @@ async def preview_widget(db, user, draft: Dict[str, Any]) -> Dict[str, Any]:
     """按草稿真实跑一次取数/处理流程，但不落库。用于「创建前先看看效果」。"""
     result = validate_and_normalize(draft)
     if result.needs_clarification:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message)
+        raise InvalidInput(result.message)
     if not result.ok:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message or "组件配置无效")
+        raise InvalidInput(result.message or "组件配置无效")
 
     spec = result.spec
     run = await run_spec_preview(db, user.id, spec)
@@ -139,7 +139,7 @@ async def export_widget(db, user, widget_id: int) -> Dict[str, Any]:
     """导出一个组件的配置（可分享 / 再导入）。只含 spec，不含运行状态和用户信息。"""
     widget = await dao.get_owned_widget_async(db, user.id, widget_id)
     if not widget:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+        raise NotFound("组件不存在或无权限")
     spec = spec_from_widget(widget)
     return {
         "export_version": 1,
@@ -153,10 +153,10 @@ async def export_widget(db, user, widget_id: int) -> Dict[str, Any]:
 async def import_widget(db, user, payload: Dict[str, Any]) -> Dict[str, Any]:
     """从导出的 JSON 再建一个组件。服务端照常校验，不信任导入内容。"""
     if not isinstance(payload, dict):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="导入内容格式不对")
+        raise InvalidInput("导入内容格式不对")
     spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else payload
     if not isinstance(spec, dict) or not spec.get("type"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="导入内容里没有可用的组件配置")
+        raise InvalidInput("导入内容里没有可用的组件配置")
     return await create_widget(db, user, spec)
 
 
@@ -172,9 +172,9 @@ async def list_widgets(db, user_id: int) -> Dict[str, Any]:
 async def create_widget(db, user, draft: Dict[str, Any]) -> Dict[str, Any]:
     result = validate_and_normalize(draft)
     if result.needs_clarification:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message)
+        raise InvalidInput(result.message)
     if not result.ok:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message or "组件配置无效")
+        raise InvalidInput(result.message or "组件配置无效")
 
     spec = result.spec
     fields = _spec_to_fields(spec)
@@ -190,13 +190,13 @@ async def create_widget(db, user, draft: Dict[str, Any]) -> Dict[str, Any]:
 async def update_widget(db, user, widget_id: int, patch: Dict[str, Any]) -> Dict[str, Any]:
     widget = await dao.get_owned_widget_async(db, user.id, widget_id)
     if not widget:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+        raise NotFound("组件不存在或无权限")
 
     fields: Dict[str, Any] = {}
     if "name" in patch and patch["name"] is not None:
         name = str(patch["name"]).strip()[:120]
         if not name:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="名称不能为空")
+            raise InvalidInput("名称不能为空")
         fields["name"] = name
     if "description" in patch and patch["description"] is not None:
         fields["description"] = str(patch["description"]).strip()[:500]
@@ -206,19 +206,19 @@ async def update_widget(db, user, widget_id: int, patch: Dict[str, Any]) -> Dict
         try:
             fields["sort_order"] = int(patch["sort_order"])
         except (TypeError, ValueError):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="排序值必须是数字")
+            raise InvalidInput("排序值必须是数字")
 
     # 允许整体替换配置（前端"编辑"里重新用自然语言生成后回传 spec）
     if isinstance(patch.get("spec"), dict):
         result = validate_and_normalize(patch["spec"])
         if not result.ok:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message or "组件配置无效")
+            raise InvalidInput(result.message or "组件配置无效")
         fields.update(_spec_to_fields(result.spec))
         fields["next_run_at"] = compute_next_run_at(result.spec["trigger"], utcnow())
         fields["fail_count"] = 0
 
     if not fields:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有需要更新的内容")
+        raise InvalidInput("没有需要更新的内容")
 
     widget = await dao.update_widget_async(db, widget, fields)
     await db.commit()
@@ -230,7 +230,7 @@ async def update_widget(db, user, widget_id: int, patch: Dict[str, Any]) -> Dict
 async def delete_widget(db, user, widget_id: int) -> Dict[str, Any]:
     widget = await dao.get_owned_widget_async(db, user.id, widget_id)
     if not widget:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+        raise NotFound("组件不存在或无权限")
     await dao.delete_widget_async(db, widget)
     await db.commit()
     return {"message": "已删除", "id": widget_id}
@@ -239,7 +239,7 @@ async def delete_widget(db, user, widget_id: int) -> Dict[str, Any]:
 async def run_widget_now(db, user, widget_id: int, request_id: str = None) -> Dict[str, Any]:
     widget = await dao.get_owned_widget_async(db, user.id, widget_id)
     if not widget:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+        raise NotFound("组件不存在或无权限")
     result = await run_widget(db, user.id, widget_id, request_id=request_id, trigger="manual")
     await db.commit()
     if not result.ok:
@@ -250,7 +250,7 @@ async def run_widget_now(db, user, widget_id: int, request_id: str = None) -> Di
 async def get_widget_data(db, user, widget_id: int, with_series: bool = False) -> Dict[str, Any]:
     widget = await dao.get_owned_widget_async(db, user.id, widget_id)
     if not widget:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+        raise NotFound("组件不存在或无权限")
     latest = await dao.latest_data_point_async(db, widget_id)
     out: Dict[str, Any] = {"widget": _widget_to_dict(widget, latest)}
     if with_series:

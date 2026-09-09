@@ -199,7 +199,8 @@ async def run_widget(db, user_id: int, widget_id: int, *, request_id: str = None
 
     widget = await dao.get_owned_widget_async(db, user_id, widget_id)
     if not widget:
-        raise LookupError("组件不存在或无权限")
+        from service.exceptions import NotFound
+        raise NotFound("组件不存在或无权限")
 
     spec = spec_from_widget(widget)
     ctx = WidgetRunContext(
