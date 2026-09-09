@@ -114,6 +114,26 @@ class RouteIsolationTest(unittest.TestCase):
                              headers=self.bob["headers"]).status_code, 404
         )
 
+    # ---- 会话 / 后台任务：领域异常 + 隔离 ----
+
+    def test_conversation_cross_user_404_with_code(self):
+        r = self.client.post("/agent", json={"name": f"rt-conv-{self.alice['id']}"}, headers=self.alice["headers"])
+        agent_id = r.json()["agent_id"]
+        c = self.client.post("/conversation", json={"agent_id": agent_id}, headers=self.alice["headers"])
+        self.assertEqual(c.status_code, 200, c.text)
+        conv_id = c.json().get("id") or c.json().get("conversation_id")
+
+        got = self.client.get(f"/conversation/{conv_id}", headers=self.bob["headers"])
+        self.assertEqual(got.status_code, 404)
+        self.assertEqual(got.json().get("code"), "not_found")
+        self.assertEqual(self.client.get("/conversation/999999", headers=self.alice["headers"]).status_code, 404)
+
+    def test_background_task_admin_only_endpoint_403(self):
+        r = self.client.get("/task/all", headers=self.alice["headers"])
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json().get("code"), "permission_denied")
+        self.assertEqual(self.client.get("/task/all", headers=self.admin["headers"]).status_code, 200)
+
     # ---- Skill 读接口（已全量 async）----
 
     def test_skill_read_routes_work_and_404(self):

@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from models.init_db import User, get_db
 from models.async_db import get_async_db
 from service.dependencies import get_current_user, get_current_user_async
-from service.exceptions import NotFound
+from service.exceptions import InvalidInput, NotFound
 from service import skill_async_service
 from service.skill_service import (
     bind_skill,
@@ -84,10 +84,7 @@ def api_create_skill(
         permissions=data.permissions,
     )
     if not skill:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="创建Skill失败，请检查模板文件名是否正确",
-        )
+        raise InvalidInput("创建Skill失败，请检查模板文件名是否正确")
     return {"code": 200, "msg": "创建成功", "data": skill}
 
 
@@ -130,7 +127,7 @@ def api_create_template(
         tool_names=data.tool_names,
     )
     if not template:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="创建模板失败，请检查工具和指令")
+        raise InvalidInput("创建模板失败，请检查工具和指令")
     return {"code": 200, "msg": "创建成功", "data": template}
 
 
@@ -141,7 +138,7 @@ def api_get_template(
 ):
     template = get_template_config(template_filename, user_id=current_user.id)
     if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模板不存在")
+        raise NotFound("模板不存在")
     return {"code": 200, "msg": "查询成功", "data": template}
 
 
@@ -160,7 +157,7 @@ def api_update_template(
         tool_names=data.tool_names,
     )
     if not template:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新模板失败，只能修改自己的模板")
+        raise InvalidInput("更新模板失败，只能修改自己的模板")
     return {"code": 200, "msg": "更新成功", "data": template}
 
 
@@ -171,7 +168,7 @@ def api_delete_template(
 ):
     success = delete_template(current_user.id, template_filename)
     if not success:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="删除模板失败，只能删除自己的模板")
+        raise InvalidInput("删除模板失败，只能删除自己的模板")
     return {"code": 200, "msg": "删除成功"}
 
 
@@ -204,9 +201,9 @@ def api_export_skill(
     try:
         package = export_skill_package(db, skill_id, user_id=current_user.id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     if not package:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
+        raise NotFound("Skill不存在")
     return FileResponse(
         package["path"],
         filename=package["filename"],
@@ -222,7 +219,7 @@ def api_install_public_skill(
 ):
     skill = install_public_skill(db, current_user.id, skill_id)
     if not skill:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="安装失败：Skill不存在或不是公开能力")
+        raise InvalidInput("安装失败：Skill不存在或不是公开能力")
     return {"code": 200, "msg": "安装成功", "data": skill}
 
 
@@ -235,7 +232,7 @@ async def api_import_skill(
 ):
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="上传文件为空")
+        raise InvalidInput("上传文件为空")
 
     skill = import_skill_from_upload(
         db=db,
@@ -245,10 +242,7 @@ async def api_import_skill(
         is_public=is_public,
     )
     if not skill:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="导入失败：请上传 .zip Skill包，或符合格式的 .yml/.yaml 文件",
-        )
+        raise InvalidInput("导入失败：请上传 .zip Skill包，或符合格式的 .yml/.yaml 文件")
     return {"code": 200, "msg": "导入成功", "data": skill}
 
 
@@ -284,10 +278,7 @@ def api_update_skill(
         config_fields=config_payload,
     )
     if not skill:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="更新失败，Skill不存在、模板文件名错误或配置不可用",
-        )
+        raise InvalidInput("更新失败，Skill不存在、模板文件名错误或配置不可用")
     return {"code": 200, "msg": "更新成功", "data": skill}
 
 
@@ -299,7 +290,7 @@ def api_delete_skill(
 ):
     success = delete_skill(db, skill_id, user_id=current_user.id)
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
+        raise NotFound("Skill不存在")
     return {"code": 200, "msg": "删除成功"}
 
 
@@ -312,10 +303,7 @@ def api_bind_skill(
 ):
     success = bind_skill(db, agent_id, skill_id, user_id=current_user.id)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="绑定失败，请检查Agent和Skill是否存在且有权限",
-        )
+        raise InvalidInput("绑定失败，请检查Agent和Skill是否存在且有权限")
     return {"code": 200, "msg": "绑定成功"}
 
 
@@ -328,7 +316,7 @@ def api_unbind_skill(
 ):
     success = unbind_skill(db, agent_id, skill_id, user_id=current_user.id)
     if not success:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="解绑失败")
+        raise InvalidInput("解绑失败")
     return {"code": 200, "msg": "解绑成功"}
 
 
@@ -351,5 +339,5 @@ def api_update_agent_skills(
 ):
     success = update_agent_skills(db, agent_id, skill_ids, user_id=current_user.id)
     if not success:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+        raise InvalidInput("更新失败")
     return {"code": 200, "msg": "更新成功"}

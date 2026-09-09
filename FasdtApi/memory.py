@@ -1,6 +1,7 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
+from service.exceptions import InvalidInput, NotFound
 from pydantic import BaseModel, Field
 
 from models.async_db import get_async_db
@@ -39,7 +40,7 @@ async def list_memories(
 ):
     result = await memory_async_service.list_agent_memories(async_db, current_user.id, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 
@@ -59,9 +60,9 @@ async def create_memory(
             data.content,
         )
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 
@@ -73,7 +74,7 @@ async def update_memory(
     current_user: User = Depends(get_current_user_async),
 ):
     if data.memory_type is None and data.content is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有可更新的字段")
+        raise InvalidInput("没有可更新的字段")
     try:
         result = await memory_async_service.edit_memory(
             async_db,
@@ -83,9 +84,9 @@ async def update_memory(
             content=data.content,
         )
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在或无权限")
+        raise NotFound("记忆不存在或无权限")
     return result
 
 
@@ -97,7 +98,7 @@ async def delete_memory(
 ):
     success = await memory_async_service.remove_memory(async_db, current_user.id, memory_id)
     if not success:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="记忆不存在或无权限")
+        raise NotFound("记忆不存在或无权限")
     return {"message": "删除成功"}
 
 
@@ -109,5 +110,5 @@ async def clear_memories(
 ):
     count = await memory_async_service.clear_agent_memories(async_db, current_user.id, agent_id)
     if count is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return {"message": "清空成功", "count": count}

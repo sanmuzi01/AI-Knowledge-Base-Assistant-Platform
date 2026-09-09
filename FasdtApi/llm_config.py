@@ -1,6 +1,7 @@
 from pydantic  import Field,BaseModel
 
-from fastapi import APIRouter,Depends,HTTPException,status
+from fastapi import APIRouter, Depends
+from service.exceptions import InvalidInput, NotFound
 from typing import Optional
 from models.init_db import User
 from models.async_db import get_async_db
@@ -50,7 +51,7 @@ async def test_config(
 ):
     result = await llm_config_service.async_test_config(async_db, current_user, model_name)
     if not result.get("ok"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result)
+        raise InvalidInput(result)
     return result
 
 
@@ -62,5 +63,5 @@ async def delete_config(
 ):
     result = await llm_config_service.async_delete_config_by_model(async_db, current_user, model_name)
     if result["message"] =="配置不存在":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="配置不存在")
+        raise NotFound("配置不存在")
     return result

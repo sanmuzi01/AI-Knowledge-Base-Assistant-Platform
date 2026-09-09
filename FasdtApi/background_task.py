@@ -1,4 +1,5 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends
+from service.exceptions import InvalidInput, NotFound, PermissionDenied
 
 from models.init_db import User
 from models.async_db import get_async_db
@@ -11,10 +12,7 @@ router = APIRouter(prefix="/task", tags=["后台任务"])
 
 def _require_admin(current_user: User):
     if not is_admin_user(current_user):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限",
-        )
+        raise PermissionDenied("需要管理员权限")
 
 
 @router.get("/", summary="查询当前用户后台任务（支持筛选）")
@@ -52,7 +50,7 @@ async def get_task(
 ):
     task = await background_task_async_service.get_user_task(async_db, current_user.id, task_id)
     if not task:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="任务不存在或无权限")
+        raise NotFound("任务不存在或无权限")
     return task
 
 
@@ -67,10 +65,7 @@ async def retry_task(
         current_user.id, task_id, is_admin=is_admin_user(current_user)
     )
     if not new_task:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="任务不存在、无权限，或当前状态不允许重试（仅 failed/cancelled 可重试）",
-        )
+        raise InvalidInput("任务不存在、无权限，或当前状态不允许重试（仅 failed/cancelled 可重试）")
     background_task_service.schedule_task(new_task, background_tasks)
     return {
         "code": 200,
@@ -88,10 +83,7 @@ async def cancel_task(
         current_user.id, task_id, is_admin=is_admin_user(current_user)
     )
     if not task:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="任务不存在、无权限，或当前状态不允许取消（仅 queued 可取消；running 无法中断）",
-        )
+        raise InvalidInput("任务不存在、无权限，或当前状态不允许取消（仅 queued 可取消；running 无法中断）")
     return {
         "code": 200,
         "msg": "已取消任务",

@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from service.exceptions import InvalidInput, NotFound
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -54,16 +55,16 @@ async def evaluate_rag(
 ):
     agent = get_owned_agent(db, current_user.id, agent_id)
     if not agent:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
 
     knowledge_ids = [data.knowledge_id] if data.knowledge_id is not None else []
     knowledge_ids.extend([case.knowledge_id for case in data.cases if case.knowledge_id is not None])
     for item in set(knowledge_ids):
         doc = get_owned_knowledge(db, current_user.id, item, agent_id=agent_id)
         if not doc:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"文档不存在或无权限: {item}")
+            raise NotFound(f"文档不存在或无权限: {item}")
         if doc.is_enabled == 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"文档已禁用，不参与评估: {item}")
+            raise InvalidInput(f"文档已禁用，不参与评估: {item}")
 
     try:
         require_limit(
@@ -100,6 +101,6 @@ async def evaluate_rag(
     except LimitExceeded as e:
         raise _limit_error(e)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except Exception as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"评估失败: {str(e)}")

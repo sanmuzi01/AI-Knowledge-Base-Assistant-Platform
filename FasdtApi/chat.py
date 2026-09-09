@@ -10,6 +10,7 @@
 不是换 AsyncSession 就能迁的；待 runtime 层 async 化后再收口。
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from service.exceptions import InvalidInput, PermissionDenied
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -80,9 +81,9 @@ async def chat(
     except LimitExceeded as e:
         raise _limit_error(e)
     except ValueError as e:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(e))
+        raise PermissionDenied(str(e))
     if "message" in result and "answer" not in result:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result["message"])
+        raise InvalidInput(result["message"])
     return result
 
 @router.post("/{agent_id}/stream", summary="发送对话（SSE流式）")

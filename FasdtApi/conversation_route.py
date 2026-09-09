@@ -9,7 +9,8 @@
   DELETE /conversation/{conversation_id}     删除会话（级联删消息）
 路由层职责：鉴权(get_current_user) + 入参校验 + HTTP 异常转换
 """
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Response
+from service.exceptions import InvalidInput, NotFound
 from typing import Optional
 from pydantic import BaseModel, Field
 from models.init_db import User
@@ -46,7 +47,7 @@ async def create_conversation(
         async_db, user_id=current_user.id, agent_id=body.agent_id, title=body.title
     )
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 @router.get("/agent/{agent_id}", summary="查询Agent下的会话列表")
@@ -67,7 +68,7 @@ async def get_conversation(
     """查询单个会话详情（含权限校验）"""
     result = await conversation_async_service.get_conversation(async_db, current_user.id, conversation_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return result
 @router.get("/{conversation_id}/messages", summary="查询会话消息历史")
 async def get_messages(
@@ -79,7 +80,7 @@ async def get_messages(
     """查询会话下的所有消息（正序，用于聊天历史展示）"""
     result = await conversation_async_service.list_messages(async_db, current_user.id, conversation_id, limit)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return result
 
 
@@ -92,10 +93,10 @@ async def export_conversation(
 ):
     fmt = format.lower()
     if fmt not in {"markdown", "json"}:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="format 仅支持 markdown 或 json")
+        raise InvalidInput("format 仅支持 markdown 或 json")
     result = await conversation_async_service.export_conversation(async_db, current_user.id, conversation_id, fmt)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return Response(
         content=result["content"],
         media_type=f'{result["media_type"]}; charset=utf-8',
@@ -114,7 +115,7 @@ async def update_conversation(
         async_db, current_user.id, conversation_id, body.title
     )
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return result
 
 
@@ -126,7 +127,7 @@ async def update_conversation_flags(
         current_user: User = Depends(get_current_user_async),
 ):
     if body.is_pinned is None and body.is_archived is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="没有要更新的字段")
+        raise InvalidInput("没有要更新的字段")
     result = await conversation_async_service.update_conversation_flags(
         async_db,
         current_user.id,
@@ -135,7 +136,7 @@ async def update_conversation_flags(
         is_archived=body.is_archived,
     )
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return result
 
 @router.delete("/{conversation_id}", summary="删除会话")
@@ -147,5 +148,5 @@ async def delete_conversation(
     """删除会话（级联删除其下所有消息）"""
     success = await conversation_async_service.delete_conversation(async_db, current_user.id, conversation_id)
     if not success:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="会话不存在或无权限")
+        raise NotFound("会话不存在或无权限")
     return {"message": "删除成功", "conversation_id": conversation_id}

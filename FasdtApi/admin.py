@@ -1,6 +1,7 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
+from service.exceptions import NotFound
 from pydantic import BaseModel, Field
 
 from models.init_db import User
@@ -53,7 +54,7 @@ async def admin_user_detail(
 ):
     result = await admin_async_service.get_user_detail(async_db, user_id)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        raise NotFound("用户不存在")
     return result
 
 
@@ -66,7 +67,7 @@ async def admin_update_user_roles(
 ):
     result = await admin_async_service.set_user_roles(async_db, user_id, data.roles, current_user.id)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        raise NotFound("用户不存在")
     return result
 
 
@@ -79,7 +80,7 @@ async def admin_update_user_status(
 ):
     result = await admin_async_service.set_user_disabled(async_db, user_id, data.disabled, current_user.id)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        raise NotFound("用户不存在")
     return result
 
 
@@ -92,7 +93,7 @@ async def admin_reset_user_password(
 ):
     result = await admin_async_service.reset_user_password(async_db, user_id, data.new_password)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        raise NotFound("用户不存在")
     return result
 
 
@@ -103,7 +104,7 @@ async def admin_delete_user(
 ):
     result = await admin_async_service.delete_user(user_id, current_user.id)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
+        raise NotFound("用户不存在")
     return result
 
 

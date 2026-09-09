@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter,Depends,HTTPException,Request,status
+from fastapi import APIRouter, Depends, Request
+from service.exceptions import InvalidInput
 from pydantic import BaseModel,Field
 from service import auth_async_service
 from service.phone_verification_service import normalize_phone
@@ -99,7 +100,7 @@ async def send_register_sms_code(
     phone = normalize_phone(data.phone)
     existing = await get_user_by_phone_async(async_db, phone)
     if existing:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="手机号已经注册")
+        raise InvalidInput("手机号已经注册")
     client_ip = request.client.host if request.client else ""
     return await async_send_register_code(phone, client_ip)
 @router.get("/me", summary="查询当前登录用户信息")
@@ -170,6 +171,5 @@ async def change_password(
         data.new_password,
     )
     if result["message"] != "修改成功":
-        from fastapi import HTTPException, status
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result["message"])
+        raise InvalidInput(result["message"])
     return result

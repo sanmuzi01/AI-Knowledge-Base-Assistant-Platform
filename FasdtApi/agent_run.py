@@ -1,5 +1,6 @@
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
+from service.exceptions import NotFound
 from models.async_db import get_async_db
 from models.init_db import User
 from service import agent_run_async_service
@@ -27,7 +28,7 @@ async def list_runs(
         conversation_id=conversation_id,
     )
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 @router.get("/{run_id}/steps", summary="查看运行详细步骤")
@@ -39,5 +40,5 @@ async def get_steps(
 ):
     result = await agent_run_async_service.get_steps(async_db, current_user.id, run_id, full=full)
     if not result:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="运行记录不存在")
+        raise NotFound("运行记录不存在")
     return result

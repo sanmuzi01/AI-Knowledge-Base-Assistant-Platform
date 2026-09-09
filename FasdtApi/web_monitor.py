@@ -1,6 +1,7 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
+from service.exceptions import NotFound
 from pydantic import BaseModel, Field
 
 from models.async_db import get_async_db
@@ -57,7 +58,7 @@ async def update_monitor(
         data.model_dump(exclude_unset=True),
     )
     if not monitor:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="网页监控项不存在或无权限")
+        raise NotFound("网页监控项不存在或无权限")
     return monitor
 
 
@@ -69,7 +70,7 @@ async def check_monitor(
 ):
     monitor = await web_monitor_async_service.check_monitor(async_db, current_user.id, monitor_id)
     if not monitor:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="网页监控项不存在或无权限")
+        raise NotFound("网页监控项不存在或无权限")
     return monitor
 
 
@@ -81,5 +82,5 @@ async def delete_monitor(
 ):
     ok = await web_monitor_async_service.delete_monitor(async_db, current_user.id, monitor_id)
     if not ok:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="网页监控项不存在或无权限")
+        raise NotFound("网页监控项不存在或无权限")
     return {"message": "删除成功"}
