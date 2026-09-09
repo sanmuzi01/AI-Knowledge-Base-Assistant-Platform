@@ -271,7 +271,7 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 | **3 ✅** | 多空间检索 + 引用 | `rag/space_search.search_spaces`（自带 Session + 逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` 组装 + 拒答）；`search_entry.search_for_agent` 统一入口（绑定→多空间，未绑定→旧 `search_scoped`）；`agent.kb_*` + `agent_knowledge_space` 绑定接入 create/update；`agent_runtime` 注入引用/拒答规则 + 透传 `citations`（SSE `citations` 事件）；前端 `AgentCreateDialog` 知识库区块 + `Chat.vue` `CitationList` | 未绑定 space 的 Agent 回退旧 `agent_{id}` 检索路径 |
 | **4 ✅** | 知识库调试台 | `/rag-debug/run`（`debug_service.run_retrieval` 经 `to_thread` 跑一次检索快照，`with_answer` 时 `attach_answer` 调 LLM + 启发式忠诚度）；`rag_debug_samples` 表 + `models/rag_debug_dao.py`（异步）；`/rag-debug/samples` 增删改查 + `/samples/export`（评估集 → `rag_eval` cases）；前端 `RagDebugConsole.vue` + `RagTracePanel.vue`，`/knowledge-spaces/:id/debug` | 纯新增 |
 | **5 ✅** | 质量与健康分 | `service/knowledge_space/health_service.py`（只读 DB 算文档侧 failed/pending/stale/empty_done + 检索侧 hit/refuse/citation/useful 率 → 加权 `health_score` 0~100）；`GET /knowledge-spaces/{id}/health` 实时算并回写 `health_*`；`space_health` 后台任务 runner；`rag_eval_service.run_for_space` + `POST /evaluation/space/{id}/rag`（检索走 `space_search`）；前端 `SpaceHealth.vue`；Widget `knowledge_space` connector（`schema` 白名单 + `designer` 提示，注册即用） | 纯新增 |
-| **6** | 企业权限落地 | `teams` / `organizations` / `space_members` / `kb_audit_log` 建表 + 接线；`user_space_ids` / `membership` 实现；role 分级写权限；管理员企业视角；权限测试 | `user_id` owner 语义保留为 role=owner |
+| **6 ✅** | 企业权限落地 | `space_members` / `kb_audit_log` 建表 + 接线（`teams` / `organizations` 建表预留，暂不参与可见性）；`access_control.get_owned_space[_async]` / `user_space_ids[_async]` 扩成「owner 或任意角色成员」；`get_space_role[_async]` + `membership.can_*` 做写权限分级（viewer 只读 / editor 增删文档 / admin 改空间·管成员 / owner 删空间）；`space_async_service` + `document_service` 写操作加 role 校验 + `kb_audit_dao` 审计；`/knowledge-spaces/{id}/members`、`/{id}/audit` 路由；`/admin/knowledge-spaces` 企业视角；前端 `SpaceMembersPanel` + `AdminKnowledgeSpaces.vue` | `user_id` owner 语义保留为 role=owner，调用点不变，只改两个隔离入口实现 |
 
 ---
 
@@ -401,11 +401,32 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 - 测试：`tests/test_space_health_service.py`（评分 / 比率 / 阈值 / connector 注册）；
   `tests/test_routes_isolation.py::test_space_health_and_eval_isolation`。
 
-**阶段 6**
-- viewer 不能上传 / 改 / 删；editor 能传文档不能改空间；admin 能改空间不能删；owner 全权。
-- 非成员访问团队 space → 403。
-- 空间与文档的写操作在 `kb_audit_log` 有记录。
-- 管理员能在后台看到企业下所有 space。
+**阶段 6** ✅
+- viewer 不能上传 / 改 / 删（`document_service._require_write` → `can_write_doc` → 403）；
+  editor 能传文档不能改空间（`space_async_service.update_space` → `can_manage_space` → 403）；
+  admin 能改空间、管成员不能删空间（`can_delete_space` 仅 owner）；owner 全权。
+- 非成员访问共享 space → 404（`get_owned_space[_async]` 查不到 owner 也查不到 space_members 角色）。
+  说明：越权统一返回 404（不泄露存在性），有读权限但无写权限的成员写操作返回 403。
+- 空间设置 / 文档增删改 / 成员变更 在 `kb_audit_log` 有记录（`kb_audit_dao.record[_async]`，best-effort）。
+- 管理员 `GET /admin/knowledge-spaces` 看到平台所有 space（owner / 规模 / 成员数 / 健康分）；普通用户 403。
+- `access_control` 只改了 `get_owned_space` / `user_space_ids` / 新增 `get_space_role` 三个函数，
+  阶段 1~5 的调用点一行没动（隔离扩展点提前收敛）。
+- 测试：`tests/test_space_permission.py`（角色解析 / 能力判定 / rank）；
+  `tests/test_routes_isolation.py::test_space_membership_roles_and_audit`（viewer→editor→admin 分级 +
+  审计 + 管理员视角 + 非成员 404）。
+
+## 附：企业权限的收敛点
+
+`access_control` 里知识库空间相关的隔离全部集中在三个函数：
+
+| 函数 | 语义 | 谁在用 |
+| --- | --- | --- |
+| `get_owned_space[_async](db, uid, sid)` | 「能读到这个空间吗」→ owner 或任意角色成员，否则 None | 所有 space / 文档 / 调试 / 健康 读路径的 404 门槛 |
+| `user_space_ids[_async](db, uid)` | 可访问的 space id 集合（owned ∪ member） | 多空间检索、Agent 绑定校验、调试样例范围 |
+| `get_space_role[_async](db, uid, sid)` | owner / admin / editor / viewer / None | service 层写操作 + `membership.can_*` 做 403 分级 |
+
+`teams` / `organizations` 表已建，后续要接「团队成员自动可见团队 space」只需在这三个函数里加一段
+（加 `team_members` 表 + union），路由和 service 调用点仍然不用动。
 
 ---
 

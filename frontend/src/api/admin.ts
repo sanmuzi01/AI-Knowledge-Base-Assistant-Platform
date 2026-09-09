@@ -139,3 +139,26 @@ export async function listAdminLogs(params: {
   const { data } = await request.get('/admin/logs', { params })
   return data as AdminLog[]
 }
+
+export interface AdminKnowledgeSpace {
+  id: number
+  name: string
+  owner_user_id: number
+  owner_name: string
+  organization_id: number | null
+  team_id: number | null
+  status: string
+  purpose: string | null
+  doc_count: number
+  chunk_count: number
+  member_count: number
+  bound_agent_count: number
+  health_score: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export async function listAdminKnowledgeSpaces(): Promise<{ items: AdminKnowledgeSpace[]; total: number }> {
+  const { data } = await request.get('/admin/knowledge-spaces')
+  return data
+}

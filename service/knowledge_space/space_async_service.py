@@ -6,9 +6,10 @@
 import json
 from typing import Any, Dict, List, Optional
 
-from models import knowledge_space_async_dao as dao
-from service.access_control import get_owned_space_async
-from service.exceptions import InvalidInput, NotFound
+from models import kb_audit_dao, knowledge_space_async_dao as dao
+from service.access_control import get_owned_space_async, get_space_role_async
+from service.exceptions import InvalidInput, NotFound, PermissionDenied
+from service.knowledge_space import membership
 
 PURPOSES = [
     "customer_service", "policy", "product", "sales", "legal", "tech", "research", "other",
@@ -31,7 +32,7 @@ def _dump_tags(raw) -> Optional[str]:
     return json.dumps(tags, ensure_ascii=False) if tags else None
 
 
-def _to_dict(space, stats: Dict[str, int] = None) -> Dict[str, Any]:
+def _to_dict(space, stats: Dict[str, int] = None, *, role: str = "owner") -> Dict[str, Any]:
     try:
         tags = json.loads(space.tags_json) if space.tags_json else []
     except (TypeError, ValueError):
@@ -51,9 +52,11 @@ def _to_dict(space, stats: Dict[str, int] = None) -> Dict[str, Any]:
         "last_indexed_at": space.last_indexed_at.strftime("%Y-%m-%d %H:%M:%S") if space.last_indexed_at else None,
         "created_at": space.created_at.strftime("%Y-%m-%d %H:%M:%S") if space.created_at else None,
         "updated_at": space.updated_at.strftime("%Y-%m-%d %H:%M:%S") if space.updated_at else None,
-        # 阶段6 预留（前端可先忽略）
-        "scope": "personal",
-        "my_role": "owner",
+        "scope": "personal" if role == "owner" else "shared",
+        "my_role": role,
+        "can_write_doc": membership.can_write_doc(role),
+        "can_manage": membership.can_manage_space(role),
+        "can_delete": membership.can_delete_space(role),
     }
     if stats:
         d.update(stats)
@@ -61,11 +64,12 @@ def _to_dict(space, stats: Dict[str, int] = None) -> Dict[str, Any]:
 
 
 async def list_spaces(db, user_id: int) -> Dict[str, Any]:
-    spaces = await dao.list_spaces_by_user_async(db, user_id)
+    spaces = await dao.list_accessible_spaces_async(db, user_id)
     items = []
     for s in spaces:
         stats = await dao.live_stats_async(db, s.id)
-        items.append(_to_dict(s, stats))
+        role = "owner" if s.user_id == user_id else (await get_space_role_async(db, user_id, s.id) or "viewer")
+        items.append(_to_dict(s, stats, role=role))
     return {
         "items": items,
         "purposes": [{"key": k, "label": PURPOSE_LABELS[k]} for k in PURPOSES],
@@ -76,8 +80,9 @@ async def get_space(db, user_id: int, space_id: int) -> Dict[str, Any]:
     space = await get_owned_space_async(db, user_id, space_id)
     if not space:
         raise NotFound("知识库空间不存在或无权限")
+    role = await get_space_role_async(db, user_id, space_id) or "viewer"
     stats = await dao.live_stats_async(db, space_id)
-    return _to_dict(space, stats)
+    return _to_dict(space, stats, role=role)
 
 
 def _clean_create(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,6 +110,9 @@ async def update_space(db, user_id: int, space_id: int, patch: Dict[str, Any]) -
     space = await get_owned_space_async(db, user_id, space_id)
     if not space:
         raise NotFound("知识库空间不存在或无权限")
+    role = await get_space_role_async(db, user_id, space_id)
+    if not membership.can_manage_space(role):
+        raise PermissionDenied("只有空间管理员或所有者能修改空间设置")
     fields: Dict[str, Any] = {}
     if "name" in patch and patch["name"] is not None:
         name = str(patch["name"]).strip()[:120]
@@ -124,16 +132,135 @@ async def update_space(db, user_id: int, space_id: int, patch: Dict[str, Any]) -
     if not fields:
         raise InvalidInput("没有需要更新的内容")
     space = await dao.update_space_async(db, space, fields)
+    await _audit(db, user_id, "space.update", space_id=space_id, target_type="space",
+                target_id=space_id, detail={"fields": sorted(fields.keys())})
     stats = await dao.live_stats_async(db, space_id)
-    return _to_dict(space, stats)
+    return _to_dict(space, stats, role=role)
 
 
 async def delete_space(db, user_id: int, space_id: int) -> Dict[str, Any]:
     space = await get_owned_space_async(db, user_id, space_id)
     if not space:
         raise NotFound("知识库空间不存在或无权限")
+    role = await get_space_role_async(db, user_id, space_id)
+    if not membership.can_delete_space(role):
+        raise PermissionDenied("只有空间所有者能删除空间")
     stats = await dao.live_stats_async(db, space_id)
     if stats["doc_count"] > 0:
         raise InvalidInput("空间下还有文档，请先清空文档或改为归档")
+    await _audit(db, user_id, "space.delete", space_id=space_id, target_type="space",
+                target_id=space_id, detail={"name": space.name})
+    from sqlalchemy import delete as sa_delete
+    from models.init_db import SpaceMember
+
+    await db.execute(sa_delete(SpaceMember).where(SpaceMember.space_id == space_id))
     await dao.delete_space_async(db, space)
     return {"message": "已删除", "id": space_id}
+
+
+async def _audit(db, user_id, action, **kw):
+    try:
+        await kb_audit_dao.record_async(db, user_id, action, **kw)
+    except Exception:  # noqa: BLE001 —— 审计失败不影响主流程
+        pass
+
+
+# ============================ 成员管理 ============================
+
+_MEMBER_ROLES = ("admin", "editor", "viewer")
+
+
+def _member_dict(m, name: str = "") -> Dict[str, Any]:
+    return {
+        "user_id": m.user_id,
+        "user_name": name,
+        "role": m.role,
+        "created_at": m.created_at.strftime("%Y-%m-%d %H:%M:%S") if m.created_at else None,
+    }
+
+
+async def _require_manage(db, user_id: int, space_id: int):
+    space = await get_owned_space_async(db, user_id, space_id)
+    if not space:
+        raise NotFound("知识库空间不存在或无权限")
+    role = await get_space_role_async(db, user_id, space_id)
+    if not membership.can_manage_members(role):
+        raise PermissionDenied("只有空间管理员或所有者能管理成员")
+    return space, role
+
+
+async def list_members(db, user_id: int, space_id: int) -> Dict[str, Any]:
+    # 任意可访问该空间的成员都能看名单
+    space = await get_owned_space_async(db, user_id, space_id)
+    if not space:
+        raise NotFound("知识库空间不存在或无权限")
+    from models.space_member_dao import list_members_async
+    from models.user_async_dao import get_users_by_ids_async
+
+    rows = await list_members_async(db, space_id)
+    names = await get_users_by_ids_async(db, [space.user_id] + [r.user_id for r in rows])
+    my_role = await get_space_role_async(db, user_id, space_id)
+    return {
+        "owner": {"user_id": space.user_id, "user_name": names.get(space.user_id, ""), "role": "owner"},
+        "members": [_member_dict(r, names.get(r.user_id, "")) for r in rows],
+        "my_role": my_role,
+        "assignable_roles": list(_MEMBER_ROLES),
+    }
+
+
+async def set_member(db, user_id: int, space_id: int, target_user_name: str, role: str) -> Dict[str, Any]:
+    space, _ = await _require_manage(db, user_id, space_id)
+    if role not in _MEMBER_ROLES:
+        raise InvalidInput("角色只能是 admin / editor / viewer")
+    from models.space_member_dao import upsert_member_async
+    from models.user_async_dao import get_user_by_name_async
+
+    target = await get_user_by_name_async(db, (target_user_name or "").strip())
+    if not target:
+        raise NotFound(f"用户不存在：{target_user_name}")
+    if target.id == space.user_id:
+        raise InvalidInput("空间所有者的角色不可更改")
+    if target.id == user_id:
+        raise InvalidInput("不能修改自己的角色")
+    m = await upsert_member_async(db, space_id, target.id, role)
+    await _audit(db, user_id, "member.set", space_id=space_id, target_type="member",
+                target_id=target.id, detail={"user_name": target.name, "role": role})
+    return _member_dict(m, target.name)
+
+
+async def remove_member(db, user_id: int, space_id: int, target_user_id: int) -> Dict[str, Any]:
+    space, _ = await _require_manage(db, user_id, space_id)
+    if target_user_id == space.user_id:
+        raise InvalidInput("不能移除空间所有者")
+    from models.space_member_dao import remove_member_async
+
+    n = await remove_member_async(db, space_id, target_user_id)
+    if n:
+        await _audit(db, user_id, "member.remove", space_id=space_id, target_type="member",
+                    target_id=target_user_id)
+    return {"message": "已移除" if n else "该用户不是成员", "user_id": target_user_id}
+
+
+async def list_audit(db, user_id: int, space_id: int) -> Dict[str, Any]:
+    await _require_manage(db, user_id, space_id)
+    from models.kb_audit_dao import list_by_space_async
+    from models.user_async_dao import get_users_by_ids_async
+
+    rows = await list_by_space_async(db, space_id)
+    names = await get_users_by_ids_async(db, [r.user_id for r in rows])
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "user_name": names.get(r.user_id, ""),
+                "action": r.action,
+                "target_type": r.target_type,
+                "target_id": r.target_id,
+                "detail": r.detail,
+                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else None,
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+    }

@@ -307,6 +307,56 @@ async def reset_user_password(db, user_id: int, new_password: str) -> Dict:
     return {"message": "密码已重置", "user_id": user.id}
 
 
+async def list_knowledge_spaces(db, limit: int = 500) -> Dict:
+    """企业知识库视角：所有知识库空间 + 归属 / 规模 / 成员数 / 健康分。"""
+    from models.init_db import AgentKnowledgeSpace, KnowledgeSpace, SpaceMember
+
+    res = await db.execute(
+        select(KnowledgeSpace).order_by(KnowledgeSpace.id.desc()).limit(limit)
+    )
+    spaces = list(res.scalars().all())
+    if not spaces:
+        return {"items": [], "total": 0}
+
+    owner_ids = {s.user_id for s in spaces}
+    owners_res = await db.execute(select(User.id, User.name).where(User.id.in_(owner_ids)))
+    owner_names = {row[0]: row[1] for row in owners_res.all()}
+
+    space_ids = [s.id for s in spaces]
+    mem_res = await db.execute(
+        select(SpaceMember.space_id, func.count(SpaceMember.id))
+        .where(SpaceMember.space_id.in_(space_ids)).group_by(SpaceMember.space_id)
+    )
+    member_counts = {row[0]: int(row[1]) for row in mem_res.all()}
+    bind_res = await db.execute(
+        select(AgentKnowledgeSpace.space_id, func.count(AgentKnowledgeSpace.id))
+        .where(AgentKnowledgeSpace.space_id.in_(space_ids)).group_by(AgentKnowledgeSpace.space_id)
+    )
+    bind_counts = {row[0]: int(row[1]) for row in bind_res.all()}
+
+    items = [
+        {
+            "id": s.id,
+            "name": s.name,
+            "owner_user_id": s.user_id,
+            "owner_name": owner_names.get(s.user_id, ""),
+            "organization_id": s.organization_id,
+            "team_id": s.team_id,
+            "status": s.status,
+            "purpose": s.purpose,
+            "doc_count": s.doc_count,
+            "chunk_count": s.chunk_count,
+            "member_count": member_counts.get(s.id, 0),
+            "bound_agent_count": bind_counts.get(s.id, 0),
+            "health_score": s.health_score,
+            "created_at": _format_dt(s.created_at),
+            "updated_at": _format_dt(s.updated_at),
+        }
+        for s in spaces
+    ]
+    return {"items": items, "total": len(items)}
+
+
 async def delete_user(user_id: int, operator_id: int) -> Dict:
     """删除用户及其级联数据。
 

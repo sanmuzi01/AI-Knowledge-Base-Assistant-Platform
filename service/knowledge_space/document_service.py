@@ -7,7 +7,7 @@ knowledge_service 的同步 + 后台任务链路。归属：get_owned_space[_asy
 import json
 from typing import Any, Dict, List, Optional
 
-from service.exceptions import InvalidInput, NotFound
+from service.exceptions import InvalidInput, NotFound, PermissionDenied
 
 ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
 _STATUS_LABEL = {"pending": "待处理", "processing": "解析中", "done": "已入库", "failed": "失败"}
@@ -81,13 +81,36 @@ async def list_documents(
 
 # ---------------- 写（sync + BackgroundTasks） ----------------
 
-def _owned_space_or_404(db, user_id: int, space_id: int):
-    from service.access_control import get_owned_space
+def _require_write(db, user_id: int, space_id: int):
+    """空间可访问 + 当前用户对该空间有写文档权限（owner/admin/editor）。返回 (space, role)。"""
+    from service.access_control import get_owned_space, get_space_role
+    from service.knowledge_space.membership import can_write_doc
 
     space = get_owned_space(db, user_id, space_id)
     if space is None:
         raise NotFound("知识库空间不存在或无权限")
-    return space
+    role = get_space_role(db, user_id, space_id)
+    if not can_write_doc(role):
+        raise PermissionDenied("你在该知识库空间只有只读权限")
+    return space, role
+
+
+def _audit(db, user_id: int, action: str, space_id: int, knowledge_id: int = None, detail=None):
+    try:
+        from models import kb_audit_dao
+        kb_audit_dao.record(db, user_id, action, space_id=space_id, target_type="document",
+                            target_id=knowledge_id, detail=detail, commit=True)
+    except Exception:  # noqa: BLE001 —— 审计失败不影响主流程
+        pass
+
+
+def _doc_in_space_or_404(db, space_id: int, knowledge_id: int):
+    from models.knowledge_dao import get_knowledge_in_space
+
+    doc = get_knowledge_in_space(db, space_id, knowledge_id)
+    if not doc:
+        raise NotFound("文档不存在或无权限")
+    return doc
 
 
 def _validate_file(file_name: str) -> str:
@@ -99,19 +122,21 @@ def _validate_file(file_name: str) -> str:
 
 def upload(db, background_tasks, user_id: int, space_id: int, file_name: str, content: bytes,
           *, category: str = None, tags: List[str] = None, version: str = None) -> Dict[str, Any]:
-    _owned_space_or_404(db, user_id, space_id)
+    _require_write(db, user_id, space_id)
     file_type = _validate_file(file_name)
     if not content:
         raise InvalidInput("上传文件为空")
     from service import knowledge_service
-    return knowledge_service.create_upload_task(
+    out = knowledge_service.create_upload_task(
         db, background_tasks, user_id, None, file_name, content, file_type,
         space_id=space_id, category=category, tags_json=_tags_json(tags), version=version,
     )
+    _audit(db, user_id, "doc.upload", space_id, out.get("knowledge_id"), {"file_name": file_name})
+    return out
 
 
 def upload_batch(db, background_tasks, user_id: int, space_id: int, files: List[Dict]) -> List[Dict]:
-    _owned_space_or_404(db, user_id, space_id)
+    _require_write(db, user_id, space_id)
     if not files:
         raise InvalidInput("请选择至少一个文件")
     if len(files) > 20:
@@ -124,34 +149,35 @@ def upload_batch(db, background_tasks, user_id: int, space_id: int, files: List[
         prepared.append({"file_name": f["file_name"], "content": f["content"],
                          "file_type": f["file_name"].rsplit(".", 1)[-1].lower()})
     from service import knowledge_service
-    return knowledge_service.create_upload_tasks(db, background_tasks, user_id, None, prepared, space_id=space_id)
+    out = knowledge_service.create_upload_tasks(db, background_tasks, user_id, None, prepared, space_id=space_id)
+    _audit(db, user_id, "doc.upload_batch", space_id, None, {"count": len(prepared)})
+    return out
 
 
 def crawl(db, background_tasks, user_id: int, space_id: int, pages: List[Dict]) -> List[Dict]:
-    _owned_space_or_404(db, user_id, space_id)
+    _require_write(db, user_id, space_id)
     from service import knowledge_service
-    return knowledge_service.create_crawl_tasks(db, background_tasks, user_id, None, pages, space_id=space_id)
+    out = knowledge_service.create_crawl_tasks(db, background_tasks, user_id, None, pages, space_id=space_id)
+    _audit(db, user_id, "doc.crawl", space_id, None, {"count": len(pages or [])})
+    return out
 
 
 def set_enabled(db, user_id: int, space_id: int, knowledge_id: int, is_enabled: int) -> Dict:
-    _owned_space_or_404(db, user_id, space_id)
-    from models.knowledge_dao import get_owned_knowledge_in_space
+    _require_write(db, user_id, space_id)
     from service import knowledge_service
 
-    doc = get_owned_knowledge_in_space(db, user_id, space_id, knowledge_id)
-    if not doc:
-        raise NotFound("文档不存在或无权限")
-    return knowledge_service.set_document_enabled(db, doc, is_enabled)
+    doc = _doc_in_space_or_404(db, space_id, knowledge_id)
+    out = knowledge_service.set_document_enabled(db, doc, is_enabled)
+    _audit(db, user_id, "doc.set_enabled", space_id, knowledge_id, {"is_enabled": int(bool(is_enabled))})
+    return out
 
 
 def update_meta(db, user_id: int, space_id: int, knowledge_id: int, *,
                 category=None, tags=None, version=None) -> Dict:
-    _owned_space_or_404(db, user_id, space_id)
-    from models.knowledge_dao import get_owned_knowledge_in_space, update_knowledge_meta
+    _require_write(db, user_id, space_id)
+    from models.knowledge_dao import update_knowledge_meta
 
-    doc = get_owned_knowledge_in_space(db, user_id, space_id, knowledge_id)
-    if not doc:
-        raise NotFound("文档不存在或无权限")
+    doc = _doc_in_space_or_404(db, space_id, knowledge_id)
     update_knowledge_meta(
         db, doc,
         category=(category if category is not None else None),
@@ -159,31 +185,30 @@ def update_meta(db, user_id: int, space_id: int, knowledge_id: int, *,
         version=(version if version is not None else None),
     )
     db.commit()
+    _audit(db, user_id, "doc.update_meta", space_id, knowledge_id)
     return _doc_dict(doc)
 
 
 def reindex(db, background_tasks, user_id: int, space_id: int, knowledge_id: int) -> Dict:
-    _owned_space_or_404(db, user_id, space_id)
-    from models.knowledge_dao import get_owned_knowledge_in_space
+    _require_write(db, user_id, space_id)
     from service import knowledge_service
 
-    doc = get_owned_knowledge_in_space(db, user_id, space_id, knowledge_id)
-    if not doc:
-        raise NotFound("文档不存在或无权限")
-    return knowledge_service.create_reindex_task(
+    doc = _doc_in_space_or_404(db, space_id, knowledge_id)
+    out = knowledge_service.create_reindex_task(
         db, background_tasks, user_id, doc.agent_id, knowledge_id, doc.file_name
     )
+    _audit(db, user_id, "doc.reindex", space_id, knowledge_id, {"file_name": doc.file_name})
+    return out
 
 
 def delete(db, user_id: int, space_id: int, knowledge_id: int) -> Dict:
-    _owned_space_or_404(db, user_id, space_id)
-    from models.knowledge_dao import get_owned_knowledge_in_space
+    _require_write(db, user_id, space_id)
     from service import knowledge_service
     from service.knowledge_space.space_service import recount_space
 
-    doc = get_owned_knowledge_in_space(db, user_id, space_id, knowledge_id)
-    if not doc:
-        raise NotFound("文档不存在或无权限")
+    doc = _doc_in_space_or_404(db, space_id, knowledge_id)
+    file_name = doc.file_name
     out = knowledge_service.delete_document_completely(db, doc.agent_id, knowledge_id)
     recount_space(db, space_id)
+    _audit(db, user_id, "doc.delete", space_id, knowledge_id, {"file_name": file_name})
     return out

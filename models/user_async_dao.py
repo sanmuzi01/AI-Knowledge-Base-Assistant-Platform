@@ -2,7 +2,7 @@
 
 from utils.timeutil import utcnow
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,15 @@ async def get_user_by_name_async(db: AsyncSession, name: str) -> Optional[User]:
         .options(selectinload(User.roles))
     )
     return result.scalars().first()
+
+
+async def get_users_by_ids_async(db: AsyncSession, user_ids: List[int]) -> Dict[int, str]:
+    """{user_id: user_name}，用于成员/审计列表回填显示名。"""
+    ids = [int(i) for i in dict.fromkeys(user_ids or [])]
+    if not ids:
+        return {}
+    result = await db.execute(select(User.id, User.name).where(User.id.in_(ids)))
+    return {row[0]: row[1] for row in result.all()}
 
 
 async def get_user_by_phone_async(db: AsyncSession, phone: str) -> Optional[User]:

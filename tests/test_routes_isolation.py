@@ -304,6 +304,92 @@ class RouteIsolationTest(unittest.TestCase):
 
         self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a)
 
+    # ---- 知识库空间企业权限：成员分级 + 审计 + 管理员视角 ----
+
+    def test_space_membership_roles_and_audit(self):
+        h_a, h_b = self.alice["headers"], self.bob["headers"]
+        sid = self._make_space(self.alice, f"rt-team-{self.alice['id']}")
+        up = self.client.post(
+            f"/knowledge-spaces/{sid}/documents",
+            files={"file": ("rt-team.txt", b"hello team space", "text/plain")},
+            headers=h_a,
+        )
+        self.assertEqual(up.status_code, 200, up.text)
+        kid = up.json()["knowledge_id"]
+
+        # 非成员：读写都 404（不泄露存在性）
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}", headers=h_b).status_code, 404)
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}/documents", headers=h_b).status_code, 404)
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}/members", headers=h_b).status_code, 404)
+
+        # 加 bob 为 viewer
+        r = self.client.put(
+            f"/knowledge-spaces/{sid}/members",
+            json={"user_name": self.bob["name"], "role": "viewer"}, headers=h_a,
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # viewer：能读，不能写
+        got = self.client.get(f"/knowledge-spaces/{sid}", headers=h_b)
+        self.assertEqual(got.status_code, 200)
+        self.assertEqual(got.json()["my_role"], "viewer")
+        self.assertFalse(got.json()["can_write_doc"])
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}/documents", headers=h_b).status_code, 200)
+        self.assertEqual(
+            self.client.post(f"/knowledge-spaces/{sid}/documents",
+                             files={"file": ("x.txt", b"x", "text/plain")}, headers=h_b).status_code, 403
+        )
+        self.assertEqual(
+            self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "viewer改的"}, headers=h_b).status_code, 403
+        )
+        self.assertEqual(
+            self.client.delete(f"/knowledge-spaces/{sid}/documents/{kid}", headers=h_b).status_code, 403
+        )
+        # viewer 不能管成员
+        self.assertEqual(
+            self.client.put(f"/knowledge-spaces/{sid}/members",
+                            json={"user_name": self.admin["name"], "role": "viewer"}, headers=h_b).status_code, 403
+        )
+
+        # 升 editor：能传文档，仍不能改空间
+        self.client.put(f"/knowledge-spaces/{sid}/members",
+                        json={"user_name": self.bob["name"], "role": "editor"}, headers=h_a)
+        up2 = self.client.post(f"/knowledge-spaces/{sid}/documents",
+                               files={"file": ("rt-editor.txt", b"editor upload", "text/plain")}, headers=h_b)
+        self.assertEqual(up2.status_code, 200, up2.text)
+        kid2 = up2.json()["knowledge_id"]
+        self.assertEqual(
+            self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "editor改的"}, headers=h_b).status_code, 403
+        )
+
+        # 升 admin：能改空间、能管成员，不能删空间
+        self.client.put(f"/knowledge-spaces/{sid}/members",
+                        json={"user_name": self.bob["name"], "role": "admin"}, headers=h_a)
+        self.assertEqual(
+            self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "admin改的"}, headers=h_b).status_code, 200
+        )
+        self.assertEqual(self.client.delete(f"/knowledge-spaces/{sid}", headers=h_b).status_code, 403)
+
+        # 审计：owner 能看，条目里有成员设置 / 上传 / 修改
+        audit = self.client.get(f"/knowledge-spaces/{sid}/audit", headers=h_a)
+        self.assertEqual(audit.status_code, 200, audit.text)
+        actions = {e["action"] for e in audit.json()["items"]}
+        self.assertIn("member.set", actions)
+        self.assertIn("doc.upload", actions)
+        self.assertIn("space.update", actions)
+
+        # 管理员企业视角：管理员能看到，普通用户 403
+        self.assertEqual(self.client.get("/admin/knowledge-spaces", headers=self.alice["headers"]).status_code, 403)
+        adm = self.client.get("/admin/knowledge-spaces", headers=self.admin["headers"])
+        self.assertEqual(adm.status_code, 200, adm.text)
+        self.assertIn(sid, [s["id"] for s in adm.json()["items"]])
+
+        # 清理：删文档、移除成员、删空间
+        for k in (kid, kid2):
+            self.client.delete(f"/knowledge-spaces/{sid}/documents/{k}", headers=h_a)
+        self.client.delete(f"/knowledge-spaces/{sid}/members/{self.bob['id']}", headers=h_a)
+        self.assertEqual(self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a).status_code, 200)
+
     # ---- 会话 / 后台任务：领域异常 + 隔离 ----
 
     def test_conversation_cross_user_404_with_code(self):

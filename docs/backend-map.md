@@ -55,7 +55,9 @@
 | 空间 CRUD（用户级隔离） | `FasdtApi/knowledge_space.py`（`/knowledge-spaces`） | `service/knowledge_space/space_async_service.py` | `models/knowledge_space_async_dao.py` |
 | 空间内文档 上传/抓取/列表/元数据/启停/重建/删除 | `FasdtApi/knowledge_space.py`（`/knowledge-spaces/{id}/documents`） | `service/knowledge_space/document_service.py` → `service/knowledge_service.py` + 后台任务 | `models/knowledge_dao.py`（+`by_space`），`knowledge`(`space_id`) |
 | 迁移 / 兜底 / 统计 | - | `service/knowledge_space/{space_service,binding_service,membership}.py` | `models/{knowledge_space_dao,agent_knowledge_space_dao}.py` |
-| 隔离唯一入口 | - | `service.access_control.get_owned_space[_async]` / `user_space_ids[_async]`（阶段6 只改这里） | `knowledge_spaces`、`agent_knowledge_space` |
+| 隔离唯一入口 | - | `service.access_control.get_owned_space[_async]`（owner 或任意角色成员）/ `user_space_ids[_async]`（owned ∪ member）/ `get_space_role[_async]`（owner/admin/editor/viewer/None） | `knowledge_spaces`、`space_members` |
+| **成员 / 角色 / 审计（阶段6）** | `FasdtApi/knowledge_space.py`（`/{id}/members` GET·PUT·DELETE、`/{id}/audit` GET） | `service/knowledge_space/space_async_service.py`（`list_members` / `set_member` / `remove_member` / `list_audit`，`_require_manage` 走 `membership.can_manage_members`）、`membership.can_*` 分级 | `models/space_member_dao.py`、`models/kb_audit_dao.py`、`space_members` / `kb_audit_log` 表 |
+| **企业视角（阶段6）** | `FasdtApi/admin.py`（`GET /admin/knowledge-spaces`，`get_current_admin_user_async`） | `service/admin_async_service.list_knowledge_spaces` | `knowledge_spaces` / `space_members` / `agent_knowledge_space` |
 | 存量迁移 | - | `scripts/migrate_agent_kb_to_space.py`（dry-run / `--apply`） | `knowledge.space_id` 回填 |
 | 向量集合键 | - | `service/rag/vector_store_service.py`：`agent_{id}` / `space_{id}` 双制式 | ChromaDB |
 | **多空间联合检索 + 引用（阶段3）** | - | `service/rag/space_search.py::search_spaces`（同步入口，自带 Session；逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` context + citations + 拒答） | `knowledge_chunk`、`knowledge`、`knowledge_spaces` |
@@ -67,7 +69,12 @@
 | **Widget 知识库健康 connector（阶段5）** | Widget 平台（`data_source.kind=knowledge_space`，`config.space_id`） | `service/widgets/connectors/knowledge_space.py`（`to_thread(health_snapshot)`；`schema` 白名单 + `designer` 提示） | 同健康分 |
 
 聊天回答的引用来源经 SSE `citations` 事件下发（`service/runtime/sse_events.make_citations`），
-前端 `Chat.vue` 用 `components/knowledge/CitationList.vue` 展示。阶段 4+ 见 `docs/knowledge-space-plan.md`。
+前端 `Chat.vue` 用 `components/knowledge/CitationList.vue` 展示。
+
+阶段6：写权限分级只在 service 层（`space_async_service` / `document_service`），
+viewer 只读、editor 增删文档、admin 改空间·管成员、owner 删空间；越权 404（不泄露存在性），
+有读权限无写权限则 403。`teams` / `organizations` 表已建但暂不参与 `user_space_ids` 计算。
+细节见 `docs/knowledge-space-plan.md`。
 
 ## 5. Skill
 

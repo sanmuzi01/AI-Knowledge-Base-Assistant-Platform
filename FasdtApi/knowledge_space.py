@@ -266,6 +266,53 @@ async def space_health_route(
         raise NotFound("知识库空间不存在或无权限")
 
 
+# ============================ 成员 / 审计（阶段6） ============================
+
+class MemberSetRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=255)
+    role: str = Field(pattern="^(admin|editor|viewer)$")
+
+
+@router.get("/{space_id:int}/members", summary="空间成员列表")
+async def list_space_members_route(
+        space_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await space_async_service.list_members(async_db, current_user.id, space_id)
+
+
+@router.put("/{space_id:int}/members", summary="添加 / 调整空间成员（owner/admin）")
+async def set_space_member_route(
+        space_id: int,
+        data: MemberSetRequest,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await space_async_service.set_member(
+        async_db, current_user.id, space_id, data.user_name, data.role
+    )
+
+
+@router.delete("/{space_id:int}/members/{member_user_id:int}", summary="移除空间成员（owner/admin）")
+async def remove_space_member_route(
+        space_id: int,
+        member_user_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await space_async_service.remove_member(async_db, current_user.id, space_id, member_user_id)
+
+
+@router.get("/{space_id:int}/audit", summary="空间操作日志（owner/admin）")
+async def space_audit_route(
+        space_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await space_async_service.list_audit(async_db, current_user.id, space_id)
+
+
 def _rate_limit_upload(user_id: int) -> None:
     try:
         require_limit(

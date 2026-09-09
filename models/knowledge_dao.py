@@ -51,6 +51,18 @@ def get_owned_knowledge_in_space(db, user_id: int, space_id: int, knowledge_id: 
     )
 
 
+def get_knowledge_in_space(db, space_id: int, knowledge_id: int) -> Optional[Knowledge]:
+    """文档定位到空间（不按 user_id 过滤）—— 空间级访问已由 access_control 校验。
+
+    共享空间里 knowledge.user_id 是空间所有者，成员操作时按这个查。
+    """
+    return (
+        db.query(Knowledge)
+        .filter(Knowledge.id == knowledge_id, Knowledge.space_id == space_id)
+        .first()
+    )
+
+
 def update_knowledge_meta(db, knowledge: Knowledge, *, category=None, tags_json=None, version=None) -> Knowledge:
     if category is not None:
         knowledge.category = category or None

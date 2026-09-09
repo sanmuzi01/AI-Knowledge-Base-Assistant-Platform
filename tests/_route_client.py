@@ -124,7 +124,10 @@ def cleanup():
         db.execute(text(f"DELETE FROM background_task WHERE user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM knowledge WHERE user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM rag_debug_samples WHERE user_id IN {in_clause}"))
-        # 知识库空间 + Agent 绑定
+        db.execute(text(f"DELETE FROM kb_audit_log WHERE user_id IN {in_clause}"))
+        # 知识库空间 + Agent 绑定 + 成员（成员可能是测试用户加入别人空间，或别人加入测试用户空间）
+        db.execute(text(f"DELETE FROM space_members WHERE user_id IN {in_clause}"))
+        db.execute(text(f"DELETE sm FROM space_members sm JOIN knowledge_spaces s ON sm.space_id=s.id WHERE s.user_id IN {in_clause}"))
         db.execute(text(f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM knowledge_spaces WHERE user_id IN {in_clause}"))
         db.execute(text(f"UPDATE `user` SET selected_agent_id=NULL WHERE id IN {in_clause}"))

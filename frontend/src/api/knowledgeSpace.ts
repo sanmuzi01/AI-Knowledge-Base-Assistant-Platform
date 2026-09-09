@@ -17,7 +17,35 @@ export interface KnowledgeSpace {
   created_at: string | null
   updated_at: string | null
   scope: string
+  my_role: 'owner' | 'admin' | 'editor' | 'viewer' | string
+  can_write_doc?: boolean
+  can_manage?: boolean
+  can_delete?: boolean
+}
+
+export interface SpaceMember {
+  user_id: number
+  user_name: string
+  role: 'owner' | 'admin' | 'editor' | 'viewer'
+  created_at?: string | null
+}
+
+export interface SpaceMemberList {
+  owner: SpaceMember
+  members: SpaceMember[]
   my_role: string
+  assignable_roles: string[]
+}
+
+export interface SpaceAuditEntry {
+  id: number
+  user_id: number
+  user_name: string
+  action: string
+  target_type: string | null
+  target_id: number | null
+  detail: string | null
+  created_at: string | null
 }
 
 export interface SpaceListResponse {
@@ -93,6 +121,28 @@ export interface SpaceHealth {
 
 export async function getSpaceHealth(id: number): Promise<SpaceHealth> {
   const { data } = await request.get<SpaceHealth>(`/knowledge-spaces/${id}/health`)
+  return data
+}
+
+// ---------------- 成员 / 审计（阶段6） ----------------
+
+export async function listSpaceMembers(id: number): Promise<SpaceMemberList> {
+  const { data } = await request.get<SpaceMemberList>(`/knowledge-spaces/${id}/members`)
+  return data
+}
+
+export async function setSpaceMember(id: number, payload: { user_name: string; role: string }): Promise<SpaceMember> {
+  const { data } = await request.put<SpaceMember>(`/knowledge-spaces/${id}/members`, payload)
+  return data
+}
+
+export async function removeSpaceMember(id: number, memberUserId: number): Promise<{ message: string }> {
+  const { data } = await request.delete(`/knowledge-spaces/${id}/members/${memberUserId}`)
+  return data
+}
+
+export async function listSpaceAudit(id: number): Promise<{ items: SpaceAuditEntry[]; total: number }> {
+  const { data } = await request.get(`/knowledge-spaces/${id}/audit`)
   return data
 }
 

@@ -126,6 +126,15 @@ async def admin_usage(
     return await admin_async_service.usage_stats(async_db, days=days)
 
 
+@router.get("/knowledge-spaces", summary="企业知识库空间总览")
+async def admin_knowledge_spaces(
+        limit: int = Query(default=500, ge=1, le=1000),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.list_knowledge_spaces(async_db, limit=limit)
+
+
 @router.get("/logs", summary="查询操作日志")
 async def admin_logs(
         limit: int = Query(default=100, ge=1, le=500),

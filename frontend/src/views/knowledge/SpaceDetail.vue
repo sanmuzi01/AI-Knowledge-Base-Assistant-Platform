@@ -37,8 +37,12 @@
     </header>
 
     <main class="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-5 lg:p-8">
+      <p v-if="space && space.my_role !== 'owner'" class="mb-3 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+        你在这个共享知识库里的身份：<b>{{ roleLabel(space.my_role) }}</b>{{ space.can_write_doc ? '' : '（只读，不能改动文档）' }}
+      </p>
+
       <!-- 添加资料 -->
-      <section class="grid gap-4 lg:grid-cols-2">
+      <section v-if="!space || space.can_write_doc !== false" class="grid gap-4 lg:grid-cols-2">
         <div class="rounded-lg border border-sky-200 bg-white/80 p-4">
           <h2 class="text-sm font-semibold text-slate-900">上传文档</h2>
           <p class="mt-1 text-xs text-slate-500">支持 PDF / Word / TXT / Markdown，可多选。</p>
@@ -123,6 +127,13 @@
           </tbody>
         </table>
       </section>
+
+      <SpaceMembersPanel
+        v-if="space"
+        class="mt-6"
+        :space-id="spaceId"
+        :can-manage="!!space.can_manage"
+      />
     </main>
   </div>
 </template>
@@ -136,6 +147,10 @@ import {
   updateSpaceDoc, uploadSpaceDoc,
   type KnowledgeSpace, type SpaceDoc,
 } from '../../api/knowledgeSpace'
+import SpaceMembersPanel from '../../components/knowledge/SpaceMembersPanel.vue'
+
+const ROLE_LABEL: Record<string, string> = { owner: '所有者', admin: '管理员', editor: '可管文档', viewer: '只读' }
+const roleLabel = (r: string) => ROLE_LABEL[r] || r
 import { getErrorMessage } from '../../utils/request'
 import { toastError, toastSuccess } from '../../utils/toast'
 

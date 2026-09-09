@@ -295,6 +295,62 @@ class RagDebugSample(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class SpaceMember(Base):
+    """知识库空间成员（阶段6）。owner 由 knowledge_spaces.user_id 隐含，不落这张表。
+
+    role ∈ admin / editor / viewer：
+      viewer  只读；editor 可增删文档；admin 可改空间设置、管成员；owner 可删空间。
+    """
+    __tablename__ = "space_members"
+    __table_args__ = (
+        Index("uq_space_member", "space_id", "user_id", unique=True),
+        Index("idx_space_member_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    space_id = Column(Integer, ForeignKey("knowledge_spaces.id", name="fk_sm_space"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_sm_user"), nullable=False)
+    role = Column(String(20), nullable=False, default="viewer")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class KbAuditLog(Base):
+    """知识库空间/文档/成员/绑定 的写操作审计（阶段6）。"""
+    __tablename__ = "kb_audit_log"
+    __table_args__ = (
+        Index("idx_kb_audit_space_time", "space_id", "created_at"),
+        Index("idx_kb_audit_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)           # 操作人
+    space_id = Column(Integer, nullable=True)
+    action = Column(String(40), nullable=False)         # space.update / doc.upload / member.set ...
+    target_type = Column(String(20), nullable=True)     # space / document / member / binding
+    target_id = Column(Integer, nullable=True)
+    detail = Column(Text, nullable=True)                # JSON 摘要
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class Organization(Base):
+    """企业/组织（阶段6 预留：建表，暂不接入 user_space_ids 的可见性计算）。"""
+    __tablename__ = "organizations"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(120), nullable=False)
+    owner_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class Team(Base):
+    """团队（阶段6 预留：建表，暂不接入可见性计算）。"""
+    __tablename__ = "teams"
+    __table_args__ = (Index("idx_team_org", "organization_id"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    organization_id = Column(Integer, nullable=True)
+    name = Column(String(120), nullable=False)
+    owner_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 # 知识块表（文档切分后的块，含向量库id引用）
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunk"

@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.init_db import AgentKnowledgeSpace, Knowledge, KnowledgeSpace
+from models.init_db import AgentKnowledgeSpace, Knowledge, KnowledgeSpace, SpaceMember
 from utils.timeutil import utcnow
 
 
@@ -15,6 +15,11 @@ async def get_owned_space_async(db: AsyncSession, user_id: int, space_id: int) -
             KnowledgeSpace.id == space_id, KnowledgeSpace.user_id == user_id
         )
     )
+    return res.scalars().first()
+
+
+async def get_space_by_id_async(db: AsyncSession, space_id: int) -> Optional[KnowledgeSpace]:
+    res = await db.execute(select(KnowledgeSpace).where(KnowledgeSpace.id == space_id))
     return res.scalars().first()
 
 
@@ -29,11 +34,25 @@ async def list_spaces_by_user_async(
 
 
 async def user_space_ids_async(db: AsyncSession, user_id: int) -> List[int]:
-    """当前用户可访问的 space id（阶段1 = 自己拥有的；阶段6 扩展成员/团队）。"""
+    """自己拥有的 space id（成员空间由 access_control.user_space_ids_async 合并进来）。"""
     res = await db.execute(
         select(KnowledgeSpace.id).where(KnowledgeSpace.user_id == user_id)
     )
     return [row[0] for row in res.all()]
+
+
+async def list_accessible_spaces_async(
+    db: AsyncSession, user_id: int, include_archived: bool = True
+) -> List[KnowledgeSpace]:
+    """自己拥有的 + 作为成员加入的空间（列表页用）。"""
+    member_ids = select(SpaceMember.space_id).where(SpaceMember.user_id == user_id)
+    stmt = select(KnowledgeSpace).where(
+        (KnowledgeSpace.user_id == user_id) | (KnowledgeSpace.id.in_(member_ids))
+    )
+    if not include_archived:
+        stmt = stmt.where(KnowledgeSpace.status == "active")
+    res = await db.execute(stmt.order_by(KnowledgeSpace.id.desc()))
+    return list(res.scalars().all())
 
 
 async def create_space_async(db: AsyncSession, user_id: int, fields: dict) -> KnowledgeSpace:

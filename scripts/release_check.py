@@ -58,6 +58,12 @@ REQUIRED_FILES = [
     "service/knowledge_space/health_service.py",
     "service/widgets/connectors/knowledge_space.py",
     "frontend/src/views/knowledge/SpaceHealth.vue",
+    # 知识库空间（阶段6）：企业权限 —— 成员/角色 + 审计 + 管理员视角
+    "models/space_member_dao.py",
+    "models/kb_audit_dao.py",
+    "migrations/versions/20260911_0006_space_permissions.py",
+    "frontend/src/components/knowledge/SpaceMembersPanel.vue",
+    "frontend/src/views/admin/AdminKnowledgeSpaces.vue",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",
