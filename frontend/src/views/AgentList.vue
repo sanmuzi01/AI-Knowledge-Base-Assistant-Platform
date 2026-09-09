@@ -7,41 +7,6 @@
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button
-          @click="router.push('/llm-configs')"
-          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
-        >
-          <Cpu :size="15" />
-          连接模型
-        </button>
-        <button
-          @click="router.push('/skills')"
-          class="hidden items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 sm:inline-flex"
-        >
-          <Zap :size="15" />
-          能力库
-        </button>
-        <button
-          @click="router.push('/tasks')"
-          class="hidden items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 sm:inline-flex"
-        >
-          <ListChecks :size="15" />
-          后台任务
-        </button>
-        <button
-          @click="showCustomizePanel = true"
-          class="hidden items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 sm:inline-flex"
-        >
-          <SlidersHorizontal :size="15" />
-          自定义工作台
-        </button>
-        <button
-          @click="router.push('/widgets')"
-          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
-        >
-          <LayoutGrid :size="15" />
-          我的小窗口
-        </button>
-        <button
           @click="openCreateDialog"
           class="sci-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
         >
@@ -145,6 +110,14 @@
               </div>
             </aside>
           </section>
+
+          <details class="group rounded-lg border border-sky-200/70 bg-white/55">
+            <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+              <span class="text-sky-500 transition-transform group-open:rotate-90">▸</span>
+              更多面板：工作台组件 · 小窗口
+              <span class="ml-auto text-xs font-normal text-slate-400">点开展开</span>
+            </summary>
+            <div class="space-y-5 border-t border-sky-100 p-4">
 
           <section>
             <div class="mb-3 flex items-center justify-between">
@@ -253,7 +226,10 @@
             </div>
           </section>
 
-          <section class="sci-glass sci-orbit-border rounded-lg p-5">
+            </div>
+          </details>
+
+          <section v-if="setupProgress < 100" class="sci-glass sci-orbit-border rounded-lg p-5">
             <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
               <div>
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -658,7 +634,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, LayoutGrid, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
+  Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
 } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'

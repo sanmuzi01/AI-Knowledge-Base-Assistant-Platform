@@ -13,7 +13,6 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-2 py-3">
-          <p class="px-3 pb-1 text-[11px] font-medium text-sky-600/70">主要功能</p>
           <RouterLink
             v-for="item in primaryItems"
             :key="item.path"
@@ -34,6 +33,28 @@
             <span class="truncate">{{ agentSpace.label }}</span>
           </RouterLink>
           <p v-if="agentSpace.disabled" class="px-3 pt-1 text-[11px] text-slate-400">先在工作台选一个助手</p>
+
+          <div class="my-3 border-t border-sky-100"></div>
+          <button
+            type="button"
+            @click="toggleMore"
+            class="flex h-9 w-full items-center gap-2 rounded px-3 text-[11px] font-medium text-sky-600/70 hover:bg-sky-50"
+          >
+            <ChevronRight :size="13" :class="['transition-transform', moreOpen ? 'rotate-90' : '']" />
+            <span>更多</span>
+            <span v-if="!moreOpen && moreHasActive" class="ml-auto h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+          </button>
+          <template v-if="moreOpen">
+            <RouterLink
+              v-for="item in moreItems"
+              :key="item.path"
+              :to="item.path"
+              :class="navClass(item.active)"
+            >
+              <component :is="item.icon" :size="16" />
+              <span>{{ item.label }}</span>
+            </RouterLink>
+          </template>
         </nav>
 
         <div class="border-t border-sky-100 p-2">
@@ -57,7 +78,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Bot, Layers3, LayoutGrid, Library, ListChecks, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
+import { Bot, ChevronRight, Layers3, LayoutGrid, Library, ListChecks, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'
 import type { AgentInfo } from '../api/agent'
@@ -79,11 +100,27 @@ const activeAgentId = computed(() => {
 const primaryItems = computed(() => [
   { label: '工作台', path: '/agents', icon: Layers3, active: route.path === '/agents' },
   { label: '知识库中心', path: '/knowledge-spaces', icon: Library, active: route.path.startsWith('/knowledge-spaces') },
+])
+
+const moreItems = computed(() => [
   { label: '小窗口与监控', path: '/widgets', icon: LayoutGrid, active: route.path.startsWith('/widgets') || route.path.startsWith('/web-monitor') },
   { label: '技能中心', path: '/skills', icon: Zap, active: route.path.startsWith('/skills') },
   { label: '任务中心', path: '/tasks', icon: ListChecks, active: route.path.startsWith('/tasks') },
   { label: '设置', path: '/settings', icon: Settings, active: route.path.startsWith('/settings') || route.path.startsWith('/llm-configs') },
 ])
+
+const moreHasActive = computed(() => moreItems.value.some((i) => i.active))
+
+const MORE_KEY = 'appshell.moreOpen'
+const moreOpen = ref((() => {
+  try { return localStorage.getItem(MORE_KEY) === '1' } catch { return false }
+})())
+const toggleMore = () => {
+  moreOpen.value = !moreOpen.value
+  try { localStorage.setItem(MORE_KEY, moreOpen.value ? '1' : '0') } catch { /* ignore */ }
+}
+// 当前在「更多」里的页面时自动展开，避免看不到高亮项
+watch(moreHasActive, (v) => { if (v) moreOpen.value = true }, { immediate: true })
 
 const agentSpace = computed(() => {
   const agentId = activeAgentId.value
