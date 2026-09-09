@@ -406,6 +406,23 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 
 ---
 
+## 附：与旧「资料库 / 个人资料」页面的收敛
+
+历史上「知识库」在 UI 里叫「资料库 / 个人资料 / 我的资料空间」，且旧页
+（`/knowledge/:agentId`，`views/Knowledge.vue`）自带一个「我的资料空间」——按 Agent 复制文档，
+这与新的 Knowledge Space 概念重复。收敛策略（不删后端能力）：
+
+| 位置 | 处理 |
+| --- | --- |
+| 术语 | 统一叫「知识库」；「资料」只用于指单份文档 |
+| 侧栏「个人资料」 | 改名「本助手知识库」，`active` 仅匹配 `/knowledge/`（不再和知识库中心抢高亮） |
+| `Knowledge.vue` 标题 | 「资料库管理」→「本助手知识库」，加一行跳「知识库中心」的链接 |
+| `Knowledge.vue` 的「我的资料空间」面板 | 改名「从其他助手复制资料（旧方式）」，提示改用知识库中心建独立库供多助手共用。功能保留，视觉降级 |
+| 后端 | `/knowledge/{agent_id}/*`、`import_existing_document` 等**全部保留**（阶段2 内部映射到默认空间；阶段3 由「Agent 绑定空间」取代复制） |
+
+阶段 2 起，文档管理主入口迁到「知识库中心 → 空间详情」；`Knowledge.vue` 逐步瘦身为
+「本助手绑定了哪些知识库 + 快速检索测试」，最终可下线。
+
 ## 附：不做清单（遵照要求）
 
 - 不动 ReAct 执行核心（`react_engine` / `ToolExecutor`），只在 `_compose_system_prompt` 注入规则、

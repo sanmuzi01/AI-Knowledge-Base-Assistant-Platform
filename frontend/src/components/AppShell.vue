@@ -101,10 +101,10 @@ const agentItems = computed(() => {
       disabled: !agentId,
     },
     {
-      label: '个人资料',
+      label: '本助手知识库',
       path: agentId ? `/knowledge/${agentId}` : route.fullPath,
       icon: Database,
-      active: route.path.startsWith('/knowledge'),
+      active: route.path.startsWith('/knowledge/'),
       disabled: !agentId,
     },
     {

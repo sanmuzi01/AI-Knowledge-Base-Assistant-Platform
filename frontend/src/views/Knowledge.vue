@@ -11,8 +11,13 @@
             <ArrowLeft :size="16" />
           </button>
           <div class="min-w-0">
-            <h1 class="truncate text-base font-semibold text-slate-950">资料库管理</h1>
-            <p class="truncate text-xs text-slate-500">{{ currentAgent?.name || `助手 #${agentId}` }}</p>
+            <h1 class="truncate text-base font-semibold text-slate-950">本助手知识库</h1>
+            <p class="truncate text-xs text-slate-500">
+              {{ currentAgent?.name || `助手 #${agentId}` }} ·
+              <button class="text-sky-600 hover:underline" @click="router.push('/knowledge-spaces')">
+                在「知识库中心」统一管理所有知识库 →
+              </button>
+            </p>
           </div>
         </div>
         <div class="grid grid-cols-3 gap-2 text-xs sm:w-[360px]">
@@ -209,8 +214,12 @@
           <div class="sci-panel rounded-lg">
             <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div>
-                <h2 class="text-sm font-semibold text-slate-900">我的资料空间</h2>
-                <p class="mt-1 text-xs text-slate-500">把你之前添加过的资料复制给当前助手使用。</p>
+                <h2 class="text-sm font-semibold text-slate-900">从其他助手复制资料（旧方式）</h2>
+                <p class="mt-1 text-xs text-slate-500">
+                  更推荐在
+                  <button class="text-sky-600 hover:underline" @click="router.push('/knowledge-spaces')">知识库中心</button>
+                  建独立知识库，之后由多个助手共用（无需复制）。
+                </p>
               </div>
               <span class="text-xs text-slate-400">{{ reusableDocs.length }} 个可导入</span>
             </div>

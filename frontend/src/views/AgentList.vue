@@ -100,7 +100,7 @@
 
               <article class="sci-panel rounded-lg p-4">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-slate-500">个人资料</span>
+                  <span class="text-xs font-medium text-slate-500">知识库文档</span>
                   <Database :size="16" class="text-emerald-500" />
                 </div>
                 <p class="mt-3 text-3xl font-semibold text-slate-950">{{ dashboard?.counts.knowledge_done ?? 0 }}</p>
