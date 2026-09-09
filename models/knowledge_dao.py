@@ -1,18 +1,64 @@
-from typing import List,Optional
+from typing import List, Optional
+
 from models.init_db import Agent, Knowledge
+from utils.timeutil import utcnow
+
+
 def create_knowledge(
-        db,user_id:int,agent_id:int,file_name:str,
-        file_path:str,file_type:str,file_size:int)->Knowledge:
+        db, user_id: int, agent_id, file_name: str,
+        file_path: str, file_type: str, file_size: int,
+        *, space_id: int = None, category: str = None, tags_json: str = None,
+        version: str = None, source_type: str = "upload", source_url: str = None) -> Knowledge:
 
     knowledge = Knowledge(
-        user_id = user_id,
-        agent_id = agent_id,
-        file_name = file_name,
-        file_path = file_path,
-        file_type = file_type,
-        file_size = file_size
+        user_id=user_id,
+        agent_id=agent_id,
+        file_name=file_name,
+        file_path=file_path,
+        file_type=file_type,
+        file_size=file_size,
+        space_id=space_id,
+        category=category,
+        tags_json=tags_json,
+        version=version,
+        source_type=source_type or "upload",
+        source_url=source_url,
+        updated_at=utcnow(),
     )
     db.add(knowledge)
+    db.flush()
+    return knowledge
+
+
+def list_knowledge_by_space(db, space_id: int) -> List[Knowledge]:
+    return (
+        db.query(Knowledge)
+        .filter(Knowledge.space_id == space_id)
+        .order_by(Knowledge.created_at.desc())
+        .all()
+    )
+
+
+def get_owned_knowledge_in_space(db, user_id: int, space_id: int, knowledge_id: int) -> Optional[Knowledge]:
+    return (
+        db.query(Knowledge)
+        .filter(
+            Knowledge.id == knowledge_id,
+            Knowledge.user_id == user_id,
+            Knowledge.space_id == space_id,
+        )
+        .first()
+    )
+
+
+def update_knowledge_meta(db, knowledge: Knowledge, *, category=None, tags_json=None, version=None) -> Knowledge:
+    if category is not None:
+        knowledge.category = category or None
+    if tags_json is not None:
+        knowledge.tags_json = tags_json or None
+    if version is not None:
+        knowledge.version = version or None
+    knowledge.updated_at = utcnow()
     db.flush()
     return knowledge
 

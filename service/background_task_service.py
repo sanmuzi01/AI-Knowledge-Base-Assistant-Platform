@@ -402,11 +402,26 @@ def _mark_task_failed_or_retry(db, task: BackgroundTask, message: str) -> None:
     update_task(db, task, status="failed", progress=100, error_msg=error_msg)
 
 
+def _index_then_recount(db, user_id, agent_id, knowledge_id, fn):
+    result = fn(db, user_id, agent_id, knowledge_id)
+    # 入库/重建完成后，把该文档所属知识库空间的统计刷一次（幂等）
+    try:
+        from models.knowledge_dao import get_knowledge_by_id
+        from service.knowledge_space.space_service import recount_space
+
+        k = get_knowledge_by_id(db, knowledge_id)
+        if k and k.space_id:
+            recount_space(db, k.space_id)
+    except Exception as e:  # noqa: BLE001 - 统计刷新失败不影响入库结果
+        logger.warning(f"入库后刷新知识库空间统计失败: knowledge={knowledge_id}, error={e}")
+    return result
+
+
 @register_task_runner("knowledge_index")
 def run_knowledge_index_task(task_id: int, user_id: int, agent_id: int, knowledge_id: int):
     _run_task_with_status(
         task_id=task_id,
-        action=lambda db: rag_service.index_existing_knowledge(db, user_id, agent_id, knowledge_id),
+        action=lambda db: _index_then_recount(db, user_id, agent_id, knowledge_id, rag_service.index_existing_knowledge),
         success_log=f"后台知识库入库完成: task={task_id}, knowledge={knowledge_id}",
         failure_log="后台知识库入库失败",
     )
@@ -416,7 +431,7 @@ def run_knowledge_index_task(task_id: int, user_id: int, agent_id: int, knowledg
 def run_knowledge_reindex_task(task_id: int, user_id: int, agent_id: int, knowledge_id: int):
     _run_task_with_status(
         task_id=task_id,
-        action=lambda db: rag_service.reindex_knowledge(db, user_id, agent_id, knowledge_id),
+        action=lambda db: _index_then_recount(db, user_id, agent_id, knowledge_id, rag_service.reindex_knowledge),
         success_log=f"后台知识库重建完成: task={task_id}, knowledge={knowledge_id}",
         failure_log="后台知识库重建失败",
     )

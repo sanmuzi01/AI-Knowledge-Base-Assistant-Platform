@@ -66,6 +66,12 @@ const router = createRouter({
       component: () => import('../views/knowledge/SpaceCenter.vue'),
     },
     {
+      path: '/knowledge-spaces/:id',
+      name: 'KnowledgeSpaceDetail',
+      component: () => import('../views/knowledge/SpaceDetail.vue'),
+      props: true,
+    },
+    {
       path: '/chat/:agentId',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),

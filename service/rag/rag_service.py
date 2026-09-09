@@ -26,7 +26,7 @@ from utils.path_tool import get_abs_path
 # 导入 RAG 底层两层能力
 from service.rag.embedding_service import embed_texts,embed_query
 from service.rag.embedding_service import aembed_query
-from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge)
+from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge,space_collection_key)
 # 导入 DAO（4层架构：Service层只调DAO，不直接碰 ORM）
 from models.knowledge_dao import (
     create_knowledge,get_knowledge_by_id,
@@ -121,6 +121,12 @@ def split_text(
     logger.info(f"文本切分完成：{len(chunks)} 块，每块约 {chunk_size} 字")
     return chunks
 # ========== 上传入库完整流程（核心） ==========
+def _vector_key(knowledge):
+    """向量集合键：优先 space_<id>，否则回退旧 agent_id。"""
+    sid = getattr(knowledge, "space_id", None)
+    return space_collection_key(sid) if sid else knowledge.agent_id
+
+
 def upload_and_index(
         db,user_id:int,agent_id,file_name:str,file_content:bytes,file_type:str
 )->Dict[str,Any]:#返回字典
@@ -128,8 +134,10 @@ def upload_and_index(
     return index_existing_knowledge(db, user_id, agent_id, knowledge.id)
 
 
-def prepare_upload(db, user_id: int, agent_id: int, file_name: str,
-                   file_content: bytes, file_type: str):
+def prepare_upload(db, user_id: int, agent_id, file_name: str,
+                   file_content: bytes, file_type: str, *, space_id: int = None,
+                   category: str = None, tags_json: str = None, version: str = None,
+                   source_type: str = "upload", source_url: str = None):
     """保存原文件并创建 pending 文档记录，不执行耗时入库。"""
     file_dir = get_abs_path(KNOWLEDGE_FILE_PATH)
     os.makedirs(file_dir,exist_ok=True)#创建文件目录，如果文件夹存在则不报错
@@ -139,9 +147,11 @@ def prepare_upload(db, user_id: int, agent_id: int, file_name: str,
         f.write(file_content)#文本内容打开写入二进制文件真是内容
     file_size = len(file_content)
     # ---------- 第2步：DB 建 knowledge 记录（status=pending） ----------
-    knowledge = create_knowledge (
-        db,user_id = user_id,agent_id = agent_id,file_name = file_name,
-        file_path = file_path,file_type = file_type,file_size=file_size
+    knowledge = create_knowledge(
+        db, user_id=user_id, agent_id=agent_id, file_name=file_name,
+        file_path=file_path, file_type=file_type, file_size=file_size,
+        space_id=space_id, category=category, tags_json=tags_json, version=version,
+        source_type=source_type, source_url=source_url,
     )
     logger.info(f"创建待入库文档: knowledge_id={knowledge.id}, file={file_name}")
     return knowledge
@@ -150,7 +160,7 @@ def prepare_upload(db, user_id: int, agent_id: int, file_name: str,
 def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dict[str, Any]:
     """解析已有文档并写入 chunks + 向量。"""
     knowledge = get_knowledge_by_id(db, knowledge_id)
-    if not knowledge or knowledge.user_id != user_id or knowledge.agent_id != agent_id:
+    if not knowledge or knowledge.user_id != user_id or (agent_id is not None and knowledge.agent_id != agent_id):
         raise ValueError("文档不存在或无权限")
     if not os.path.exists(knowledge.file_path):
         update_knowledge_status(db, knowledge, "failed", error_msg="原始文件不存在，无法入库")
@@ -178,7 +188,7 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
             for i in range(len(chunks_text))
         ]#给每个向量附加额外信息。
         add_vectors(
-            agent_id = agent_id,vectors=vectors,
+            agent_id = _vector_key(knowledge),vectors=vectors,
             ids=vector_ids,documents=chunks_text,metadatas=metadatas)
         # ---------- 第8步：批量存 chunks 到 MySQL ----------
         chunk_records=[
@@ -212,7 +222,7 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
 def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dict[str, Any]:
     """重新解析已有文件并重建 chunks + 向量。"""
     knowledge = get_knowledge_by_id(db, knowledge_id)
-    if not knowledge or knowledge.user_id != user_id or knowledge.agent_id != agent_id:
+    if not knowledge or knowledge.user_id != user_id or (agent_id is not None and knowledge.agent_id != agent_id):
         raise ValueError("文档不存在或无权限")
     if not os.path.exists(knowledge.file_path):
         update_knowledge_status(db, knowledge, "failed", error_msg="原始文件不存在，无法重新入库")
@@ -222,7 +232,7 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
         update_knowledge_status(db, knowledge, "processing", chunk_count=0)
         db.flush()
         try:
-            delete_vectors_by_knowledge(agent_id, knowledge_id)
+            delete_vectors_by_knowledge(_vector_key(knowledge), knowledge_id)
         except Exception as e:
             logger.warning(f"重建索引时删除旧向量失败，继续重建: {e}")
         delete_chunks_by_knowledge(db, knowledge_id)
@@ -241,7 +251,7 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
             for i in range(len(chunks_text))
         ]
         add_vectors(
-            agent_id=agent_id,
+            agent_id=_vector_key(knowledge),
             vectors=vectors,
             ids=vector_ids,
             documents=chunks_text,
@@ -377,7 +387,7 @@ def delete_knowledge_completely(
         return {"message": "文档不存在"}
     # 1. 删向量库（即使失败也继续，保证DB记录被清）
     try:
-        delete_vectors_by_knowledge(agent_id,knowledge_id)
+        delete_vectors_by_knowledge(_vector_key(knowledge),knowledge_id)
     except Exception as e:
         logger.warning(f"删向量库失败（继续删DB）: {e}")
     # 2. 删 chunks

@@ -266,8 +266,8 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 
 | 阶段 | 目标 | 关键产出 | 兼容性 |
 | --- | --- | --- | --- |
-| **1 ✅** | Space 基础 + 存量升级 | 表 `knowledge_spaces` / `agent_knowledge_space`；`knowledge.space_id` 等列 + `agent.kb_*`；Space CRUD `/knowledge-spaces`；`vector_store` collection key 泛化（`agent_{id}` / `space_{id}`）；`scripts/migrate_agent_kb_to_space.py` 存量迁移（dry-run/`--apply`）；前端「知识库中心」页 + 侧栏入口。**双读 / Agent 绑定 UI 顺延到阶段 2/3。** | 旧上传/检索路径完全不变 |
-| **2** | 文档管理增强 | 上传/抓取/列表接收 `space_id`；分类/标签/版本/来源字段；批量上传；启停/重建/错误展示按 space；`reindex_space` / `recount_space` 后台任务；前端「空间详情」页 | 旧 `agent_id` 上传接口保留（内部映射到默认空间） |
+| **1 ✅** | Space 基础 + 存量升级 | 表 `knowledge_spaces` / `agent_knowledge_space`；`knowledge.space_id` 等列 + `agent.kb_*`；Space CRUD `/knowledge-spaces`；`vector_store` collection key 泛化（`agent_{id}` / `space_{id}`）；`scripts/migrate_agent_kb_to_space.py` 存量迁移（dry-run/`--apply`）；前端「知识库中心」页 + 侧栏入口。 | 旧上传/检索路径完全不变 |
+| **2 ✅** | 文档管理增强 | `knowledge.agent_id` 改可空 + `category/tags/version/source_*` 列；`/knowledge-spaces/{id}/documents` 上传/批量/抓取/列表(按分类·标签·状态筛)/改元数据/启停/重建/删除；`rag_service` 向量集合键按 `knowledge.space_id` 解析（`_vector_key`）；入库完成刷新空间统计；**旧 `/knowledge/{agent_id}/*` 上传/抓取内部落到该 Agent 的默认空间**；前端「空间详情」页 | 旧接口保留，行为=写进默认空间 |
 | **3** | 多空间检索 + 引用 | `space_search.search_spaces`；Agent 绑定多 space + `kb_*` 配置；`chat_service` 注入引用规则 + 透传 citations；拒答策略；前端 Agent 编辑「知识库」区块 + 聊天页「参考来源」 | 未绑定 space 的 Agent 回退旧路径 |
 | **4** | 知识库调试台 | `/rag-debug` 接口（跑一次完整检索，返回全过程快照，可选调 LLM）；`rag_debug_samples` 表；前端调试台页；存为测试样例（对接现有 `rag_eval` 数据格式） | 纯新增 |
 | **5** | 质量与健康分 | `space_health` 任务：文档覆盖/过期/失败率、检索命中率、引用命中率、拒答率；`knowledge_spaces.health_*` 回填；`rag_eval_service` 增加「按 space 跑」入口；前端健康报告页；**Widget 新增知识库健康卡片**（复用 widget 平台 connector 机制，加 `knowledge_space` connector） | 纯新增 |

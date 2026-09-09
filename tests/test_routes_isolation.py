@@ -137,11 +137,34 @@ class RouteIsolationTest(unittest.TestCase):
         self.assertEqual(d.json().get("code"), "not_found")
         self.assertNotIn(sid, [s["id"] for s in self.client.get("/knowledge-spaces", headers=h).json()["items"]])
 
-        # owner 改名 + 删除
+        # owner 改名
         self.assertEqual(
             self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "改过的名字"},
                               headers=self.alice["headers"]).status_code, 200
         )
+
+        # 空间内文档：上传 -> 列表 -> 跨用户隔离 -> 删除
+        up = self.client.post(
+            f"/knowledge-spaces/{sid}/documents",
+            files={"file": ("rt-note.txt", b"hello knowledge space", "text/plain")},
+            headers=self.alice["headers"],
+        )
+        self.assertEqual(up.status_code, 200, up.text)
+        kid = up.json()["knowledge_id"]
+
+        lst = self.client.get(f"/knowledge-spaces/{sid}/documents", headers=self.alice["headers"])
+        self.assertEqual(lst.status_code, 200)
+        self.assertIn(kid, [d["id"] for d in lst.json()["items"]])
+
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}/documents", headers=h).status_code, 404)
+        self.assertEqual(
+            self.client.delete(f"/knowledge-spaces/{sid}/documents/{kid}", headers=h).status_code, 404
+        )
+        self.assertEqual(
+            self.client.delete(f"/knowledge-spaces/{sid}/documents/{kid}", headers=self.alice["headers"]).status_code, 200
+        )
+
+        # 清空文档后 owner 可删空间
         self.assertEqual(
             self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"]).status_code, 200
         )

@@ -53,6 +53,7 @@
 | 功能 | 路由 | Service | DAO |
 | --- | --- | --- | --- |
 | 空间 CRUD（用户级隔离） | `FasdtApi/knowledge_space.py`（`/knowledge-spaces`） | `service/knowledge_space/space_async_service.py` | `models/knowledge_space_async_dao.py` |
+| 空间内文档 上传/抓取/列表/元数据/启停/重建/删除 | `FasdtApi/knowledge_space.py`（`/knowledge-spaces/{id}/documents`） | `service/knowledge_space/document_service.py` → `service/knowledge_service.py` + 后台任务 | `models/knowledge_dao.py`（+`by_space`），`knowledge`(`space_id`) |
 | 迁移 / 兜底 / 统计 | - | `service/knowledge_space/{space_service,binding_service,membership}.py` | `models/{knowledge_space_dao,agent_knowledge_space_dao}.py` |
 | 隔离唯一入口 | - | `service.access_control.get_owned_space[_async]` / `user_space_ids[_async]`（阶段6 只改这里） | `knowledge_spaces`、`agent_knowledge_space` |
 | 存量迁移 | - | `scripts/migrate_agent_kb_to_space.py`（dry-run / `--apply`） | `knowledge.space_id` 回填 |

@@ -108,9 +108,21 @@ def cleanup():
         # 组件 + 数据点
         db.execute(text(f"DELETE dp FROM widget_data_points dp JOIN user_widgets w ON dp.widget_id=w.id WHERE w.user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM user_widgets WHERE user_id IN {in_clause}"))
-        # 知识 + chunk（按 agent 归属）
-        db.execute(text(f"DELETE c FROM knowledge_chunk c JOIN knowledge k ON c.knowledge_id=k.id JOIN agent a ON k.agent_id=a.id WHERE a.user_id IN {in_clause}"))
-        db.execute(text(f"DELETE k FROM knowledge k JOIN agent a ON k.agent_id=a.id WHERE a.user_id IN {in_clause}"))
+        # 知识文档：按 user_id 统一删（覆盖 agent 私有库 + 空间库；agent_id 可能为 NULL）
+        krows = db.execute(text(f"SELECT id, file_path FROM knowledge WHERE user_id IN {in_clause}")).all()
+        kids = [r[0] for r in krows]
+        for _kid, fpath in krows:
+            try:
+                if fpath:
+                    pathlib.Path(fpath).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+        if kids:
+            kin = "(" + ",".join(str(i) for i in kids) + ")"
+            db.execute(text(f"DELETE FROM knowledge_chunk WHERE knowledge_id IN {kin}"))
+            db.execute(text(f"DELETE FROM background_task WHERE target_type='knowledge' AND target_id IN {kin}"))
+        db.execute(text(f"DELETE FROM background_task WHERE user_id IN {in_clause}"))
+        db.execute(text(f"DELETE FROM knowledge WHERE user_id IN {in_clause}"))
         # 知识库空间 + Agent 绑定
         db.execute(text(f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM knowledge_spaces WHERE user_id IN {in_clause}"))

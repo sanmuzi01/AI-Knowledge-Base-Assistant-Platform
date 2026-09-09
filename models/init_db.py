@@ -201,7 +201,8 @@ class Knowledge(Base):
     )
     id  = Column(Integer ,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id",name="fk_knowledge_user"),nullable=False)
-    agent_id = Column(Integer,ForeignKey("agent.id",name="fk_knowledge_agent"),nullable=False)
+    # 知识库空间升级后：文档归属 space_id；agent_id 改为可空（存量文档保留旧值，空间上传的文档为 NULL）
+    agent_id = Column(Integer,ForeignKey("agent.id",name="fk_knowledge_agent"),nullable=True)
     file_name = Column(String(255),nullable=False) # 原始文件名
     file_path = Column(String(500),nullable=False) #磁盘存储路径
     file_type = Column(String(50),nullable=False) # pdf/docx/txt/md
@@ -614,6 +615,29 @@ def _run_migrations():
                     print(f"[Migration] 已为 {table} 添加列 {col}")
                 except Exception as e:
                     print(f"[Migration] 添加列 {col} 失败: {e}")
+
+        # 列类型 / 约束变更（幂等：仅当当前不满足目标时才 MODIFY）
+        column_type_migrations = [
+            # (表, 列, 期望可空?, DDL)
+            ("knowledge", "agent_id", True,
+             "ALTER TABLE knowledge MODIFY COLUMN agent_id INT NULL"),
+        ]
+        for table, col, want_nullable, ddl in column_type_migrations:
+            try:
+                cols = {c["name"]: c for c in inspector.get_columns(table)}
+            except Exception:
+                continue
+            info = cols.get(col)
+            if info is None:
+                continue
+            if bool(info.get("nullable")) == bool(want_nullable):
+                continue
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"[Migration] 已调整 {table}.{col} 可空性 -> {want_nullable}")
+            except Exception as e:
+                print(f"[Migration] 调整 {table}.{col} 失败: {e}")
 
         index_migrations = [
             ("agent", "idx_agent_user_id_id", "CREATE INDEX idx_agent_user_id_id ON agent (user_id, id)"),

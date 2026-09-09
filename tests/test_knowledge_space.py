@@ -70,6 +70,36 @@ class CollectionKeyTest(unittest.TestCase):
         self.assertEqual(vs.legacy_agent_key(9), "agent_9")
 
 
+class DocumentServiceTest(unittest.TestCase):
+    def setUp(self):
+        from service.knowledge_space import document_service as ds
+        self.ds = ds
+
+    def test_validate_file_type(self):
+        self.assertEqual(self.ds._validate_file("a.pdf"), "pdf")
+        with self.assertRaises(InvalidInput):
+            self.ds._validate_file("a.exe")
+        with self.assertRaises(InvalidInput):
+            self.ds._validate_file("noext")
+
+    def test_tags_json_normalizes(self):
+        self.assertIsNone(self.ds._tags_json(None))
+        self.assertIsNone(self.ds._tags_json([]))
+        self.assertEqual(self.ds._tags_json([" x ", "", "y"]), '["x", "y"]')
+
+    def test_doc_dict_shape(self):
+        k = SimpleNamespace(
+            id=1, file_name="a.pdf", file_type="pdf", file_size=10, chunk_count=3,
+            status="done", is_enabled=1, error_msg=None, category="制度",
+            tags_json='["a"]', version="v1", source_type="upload", source_url=None,
+            created_at=None, updated_at=None,
+        )
+        d = self.ds._doc_dict(k)
+        self.assertEqual(d["status_label"], "已入库")
+        self.assertEqual(d["tags"], ["a"])
+        self.assertEqual(d["category"], "制度")
+
+
 class EnsureDefaultSpaceTest(unittest.TestCase):
     def test_reuses_legacy_space(self):
         with patch("models.knowledge_space_dao.find_legacy_space", return_value=SimpleNamespace(id=99)):

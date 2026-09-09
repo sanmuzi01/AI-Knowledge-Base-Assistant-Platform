@@ -9,6 +9,7 @@ from models.async_db import get_async_db
 from service.dependencies import get_current_user_async
 from service.exceptions import InvalidInput, NotFound
 from service.rag.search_entry import search_scoped
+from service.knowledge_space.space_service import ensure_default_space_for_agent
 from service import knowledge_async_service, knowledge_diagnostics_async_service, knowledge_service
 from service.access_control import get_owned_agent, get_owned_knowledge
 from service.web_crawler_service import CrawlerError
@@ -120,8 +121,9 @@ async def upload_document(
 
     # 3. 调用RAG服务上传入库
     try:
+        _sid = ensure_default_space_for_agent(db, current_user.id, agent_id)
         item = knowledge_service.create_upload_task(
-            db, background_tasks, current_user.id, agent_id, file_name, content, file_type
+            db, background_tasks, current_user.id, agent_id, file_name, content, file_type, space_id=_sid
         )
         return {
             "message": "已创建后台入库任务",
@@ -170,8 +172,9 @@ async def upload_documents(
             file_type = _validate_upload_file_name(file_name)
             content = await file.read()
             prepared_files.append({"file_name": file_name, "file_type": file_type, "content": content})
+        _sid = ensure_default_space_for_agent(db, current_user.id, agent_id)
         created = knowledge_service.create_upload_tasks(
-            db, background_tasks, current_user.id, agent_id, prepared_files
+            db, background_tasks, current_user.id, agent_id, prepared_files, space_id=_sid
         )
         return {
             "message": f"已创建{len(created)}个后台入库任务",
@@ -242,8 +245,9 @@ async def crawl_documents(
             first_error = failed[0]["error"] if failed else "没有网页被成功抓取"
             raise InvalidInput(first_error)
 
+        _sid = ensure_default_space_for_agent(db, current_user.id, agent_id)
         created = knowledge_service.create_crawl_tasks(
-            db, background_tasks, current_user.id, agent_id, pages
+            db, background_tasks, current_user.id, agent_id, pages, space_id=_sid
         )
         return {
             "message": f"已抓取{len(created)}个网页并创建入库任务",

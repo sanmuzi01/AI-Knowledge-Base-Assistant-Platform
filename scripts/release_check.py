@@ -37,6 +37,7 @@ REQUIRED_FILES = [
     "service/knowledge_space/space_service.py",
     "service/knowledge_space/binding_service.py",
     "service/knowledge_space/membership.py",
+    "service/knowledge_space/document_service.py",
     "models/knowledge_space_dao.py",
     "models/knowledge_space_async_dao.py",
     "models/agent_knowledge_space_dao.py",

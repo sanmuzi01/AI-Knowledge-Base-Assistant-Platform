@@ -45,10 +45,15 @@ class CreateUploadTaskTest(unittest.TestCase):
                 file_name="report.pdf", content=b"hello", file_type="pdf",
             )
 
-        mock_prepare.assert_called_once_with(
-            db=db, user_id=1, agent_id=1, file_name="report.pdf",
-            file_content=b"hello", file_type="pdf",
+        mock_prepare.assert_called_once()
+        _, kw = mock_prepare.call_args
+        self.assertEqual(
+            {kw["user_id"], kw["file_name"], kw["file_content"], kw["file_type"]},
+            {1, "report.pdf", b"hello", "pdf"},
         )
+        # 未指定空间时 agent_id 走旧路径（这里 space_id=None）
+        self.assertIsNone(kw.get("space_id"))
+        self.assertEqual(kw["agent_id"], 1)
         mock_create_task.assert_called_once()
         mock_schedule.assert_called_once_with(task, None)
         self.assertEqual(db.commit_count, 1)

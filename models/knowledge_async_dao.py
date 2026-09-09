@@ -36,6 +36,38 @@ async def list_knowledge_by_agent_async(db: AsyncSession, agent_id: int) -> List
     return list(result.scalars().all())
 
 
+async def list_knowledge_by_space_async(
+        db: AsyncSession, space_id: int, *,
+        category: str = None, tag: str = None, status: str = None, is_enabled: int = None,
+) -> List[Knowledge]:
+    conds = [Knowledge.space_id == space_id]
+    if category:
+        conds.append(Knowledge.category == category)
+    if status:
+        conds.append(Knowledge.status == status)
+    if is_enabled is not None:
+        conds.append(Knowledge.is_enabled == is_enabled)
+    if tag:
+        conds.append(Knowledge.tags_json.like(f'%"{tag}"%'))
+    result = await db.execute(
+        select(Knowledge).where(*conds).order_by(Knowledge.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_owned_knowledge_in_space_async(
+        db: AsyncSession, user_id: int, space_id: int, knowledge_id: int,
+) -> Optional[Knowledge]:
+    result = await db.execute(
+        select(Knowledge).where(
+            Knowledge.id == knowledge_id,
+            Knowledge.user_id == user_id,
+            Knowledge.space_id == space_id,
+        )
+    )
+    return result.scalars().first()
+
+
 async def get_owned_knowledge_async(
         db: AsyncSession, user_id: int, knowledge_id: int, agent_id: int = None,
 ) -> Optional[Knowledge]:
