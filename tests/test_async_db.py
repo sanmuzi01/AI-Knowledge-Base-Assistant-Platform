@@ -10,7 +10,7 @@ class AsyncDatabaseConfigTestCase(unittest.TestCase):
     def test_async_session_dependency_is_required(self):
         self.assertTrue(async_db.async_database_available())
         self.assertIsNotNone(async_db.AsyncSessionLocal)
-        self.assertIs(async_db.get_optional_async_db, async_db.get_async_db)
+        self.assertTrue(callable(async_db.get_async_db))
 
 
 if __name__ == "__main__":

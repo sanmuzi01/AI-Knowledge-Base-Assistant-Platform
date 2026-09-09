@@ -43,8 +43,9 @@
 
 1. ~~**把 asyncmy 定为硬依赖**~~ —— 早已是（`requirements.txt` 固定 `asyncmy==0.2.10`，
    `models/async_db.py` 缺驱动直接 `raise`）。`docs/deployment.md` 的「回退同步」表述已订正。
-2. ~~**删掉读接口的同步回退分支**~~ —— knowledge / agent 已完成（见上）。
-   其余模块（conversation / skill 等）如还有类似死分支，按同样方式清。
+2. ~~**删掉读接口的同步回退分支**~~ —— 已完成：knowledge / agent / skill_route 清理完毕，
+   conversation / 其余路由核查无死分支；`models/async_db.py` 的 `get_optional_async_db` 别名已删除
+   （`grep -rn get_optional_async_db FasdtApi` 为空）。
 3. **RAG 检索异步化**：`_get_client` / 知识 chunk 反查改异步 DAO；ChromaDB / rerank 仍同步，
    统一封在 `asyncio.to_thread` 里（就像 `widget_search.py` 现在的做法），对上层呈现 `async`。
 4. **异常统一**：迁移过程中把各模块的 `raise ValueError` / `HTTPException` / 裸 `Exception`

@@ -62,7 +62,3 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
 
     async with AsyncSessionLocal() as session:
         yield session
-
-
-# 兼容旧导入名，后续路由会逐步改成 get_async_db。
-get_optional_async_db = get_async_db
