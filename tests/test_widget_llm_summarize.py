@@ -43,10 +43,12 @@ class LlmSummarizeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("未连接 AI 模型", out["text"])
 
     async def test_empty_answer_raises_for_backoff(self):
+        from service.exceptions import UpstreamError
+
         async def empty_llm(messages):
             return "   "
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(UpstreamError):
             await self.proc(_ctx(), {"a": 1}, {"_llm_call": empty_llm})
 
     async def test_returns_headline_and_strips_preamble(self):

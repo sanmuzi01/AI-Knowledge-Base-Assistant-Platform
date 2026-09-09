@@ -243,7 +243,8 @@ async def _llm_summarize(ctx: WidgetRunContext, raw: Any, config: Dict[str, Any]
             answer = answer.split("\n", 1)[-1]
     answer = answer.strip()
     if not answer:
-        raise RuntimeError("AI 没有返回摘要内容")
+        from service.exceptions import UpstreamError
+        raise UpstreamError("AI 没有返回摘要内容")
 
     headline = ""
     for line in answer.splitlines():
