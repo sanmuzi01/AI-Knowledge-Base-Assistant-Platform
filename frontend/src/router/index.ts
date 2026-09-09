@@ -78,6 +78,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/knowledge-spaces/:id/health',
+      name: 'KnowledgeSpaceHealth',
+      component: () => import('../views/knowledge/SpaceHealth.vue'),
+      props: true,
+    },
+    {
       path: '/chat/:agentId',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),

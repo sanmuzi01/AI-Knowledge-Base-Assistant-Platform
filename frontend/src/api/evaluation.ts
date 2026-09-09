@@ -74,3 +74,16 @@ export async function evaluateRag(agentId: number, payload: RagEvalRequest): Pro
   const { data } = await request.post(`/evaluation/${agentId}/rag`, payload)
   return data as RagEvalReport
 }
+
+export interface SpaceRagEvalRequest {
+  cases: RagEvalCase[]
+  top_k?: number
+  rerank?: boolean | null
+  text_match_threshold?: number
+  faithfulness_threshold?: number
+}
+
+export async function evaluateSpaceRag(spaceId: number, payload: SpaceRagEvalRequest): Promise<RagEvalReport> {
+  const { data } = await request.post(`/evaluation/space/${spaceId}/rag`, payload)
+  return data as RagEvalReport
+}

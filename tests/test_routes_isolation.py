@@ -274,6 +274,36 @@ class RouteIsolationTest(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/rag-debug/samples/{sample_id}", headers=h_a).status_code, 200)
         self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a)
 
+    # ---- 知识库健康分 + 按空间评估：越权隔离 ----
+
+    def test_space_health_and_eval_isolation(self):
+        sid = self._make_space(self.alice, f"rt-health-{self.alice['id']}")
+        h_a, h_b = self.alice["headers"], self.bob["headers"]
+
+        # 本人：健康分实时算，返回明细 + 分数
+        ok = self.client.get(f"/knowledge-spaces/{sid}/health", headers=h_a)
+        self.assertEqual(ok.status_code, 200, ok.text)
+        body = ok.json()
+        self.assertIsInstance(body["health_score"], int)
+        self.assertIn("documents", body)
+        self.assertIn("retrieval", body)
+
+        # 别人：404（不泄露存在性）
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}/health", headers=h_b).status_code, 404)
+
+        # 按空间评估：本人过了归属校验（无 embedding Key 时卡在向量化 -> 400）；别人 404
+        mine = self.client.post(
+            f"/evaluation/space/{sid}/rag", json={"cases": [{"question": "年假几天"}], "top_k": 3}, headers=h_a
+        )
+        self.assertIn(mine.status_code, (200, 400), mine.text)
+        self.assertEqual(
+            self.client.post(
+                f"/evaluation/space/{sid}/rag", json={"cases": [{"question": "x"}]}, headers=h_b
+            ).status_code, 404
+        )
+
+        self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a)
+
     # ---- 会话 / 后台任务：领域异常 + 隔离 ----
 
     def test_conversation_cross_user_404_with_code(self):

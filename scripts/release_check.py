@@ -54,6 +54,10 @@ REQUIRED_FILES = [
     "frontend/src/api/ragDebug.ts",
     "frontend/src/views/knowledge/RagDebugConsole.vue",
     "frontend/src/components/knowledge/RagTracePanel.vue",
+    # 知识库空间（阶段5）：健康分 + 按空间评估 + Widget 健康 connector
+    "service/knowledge_space/health_service.py",
+    "service/widgets/connectors/knowledge_space.py",
+    "frontend/src/views/knowledge/SpaceHealth.vue",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",

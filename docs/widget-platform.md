@@ -7,7 +7,7 @@
 
 | 段 | 作用 | 白名单 |
 | --- | --- | --- |
-| `data_source` | 数据从哪来 | `sample` / `catalog`(gold_price,usd_cny,weather) / `system_stats` / `agent_runs` / **`http`** / **`web_page`** / **`knowledge_base`** |
+| `data_source` | 数据从哪来 | `sample` / `catalog`(gold_price,usd_cny,weather) / `system_stats` / `agent_runs` / **`http`** / **`web_page`** / **`knowledge_base`** / **`knowledge_space`** |
 | `processor` | 系统怎么处理 | `passthrough` / `normalize_timeseries` / `pick_fields` / `aggregate` / `json_extract` / **`llm_summarize`** |
 | `view` | 怎么展示 | `chart`(line/bar/pie) / `metric` / `markdown` / `table` / `web_monitor` / `task_list` / `system_stats` |
 | `trigger` | 多久更新 | `manual` / `hourly` / `daily`(run_at + timezone) |
@@ -20,6 +20,7 @@
 | `http` | `url`(http/https) | `method`(GET/POST) `headers` `body` `as`(json/text) `json_path` |
 | `web_page` | `url` | `mode`(text / monitor) `max_chars` |
 | `knowledge_base` | `agent_id` `query` | `top_k`(1~10) |
+| `knowledge_space` | `space_id` | —（输出某知识库空间的健康分 + 文档/检索质量指标，经 `to_thread` 调 `health_service.health_snapshot`，按 `ctx.user_id` 校验空间归属） |
 | `llm_summarize` | - | `instruction` `style`(brief/report/one_line) `max_chars`（配合 `view.kind=markdown`；输出有结构的中文 Markdown：结论加粗 + 带数字的要点 + `> 提醒`；剥掉寒暄/代码围栏；无可用模型时优雅降级不报错） |
 | `threshold_alert` | 阈值 | 简写 `{"gt":100}` / `{"lt":5}` 或 `rules=[{"level":"warn\|alert","op":"gt\|lt\|gte\|lte\|eq","value":N,"message":"…"}]`；`field` 指定比较字段。产出 `level`(ok/warn/alert)+提醒文案，`level!=ok` 时该组件在列表接口被标 `attention` |
 

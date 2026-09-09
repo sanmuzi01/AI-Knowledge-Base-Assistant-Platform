@@ -40,6 +40,7 @@ CONNECTOR_KINDS: List[str] = [
     "http",           # 用户自定义接口 URL（JSON / 文本）
     "web_page",       # 抓取一个网页正文，可做「有没有更新」的监控
     "knowledge_base", # 从「我的知识库」按问题检索
+    "knowledge_space", # 某个知识库空间的健康分（文档/入库/检索质量）
 ]
 
 # 以后再加 trend_analysis / classification / ranking
@@ -95,6 +96,7 @@ CONNECTOR_LABELS: Dict[str, str] = {
     "http": "外部接口地址",
     "web_page": "网页内容",
     "knowledge_base": "我的知识库",
+    "knowledge_space": "知识库健康",
 }
 
 CATALOG_PROVIDER_LABELS: Dict[str, str] = {

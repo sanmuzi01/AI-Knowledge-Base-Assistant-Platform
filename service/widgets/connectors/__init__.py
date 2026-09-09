@@ -15,6 +15,7 @@ from service.widgets.connectors import (  # noqa: E402
     catalog,
     http_api,
     knowledge_base,
+    knowledge_space,
     sample,
     system_stats,
     web_page,
@@ -28,6 +29,7 @@ CONNECTORS.add(agent_runs.CONNECTOR.kind, agent_runs.CONNECTOR)
 CONNECTORS.add(http_api.CONNECTOR.kind, http_api.CONNECTOR)
 CONNECTORS.add(web_page.CONNECTOR.kind, web_page.CONNECTOR)
 CONNECTORS.add(knowledge_base.CONNECTOR.kind, knowledge_base.CONNECTOR)
+CONNECTORS.add(knowledge_space.CONNECTOR.kind, knowledge_space.CONNECTOR)
 
 
 def get_connector(kind: str) -> BaseConnector:

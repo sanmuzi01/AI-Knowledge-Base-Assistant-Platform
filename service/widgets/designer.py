@@ -34,6 +34,7 @@ def _system_prompt() -> str:
   - http 需要 config.url（http/https）；可选 config.method(GET/POST)、config.headers、config.json_path
   - web_page 需要 config.url；可选 config.mode（text 纯展示 / monitor 关注是否更新）
   - knowledge_base 需要 config.agent_id(数字) 和 config.query（检索问题）；可选 config.top_k
+  - knowledge_space 需要 config.space_id(数字)，输出某知识库空间的健康分和文档/检索质量指标
 - processor.kind: {", ".join(schema.PROCESSOR_KINDS)}
   - llm_summarize 用 AI 把取到的数据总结成有条理的一段 Markdown，配合 view.kind=markdown；
     可选 config.instruction、config.style（brief 结论+要点 / report 分小节 / one_line 一句话）
@@ -52,6 +53,7 @@ def _system_prompt() -> str:
 - "关注某网页有没有更新/变化" -> data_source.kind=web_page, config.mode=monitor
 - "调用我自己的接口 / 某个 API 地址 / http 链接返回的数据" -> data_source.kind=http
 - "从我的知识库 / 资料里查" -> data_source.kind=knowledge_base
+- "知识库 / 知识空间 健康 / 质量 / 有没有过期失败" -> data_source.kind=knowledge_space（config.space_id）
 - "总结 / 提炼 / 概括成一段话" -> processor.kind=llm_summarize + view.kind=markdown
 - "超过 / 低于 X 就提醒 / 报警 / 预警" -> processor.kind=threshold_alert（把 X 放进 config）
 - "我的运行/调用/Agent 统计" -> data_source.kind=agent_runs

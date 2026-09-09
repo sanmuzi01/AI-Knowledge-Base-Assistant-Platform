@@ -62,6 +62,40 @@ export async function deleteSpace(id: number): Promise<{ message: string; id: nu
   return data
 }
 
+export interface SpaceHealth {
+  space_id: number
+  health_score: number
+  level: 'good' | 'fair' | 'poor'
+  stale_days: number
+  computed_at: string
+  documents: {
+    total: number
+    enabled: number
+    done: number
+    failed: number
+    pending: number
+    empty_done: number
+    stale: number
+    failed_rate: number
+    pending_rate: number
+    stale_rate: number
+    disabled_rate: number
+    chunk_count: number
+  }
+  retrieval: {
+    sample_count: number
+    hit_rate: number | null
+    refuse_rate: number | null
+    citation_rate: number | null
+    useful_rate: number | null
+  }
+}
+
+export async function getSpaceHealth(id: number): Promise<SpaceHealth> {
+  const { data } = await request.get<SpaceHealth>(`/knowledge-spaces/${id}/health`)
+  return data
+}
+
 // ---------------- 空间内文档 ----------------
 
 export interface SpaceDoc {

@@ -270,7 +270,7 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 | **2 ✅** | 文档管理增强 | `knowledge.agent_id` 改可空 + `category/tags/version/source_*` 列；`/knowledge-spaces/{id}/documents` 上传/批量/抓取/列表(按分类·标签·状态筛)/改元数据/启停/重建/删除；`rag_service` 向量集合键按 `knowledge.space_id` 解析（`_vector_key`）；入库完成刷新空间统计；**旧 `/knowledge/{agent_id}/*` 上传/抓取内部落到该 Agent 的默认空间**；前端「空间详情」页 | 旧接口保留，行为=写进默认空间 |
 | **3 ✅** | 多空间检索 + 引用 | `rag/space_search.search_spaces`（自带 Session + 逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` 组装 + 拒答）；`search_entry.search_for_agent` 统一入口（绑定→多空间，未绑定→旧 `search_scoped`）；`agent.kb_*` + `agent_knowledge_space` 绑定接入 create/update；`agent_runtime` 注入引用/拒答规则 + 透传 `citations`（SSE `citations` 事件）；前端 `AgentCreateDialog` 知识库区块 + `Chat.vue` `CitationList` | 未绑定 space 的 Agent 回退旧 `agent_{id}` 检索路径 |
 | **4 ✅** | 知识库调试台 | `/rag-debug/run`（`debug_service.run_retrieval` 经 `to_thread` 跑一次检索快照，`with_answer` 时 `attach_answer` 调 LLM + 启发式忠诚度）；`rag_debug_samples` 表 + `models/rag_debug_dao.py`（异步）；`/rag-debug/samples` 增删改查 + `/samples/export`（评估集 → `rag_eval` cases）；前端 `RagDebugConsole.vue` + `RagTracePanel.vue`，`/knowledge-spaces/:id/debug` | 纯新增 |
-| **5** | 质量与健康分 | `space_health` 任务：文档覆盖/过期/失败率、检索命中率、引用命中率、拒答率；`knowledge_spaces.health_*` 回填；`rag_eval_service` 增加「按 space 跑」入口；前端健康报告页；**Widget 新增知识库健康卡片**（复用 widget 平台 connector 机制，加 `knowledge_space` connector） | 纯新增 |
+| **5 ✅** | 质量与健康分 | `service/knowledge_space/health_service.py`（只读 DB 算文档侧 failed/pending/stale/empty_done + 检索侧 hit/refuse/citation/useful 率 → 加权 `health_score` 0~100）；`GET /knowledge-spaces/{id}/health` 实时算并回写 `health_*`；`space_health` 后台任务 runner；`rag_eval_service.run_for_space` + `POST /evaluation/space/{id}/rag`（检索走 `space_search`）；前端 `SpaceHealth.vue`；Widget `knowledge_space` connector（`schema` 白名单 + `designer` 提示，注册即用） | 纯新增 |
 | **6** | 企业权限落地 | `teams` / `organizations` / `space_members` / `kb_audit_log` 建表 + 接线；`user_space_ids` / `membership` 实现；role 分级写权限；管理员企业视角；权限测试 | `user_id` owner 语义保留为 role=owner |
 
 ---
@@ -387,10 +387,19 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 - 测试：`tests/test_rag_debug_service.py`（hit 归一化 / 样例序列化 / 导出用例 / 入参校验）；
   `tests/test_routes_isolation.py::test_rag_debug_console_isolation`。
 
-**阶段 5**
-- 每个 space 有 `health_score` 与明细（失败率/过期率/命中率/拒答率）。
-- `run_for_space` 能产出 RAG eval 报告。
-- Widget 里新建「知识库健康」组件能显示某 space 的健康卡片。
+**阶段 5** ✅
+- 每个 space 有 `health_score`（0~100）与明细：文档侧 total/enabled/done/failed/pending/stale/empty_done
+  + 各比率；检索侧（≥3 条调试样例时纳入评分）hit_rate/refuse_rate/citation_rate/useful_rate。
+  `GET /knowledge-spaces/{id}/health` 实时算并回写 `knowledge_spaces.health_score` / `health_json`；
+  `space_health` 后台任务可批量刷。空空间给中性 60，其余从 100 起按「失败>未入库>过期>空切片>低命中」扣分。
+- `POST /evaluation/space/{space_id}/rag`（`rag_eval_service.run_for_space`）：检索走
+  `space_search.search_spaces`（多空间联合），逐条 `to_thread`，复用 `evaluate_retrieval_case` +
+  `_summarize_case_reports`，产出命中率/召回/precision@k/mrr/忠诚度。
+- Widget `knowledge_space` connector：`config.space_id`，经 `to_thread(health_snapshot)` 出健康分
+  summary + rows，`schema.CONNECTOR_KINDS`/`CONNECTOR_LABELS` 已加、`designer` 提示已加。
+- 越权：`health` / `evaluation/space` 传别人的空间 → 404；connector 非本人空间 → `PermissionDenied`。
+- 测试：`tests/test_space_health_service.py`（评分 / 比率 / 阈值 / connector 注册）；
+  `tests/test_routes_isolation.py::test_space_health_and_eval_isolation`。
 
 **阶段 6**
 - viewer 不能上传 / 改 / 删；editor 能传文档不能改空间；admin 能改空间不能删；owner 全权。

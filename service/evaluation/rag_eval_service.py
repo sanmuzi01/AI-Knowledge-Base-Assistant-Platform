@@ -406,6 +406,19 @@ async def evaluate_rag_dataset(
                 case_report["faithfulness_judge_error"] = str(exc)[:500]
         case_reports.append(case_report)
 
+    report = _summarize_case_reports(case_reports)
+    report["settings"] = {
+        "top_k": top_k,
+        "knowledge_id": knowledge_id,
+        "text_match_threshold": text_match_threshold,
+        "faithfulness_threshold": faithfulness_threshold,
+        "faithfulness_judge_model": faithfulness_judge_model,
+    }
+    return report
+
+
+def _summarize_case_reports(case_reports: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """把逐条 case 报告汇总成命中率 / 召回 / precision@k / mrr / 忠诚度。"""
     evaluated_retrieval = [item for item in case_reports if item["hit"] is not None]
     evaluated_faithfulness = [
         item["faithfulness"]
@@ -447,12 +460,59 @@ async def evaluate_rag_dataset(
             "mrr": round(sum(mrr_values) / len(mrr_values), 4) if mrr_values else None,
             "faithfulness": round(faithfulness_score, 4) if faithfulness_score is not None else None,
         },
-        "settings": {
-            "top_k": top_k,
-            "knowledge_id": knowledge_id,
-            "text_match_threshold": text_match_threshold,
-            "faithfulness_threshold": faithfulness_threshold,
-            "faithfulness_judge_model": faithfulness_judge_model,
-        },
-        "cases": case_reports,
+        "cases": list(case_reports),
     }
+
+
+async def run_for_space(
+        user_id: int,
+        space_ids: Sequence[int],
+        cases: Sequence[Dict[str, Any]],
+        top_k: int = 5,
+        rerank: Optional[bool] = None,
+        text_match_threshold: float = DEFAULT_TEXT_MATCH_THRESHOLD,
+        faithfulness_threshold: float = DEFAULT_FAITHFULNESS_THRESHOLD,
+) -> Dict[str, Any]:
+    """按知识库空间跑 RAG 评估：检索走 `space_search.search_spaces`（多空间联合，带来源）。
+
+    检索本身同步，逐条经 `asyncio.to_thread` 调用；归属校验在 `search_spaces` 内
+    （越权 -> PermissionError）。cases 结构同 `evaluate_rag_dataset`。
+    """
+    import asyncio
+
+    from service.rag.space_search import search_spaces
+
+    space_ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    case_reports = []
+    for case in cases:
+        question = (case.get("question") or "").strip()
+        if not question:
+            continue
+        res = await asyncio.to_thread(
+            search_spaces, user_id, space_ids, question,
+            top_k, rerank, False,
+        )
+        results = [
+            {**hit, "file_name": (hit.get("source") or {}).get("file_name", "")}
+            for hit in res.get("hits", [])
+        ]
+        case_reports.append(evaluate_retrieval_case(
+            question=question,
+            results=results,
+            expected_chunk_ids=case.get("expected_chunk_ids"),
+            expected_knowledge_ids=case.get("expected_knowledge_ids"),
+            expected_texts=case.get("expected_texts"),
+            answer=case.get("answer"),
+            text_match_threshold=text_match_threshold,
+            faithfulness_threshold=faithfulness_threshold,
+        ))
+
+    report = _summarize_case_reports(case_reports)
+    report["settings"] = {
+        "space_ids": space_ids,
+        "top_k": top_k,
+        "rerank": rerank,
+        "text_match_threshold": text_match_threshold,
+        "faithfulness_threshold": faithfulness_threshold,
+    }
+    return report

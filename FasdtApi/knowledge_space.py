@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from models.async_db import get_async_db
 from models.init_db import User, get_db
 from service.dependencies import get_current_user_async
-from service.knowledge_space import document_service, space_async_service
+from service.exceptions import NotFound
+from service.knowledge_space import document_service, health_service, space_async_service
 from service.web_crawler_service import CrawlerError
 from service.web_crawler_async_service import async_crawl_url_to_markdown
 from utils.rate_limit import LimitExceeded, require_limit
@@ -250,6 +251,19 @@ async def delete_space_document_route(
         current_user: User = Depends(get_current_user_async),
 ):
     return document_service.delete(db, current_user.id, space_id, knowledge_id)
+
+
+@router.get("/{space_id:int}/health", summary="知识库空间健康分（实时算并回写）")
+async def space_health_route(
+        space_id: int,
+        current_user: User = Depends(get_current_user_async),
+):
+    try:
+        return await asyncio.to_thread(
+            health_service.health_snapshot, current_user.id, space_id, persist=True
+        )
+    except PermissionError:
+        raise NotFound("知识库空间不存在或无权限")
 
 
 def _rate_limit_upload(user_id: int) -> None:

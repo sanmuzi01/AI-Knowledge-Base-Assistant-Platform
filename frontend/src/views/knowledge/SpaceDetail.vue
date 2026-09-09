@@ -19,12 +19,20 @@
             </p>
           </div>
         </div>
-        <button
-          @click="router.push(`/knowledge-spaces/${spaceId}/debug`)"
-          class="shrink-0 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-        >
-          调试台
-        </button>
+        <div class="flex shrink-0 gap-2">
+          <button
+            @click="router.push(`/knowledge-spaces/${spaceId}/health`)"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            健康报告
+          </button>
+          <button
+            @click="router.push(`/knowledge-spaces/${spaceId}/debug`)"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            调试台
+          </button>
+        </div>
       </div>
     </header>
 

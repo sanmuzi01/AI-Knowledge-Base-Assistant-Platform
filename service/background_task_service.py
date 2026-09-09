@@ -435,3 +435,16 @@ def run_knowledge_reindex_task(task_id: int, user_id: int, agent_id: int, knowle
         success_log=f"后台知识库重建完成: task={task_id}, knowledge={knowledge_id}",
         failure_log="后台知识库重建失败",
     )
+
+
+@register_task_runner("space_health")
+def run_space_health_task(task_id: int, user_id: int, agent_id: int, space_id: int):
+    """重算某知识库空间的健康分并回写 knowledge_spaces.health_*。target_id = space_id。"""
+    from service.knowledge_space.health_service import compute_and_persist
+
+    _run_task_with_status(
+        task_id=task_id,
+        action=lambda db: compute_and_persist(db, space_id),
+        success_log=f"知识库空间健康分刷新完成: task={task_id}, space={space_id}",
+        failure_log="知识库空间健康分刷新失败",
+    )
