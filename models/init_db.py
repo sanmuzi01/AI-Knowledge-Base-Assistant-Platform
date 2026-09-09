@@ -836,6 +836,33 @@ def _ensure_builtin_admin():
 
 
 _BOOTSTRAP_DONE = False
+_BOOTSTRAP_LOCK_NAME = "kb_bootstrap"
+
+
+def _create_all_with_retry(attempts: int = 5, delay: float = 3.0) -> None:
+    """建表；撞上并发 DDL / 元数据锁时退避重试（多进程冷启动的兜底）。"""
+    import time
+    from sqlalchemy.exc import OperationalError
+
+    for i in range(attempts):
+        try:
+            Base.metadata.create_all(engine)
+            return
+        except OperationalError as exc:
+            msg = str(getattr(exc, "orig", exc))
+            transient = "1684" in msg or "concurrent DDL" in msg or "metadata lock" in msg
+            if transient and i < attempts - 1:
+                print(f"[Bootstrap] 建表撞并发 DDL，{delay}s 后重试（{i + 1}/{attempts}）")
+                time.sleep(delay)
+                continue
+            raise
+
+
+def _run_bootstrap_steps(seed_admin: bool) -> None:
+    _create_all_with_retry()
+    _run_migrations()
+    if seed_admin:
+        _ensure_builtin_admin()
 
 
 def bootstrap_database(*, seed_admin: bool = True, force: bool = False) -> None:
@@ -846,6 +873,12 @@ def bootstrap_database(*, seed_admin: bool = True, force: bool = False) -> None:
 
     可用环境变量 DB_AUTO_BOOTSTRAP=0 关闭（改由 Alembic 管理表结构的部署），
     此时仍可传 force=True 强制执行。
+
+    多进程 / `uvicorn --reload` 冷启动时可能有多个进程同时到这里，各自跑
+    create_all()。并发 DDL 会触发 MySQL 元数据锁死（错误 1684 "concurrent DDL
+    statement"），进而卡住所有请求。这里用 MySQL 命名锁 GET_LOCK 把建表串行化：
+    拿到锁的进程建表，其它进程等待，等到后再跑一遍（create_all 幂等，是快速空操作）。
+    锁按连接持有，用完即释放/断开。
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
@@ -855,10 +888,36 @@ def bootstrap_database(*, seed_admin: bool = True, force: bool = False) -> None:
         _BOOTSTRAP_DONE = True
         return
 
-    Base.metadata.create_all(engine)
-    _run_migrations()
-    if seed_admin:
-        _ensure_builtin_admin()
+    from sqlalchemy import text
+
+    lock_timeout = _env_int("DB_BOOTSTRAP_LOCK_TIMEOUT", 120)
+    lock_conn = None
+    have_lock = False
+    try:
+        lock_conn = engine.connect()
+        got = lock_conn.execute(
+            text("SELECT GET_LOCK(:name, :timeout)"),
+            {"name": _BOOTSTRAP_LOCK_NAME, "timeout": lock_timeout},
+        ).scalar()
+        have_lock = got == 1
+        if not have_lock:
+            print(f"[Bootstrap] 未拿到建表锁（GET_LOCK 返回 {got!r}），降级为直接建表")
+    except Exception as exc:  # noqa: BLE001 - 锁不可用时不阻断启动
+        print(f"[Bootstrap] 建表锁不可用，降级为直接建表: {exc}")
+
+    try:
+        _run_bootstrap_steps(seed_admin)
+    finally:
+        if lock_conn is not None:
+            try:
+                if have_lock:
+                    lock_conn.execute(
+                        text("SELECT RELEASE_LOCK(:name)"), {"name": _BOOTSTRAP_LOCK_NAME}
+                    )
+            except Exception:
+                pass
+            lock_conn.close()
+
     _BOOTSTRAP_DONE = True
 
 

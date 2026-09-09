@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from models.async_db import get_async_db
 from models.init_db import User, get_db
 from service.dependencies import get_current_user_async
-from service.exceptions import NotFound
+from service.exceptions import AppError, NotFound
 from service.knowledge_space import document_service, health_service, space_async_service
 from service.web_crawler_service import CrawlerError
 from service.web_crawler_async_service import async_crawl_url_to_markdown
@@ -144,7 +144,7 @@ async def upload_space_document_route(
             db, background_tasks, current_user.id, space_id, file.filename or "", content,
             category=category, version=version,
         )
-    except HTTPException:
+    except (HTTPException, AppError):
         raise
     except Exception as e:  # noqa: BLE001
         db.rollback()
@@ -164,7 +164,7 @@ async def upload_space_documents_batch_route(
     try:
         items = document_service.upload_batch(db, background_tasks, current_user.id, space_id, prepared)
         return {"message": f"已创建{len(items)}个入库任务", "count": len(items), "items": items}
-    except HTTPException:
+    except (HTTPException, AppError):
         raise
     except Exception as e:  # noqa: BLE001
         db.rollback()
