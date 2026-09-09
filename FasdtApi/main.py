@@ -29,6 +29,7 @@ from FasdtApi.admin import router as admin_router
 from FasdtApi.evaluation import router as evaluation_router
 from FasdtApi.web_monitor import router as web_monitor_router
 from FasdtApi.user_widget import router as user_widget_router
+from models.async_db import async_engine
 from models.init_db import SessionLocal, engine, bootstrap_database
 from service.operation_log_middleware import OperationLogMiddleware
 from service.background_task_service import task_execution_mode
@@ -60,7 +61,10 @@ async def lifespan(app: FastAPI):
     # 建表 / 幂等迁移 / 内置管理员初始化：只在服务启动时执行，不在模块导入时执行。
     # DDL 是同步阻塞操作，放线程池避免占用事件循环。
     await run_in_threadpool(bootstrap_database)
-    yield
+    try:
+        yield
+    finally:
+        await async_engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)

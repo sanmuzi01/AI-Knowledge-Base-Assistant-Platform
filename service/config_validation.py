@@ -91,9 +91,6 @@ def validate_runtime_config() -> Dict[str, object]:
     elif cors_origins:
         checks.append({"name": "CORS_ALLOW_ORIGINS", "ok": True, "level": "ok", "message": "已配置 CORS 来源"})
 
-    if production:
-        _add_required(checks, "GRAFANA_ADMIN_PASSWORD", os.getenv("GRAFANA_ADMIN_PASSWORD", ""))
-
     admin_password = os.getenv("ADMIN_PASSWORD", "")
     if production:
         if _is_blank(admin_password):

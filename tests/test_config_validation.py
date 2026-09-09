@@ -17,14 +17,13 @@ def _valid_env():
         "DB_NAME": "agent_sql",
         "JWT_SECRET_KEY": "strong-jwt-secret-value-for-production",
         "LLM_ENCRYPTION_KEY": Fernet.generate_key().decode("utf-8"),
-        "REDIS_URL": "redis://redis:6379/0",
+        "REDIS_URL": "redis://127.0.0.1:6379/0",
         "SMS_PROVIDER": "webhook",
         "SMS_WEBHOOK_URL": "https://sms.example.test/send",
         "SMS_WEBHOOK_TOKEN": "strong-sms-token",
         "SMS_EXPOSE_DEV_CODE": "0",
         "TRUSTED_HOSTS": "example.test,www.example.test,api",
         "CORS_ALLOW_ORIGINS": "https://example.test,https://www.example.test",
-        "GRAFANA_ADMIN_PASSWORD": "strong-grafana-password",
         "ADMIN_PASSWORD": "strong-admin-password",
     }
 

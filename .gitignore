@@ -1,5 +1,4 @@
 .env
-.env.docker
 __pycache__/
 *.pyc
 .idea/
@@ -19,4 +18,3 @@ release-*/
 .env.*
 !.env.example
 !.env.production.example
-!.env.docker.example

@@ -13,14 +13,6 @@
     "crawl:check": ".venv\\Scripts\\python.exe scripts\\crawl_check.py",
     "load:test": ".venv\\Scripts\\python.exe scripts\\load_test.py",
     "test:unit": ".venv\\Scripts\\python.exe -m unittest discover -s tests -p \"test_*.py\"",
-    "release:check": ".venv\\Scripts\\python.exe scripts\\release_check.py",
-    "docker:start": "powershell -ExecutionPolicy Bypass -File scripts\\start-one-click.ps1",
-    "docker:stop": "powershell -ExecutionPolicy Bypass -File scripts\\stop-one-click.ps1",
-    "docker:infra": "powershell -ExecutionPolicy Bypass -File scripts\\start-infra.ps1",
-    "docker:app": "powershell -ExecutionPolicy Bypass -File scripts\\start-app.ps1",
-    "docker:monitoring": "powershell -ExecutionPolicy Bypass -File scripts\\start-monitoring.ps1",
-    "docker:all": "powershell -ExecutionPolicy Bypass -File scripts\\start-all.ps1",
-    "docker:stop-app": "powershell -ExecutionPolicy Bypass -File scripts\\stop-app.ps1",
-    "docker:stop-all": "powershell -ExecutionPolicy Bypass -File scripts\\stop-all.ps1"
+    "release:check": ".venv\\Scripts\\python.exe scripts\\release_check.py"
   }
 }
