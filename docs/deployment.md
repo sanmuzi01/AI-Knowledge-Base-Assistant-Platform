@@ -1,14 +1,12 @@
 # Production Deployment
 
-项目生产环境由七个服务组成：
+生产环境按进程部署，用进程管理器（systemd / supervisor / nssm 等）常驻：
 
-- `frontend`: Nginx 静态前端和 `/api` 反向代理
-- `api`: FastAPI 对外接口
-- `worker`: 后台任务 Worker，处理知识库入库和重建索引
-- `mysql`: 主数据库
-- `redis`: 分布式缓存、限流和并发控制
-- `prometheus`: 指标采集
-- `grafana`: 指标看板
+- `api`: FastAPI 对外接口 —— `uvicorn FasdtApi.main:app --host 0.0.0.0 --port 8000 --workers 2`
+- `worker`: 后台任务 Worker（知识库入库 / 重建索引、自定义组件定时调度）—— `python -m service.background_worker`
+- 前端：`npm run frontend:build` 产出 `frontend/dist`，交给 Nginx 做静态托管 + `/api` 反向代理
+- `mysql`: 主数据库（自建或云 RDS）
+- `redis`: 分布式缓存、限流和并发控制（可选，不配则回退进程内内存）
 
 ## 1. 准备配置
 
@@ -25,7 +23,6 @@ Copy-Item .env.production.example .env
 - `LLM_ENCRYPTION_KEY`
 - `SMS_WEBHOOK_URL`
 - `SMS_WEBHOOK_TOKEN`
-- `GRAFANA_ADMIN_PASSWORD`
 - `TRUSTED_HOSTS`
 - `CORS_ALLOW_ORIGINS`
 
@@ -47,60 +44,41 @@ SMS_WEBHOOK_TOKEN=change-me-sms-webhook-token
 
 ## 2. 启动
 
-```powershell
-docker compose up -d --build
-```
-
-查看状态：
+同步表结构（幂等）：
 
 ```powershell
-docker compose ps
+python -m alembic upgrade head
 ```
 
-查看日志：
+常驻两个进程（交给 systemd / supervisor / nssm）：
 
-```powershell
-docker compose logs -f api
-docker compose logs -f worker
+```text
+uvicorn FasdtApi.main:app --host 0.0.0.0 --port 8000 --workers 2
+python -m service.background_worker
 ```
+
+前端构建产物由 Nginx 托管，`/api` 反代到 `127.0.0.1:8000`，`/health`、`/metrics` 同样透传。
+仓库 `deploy/` 下有可直接改用的模板（均按「与 API 同机」预设，非容器）：
+
+- `deploy/nginx.conf` —— 静态托管 + `/api`、`/health`、`/metrics` 反代（把 `root` 指向 `frontend/dist`）
+- `deploy/prometheus.yml` + `deploy/prometheus-rules.yml` —— 抓 `127.0.0.1:8000/metrics`
+- `deploy/grafana/provisioning/` —— Grafana 数据源与预置面板
 
 ## 3. 健康检查
 
-浏览器访问：
-
 ```text
-http://localhost/health
+http://<域名>/health
 ```
 
 正常情况下：
 
 - `database` 为正常
-- `redis` 为正常
+- `redis` 为正常（未配置 Redis 时为回退内存模式）
 - `tasks.execution_mode` 为 `worker`
 - `tasks.worker_required` 为 `true`
 - `database.pool.checked_out` 不应长期接近 `DB_POOL_SIZE + DB_MAX_OVERFLOW`
 
-Prometheus 指标端点：
-
-```text
-http://localhost/metrics
-```
-
-Prometheus 控制台：
-
-```text
-http://localhost:9090
-```
-
-Grafana 控制台：
-
-```text
-http://localhost:3000
-```
-
-Grafana 默认数据源会自动指向 Prometheus。生产环境必须修改 `GRAFANA_ADMIN_PASSWORD`。
-内置 `Agent Platform Overview` 看板会展示 HTTP 吞吐、P95/P99 延迟、5xx 错误、数据库连接池和缓存后端状态。
-Prometheus 已内置基础告警规则：API 不可用、5xx 增多、P95 延迟过高、数据库连接池接近打满。
+Prometheus 指标端点：`http://<域名>/metrics`（可接入已有的 Prometheus / Grafana）。
 
 数据库连接池说明：
 
@@ -117,7 +95,7 @@ DB_POOL_PRE_PING=true
 安全相关配置：
 
 ```env
-TRUSTED_HOSTS=your-domain.com,www.your-domain.com,api
+TRUSTED_HOSTS=your-domain.com,www.your-domain.com
 CORS_ALLOW_ORIGINS=https://your-domain.com,https://www.your-domain.com
 MAX_REQUEST_BODY_BYTES=52428800
 ENABLE_HSTS=1
@@ -139,27 +117,11 @@ EMBEDDING_REQUEST_TIMEOUT_SECONDS=30
 
 普通 LLM/Embedding 请求会在超时、连接失败或 429/5xx 时重试；流式输出不会自动重试，避免用户已经收到部分内容后重复输出。连续失败达到阈值后会短暂熔断，熔断状态可在 `/health` 的 `resilience.circuits` 中查看。
 
-数据库连接池默认配置：
-
-```env
-DB_POOL_SIZE=10
-DB_MAX_OVERFLOW=20
-DB_POOL_TIMEOUT=30
-DB_POOL_RECYCLE=1800
-DB_POOL_PRE_PING=true
-```
-
-`API_WORKERS` 会放大总连接数。例如 `API_WORKERS=2` 时，API 服务理论最大连接数约为 `(DB_POOL_SIZE + DB_MAX_OVERFLOW) * 2`，再加上 Worker 进程自己的连接。生产调大这些值前，要确认 MySQL 的 `max_connections` 足够。
+`API_WORKERS`（或 `--workers`）会放大总连接数。例如 2 个 worker 时，API 服务理论最大连接数约为 `(DB_POOL_SIZE + DB_MAX_OVERFLOW) * 2`，再加上后台 Worker 进程自己的连接。生产调大这些值前，要确认 MySQL 的 `max_connections` 足够。
 
 ## 4. Worker 扩容
 
-后台任务多时，可以增加 Worker 数量：
-
-```powershell
-docker compose up -d --scale worker=2
-```
-
-Worker 会通过数据库领取 `queued` 任务，避免多个 Worker 重复执行同一个任务。
+后台任务多时，可以多起几个 `python -m service.background_worker` 进程。Worker 会通过数据库领取 `queued` 任务，多个 Worker 不会重复执行同一个任务；自定义组件的定时调度也用同样的乐观锁抢占。
 
 Worker 失败重试配置：
 
@@ -179,31 +141,25 @@ REDIS_RECONNECT_INTERVAL_SECONDS=5
 
 缓存、验证码、限流和并发控制都会优先使用 Redis。Redis 短暂不可用时接口会回退到进程内内存；到达重连间隔后会自动尝试恢复 Redis，不需要重启 API。
 
-## 5. 数据持久化
+## 5. 数据持久化与备份
 
-数据库和 Redis 使用 Docker volume：
+需要纳入备份的：
 
-- `mysql_data`
-- `redis_data`
+- MySQL：定期导出
 
-应用文件使用项目目录挂载：
+  ```powershell
+  mysqldump -u root -p --single-transaction --routines --triggers agent_sql > backup/agent_sql_$(Get-Date -Format yyyyMMdd_HHmm).sql
+  ```
 
-- `knowledge_files`
-- `vector_db`
-- `logs`
-- `skills`
-- `skills_packages`
-- `prompt/prompts`
+  恢复：
 
-上线迁移服务器时，这些目录和 Docker volume 都需要备份。
+  ```powershell
+  mysql -u root -p agent_sql < backup/agent_sql_20260101_0000.sql
+  ```
 
-手动备份：
+- 应用文件目录：`knowledge_files`、`vector_db`、`logs`、`skills`、`skills_packages`、`prompt/prompts`。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
-
-恢复说明见 `docs/backup-restore.md`。
+迁移服务器时，数据库导出文件和上述目录一起打包带走即可。
 
 ## 6. 开发临时模式
 

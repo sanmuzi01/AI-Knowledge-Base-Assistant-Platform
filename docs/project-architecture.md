@@ -13,7 +13,7 @@
 - 个人知识库、网页抓取、RAG 检索
 - 长期记忆和用户画像
 - 后台任务、操作日志、系统诊断
-- Docker 化部署、Redis 缓存、Prometheus/Grafana 监控
+- Redis 缓存（内存兜底）、Prometheus `/metrics` 指标
 
 ## 2. 技术栈
 
@@ -27,9 +27,9 @@
 | 异步 ORM | SQLAlchemy Async + asyncmy | 高频读取接口异步化 |
 | 缓存 | Redis，内存兜底 | 配置缓存、验证码、限流、并发控制 |
 | 向量库 | Chroma | 知识库向量检索 |
-| 后台任务 | 独立 Worker | 文档入库、重建索引等耗时任务 |
-| 部署 | Docker Compose + Nginx | 服务编排、前端托管、反向代理 |
-| 监控 | Prometheus + Grafana | 指标采集、看板和告警 |
+| 后台任务 | 独立 Worker | 文档入库、重建索引、组件定时调度等 |
+| 部署 | 进程管理器 + Nginx | uvicorn / worker 常驻，Nginx 托管前端 + 反代 |
+| 监控 | Prometheus `/metrics` | 指标端点，可接入已有 Prometheus/Grafana |
 
 ## 3. 后端分层
 
@@ -198,16 +198,11 @@ npm run frontend:dev
 npm run backend:worker
 ```
 
-Docker 一键启动：
-
-```powershell
-docker compose up -d --build
-```
-
-分步式启动见：
+依赖与部署说明见：
 
 ```text
 docs/startup-guide.md
+docs/deployment.md
 ```
 
 ## 10. 后续开发约定

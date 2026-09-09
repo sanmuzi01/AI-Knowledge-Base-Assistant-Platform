@@ -26,7 +26,7 @@ npm run load:test -- --base-url http://127.0.0.1:8000 --scenario health --reques
 
 ## 生产反代压测
 
-Docker/Nginx 启动后，压测前端反代入口：
+Nginx 反代起来后，压测前端反代入口：
 
 ```powershell
 npm run load:test -- --base-url http://127.0.0.1 --scenario health --requests 500 --concurrency 50

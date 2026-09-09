@@ -1,189 +1,99 @@
 # Startup Guide
 
-本文档说明项目的本地开发启动、Docker 一键启动和分步式微服务启动。
+本地开发启动说明。项目按进程分为三块：后端 API、后台 Worker、前端 dev server。
 
-## 1. 本地开发启动
+## 1. 本地依赖
 
-在项目根目录执行：
+- **MySQL**：本机安装并启动，建一个库（默认 `agent_sql`）。连接信息写在项目根目录的 `.env`
+  （`DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`）。
+- **Redis**：可选。`.env` 里 `REDIS_URL` 留空即可——缓存 / 限流 / 验证码会回退到进程内内存，
+  不影响功能。需要多进程共享状态时再装 Redis 并填 `REDIS_URL`。
+- **Python**：用项目自带的 `.venv`（`pip install -r requirements.txt`）。
+- **Node**：前端在 `frontend/` 下 `npm install`。
+
+首次或换库后同步表结构（二选一）：
 
 ```powershell
-cd D:\PyCharm\PythonProject1
+npm run db:migrate
 ```
 
-启动后端 API：
+或直接让应用启动时自动建表（`bootstrap_database()` 会 `create_all` + 幂等迁移）。
+
+## 2. 启动（三个终端，项目根目录）
+
+后端 API：
 
 ```powershell
 npm run backend:dev
 ```
 
-启动前端：
-
-```powershell
-npm run frontend:dev
-```
-
-启动后台 Worker：
+后台 Worker（自定义组件的定时调度、知识库入库都在这里跑）：
 
 ```powershell
 npm run backend:worker
+```
+
+前端：
+
+```powershell
+npm run frontend:dev
 ```
 
 访问地址：
 
 ```text
 前端：http://localhost:5173
-后端：http://127.0.0.1:8000
-健康检查：http://127.0.0.1:8000/health
+后端：http://127.0.0.1:8011
+健康检查：http://127.0.0.1:8011/health
 ```
 
-## 2. Docker 一键启动
+前端 dev server 会把 `/api/*` 代理到 `http://127.0.0.1:8011`，不用配 CORS。
 
-如果只想快速启动全部服务：
+## 3. 生产 / 服务器部署
 
-```powershell
-docker compose up -d --build
-```
-
-查看状态：
-
-```powershell
-docker compose ps
-```
-
-停止全部服务：
-
-```powershell
-docker compose down
-```
-
-## 3. 分步式启动
-
-分步式启动适合上线排查和逐层验证。
-
-### 3.1 启动基础设施
-
-启动 MySQL 和 Redis：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-infra.ps1
-```
-
-对应 Compose 文件：
+用进程管理器（systemd、supervisor、nssm 等）分别常驻两个进程：
 
 ```text
-docker-compose.infra.yml
+uvicorn FasdtApi.main:app --host 0.0.0.0 --port 8000 --workers 2
+python -m service.background_worker
 ```
 
-### 3.2 启动应用服务
+前端 `npm run frontend:build` 产出 `frontend/dist`，交给 Nginx 之类做静态托管 + `/api` 反代。
+其余环境变量与调优见 `docs/deployment.md`。
 
-启动 API、Worker、Frontend：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-app.ps1
-```
-
-对应 Compose 文件：
-
-```text
-docker-compose.app.yml
-```
-
-### 3.3 启动监控服务
-
-启动 Prometheus 和 Grafana：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-monitoring.ps1
-```
-
-对应 Compose 文件：
-
-```text
-docker-compose.monitoring.yml
-```
-
-### 3.4 启动全部分步服务
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
-```
-
-### 3.5 停止应用但保留数据库
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\stop-app.ps1
-```
-
-这会停止：
-
-```text
-frontend
-api
-worker
-prometheus
-grafana
-```
-
-不会停止 MySQL 和 Redis。
-
-### 3.6 停止全部服务
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\stop-all.ps1
-```
-
-这会停止并移除容器，但保留 Docker volume 数据。
-
-## 4. 推荐上线启动顺序
-
-```text
-1. start-infra.ps1
-2. 等待 MySQL / Redis 健康
-3. start-app.ps1
-4. 打开 /health 检查 API、Redis、数据库、Worker 配置
-5. start-monitoring.ps1
-6. 打开 Grafana 查看指标
-```
-
-## 5. 常见问题
+## 4. 常见问题
 
 ### npm run dev 报 package.json 不存在
 
-原因通常是命令不在项目根目录或前端目录执行。
-
-正确方式：
+命令没在项目根目录或前端目录执行。正确方式：
 
 ```powershell
 cd D:\PyCharm\PythonProject1
 npm run frontend:dev
 ```
 
-### Vite 提示 ECONNREFUSED 127.0.0.1:8000
+### Vite 提示 ECONNREFUSED 127.0.0.1:8011
 
-说明前端启动了，但后端 API 没启动。
-
-先启动：
+前端起来了但后端没起。先跑：
 
 ```powershell
 npm run backend:dev
 ```
 
-### 8000 端口被占用
-
-查看占用：
+### 8011 端口被占用
 
 ```powershell
-netstat -ano | findstr :8000
+netstat -ano | findstr :8011
 ```
 
-结束对应进程前，请确认不是你正在使用的服务。
+结束对应进程前确认不是你正在用的服务。
 
-### 文档一直显示处理中
+### 文档 / 组件一直显示处理中
 
-检查：
+检查 Worker 是否在跑：
 
 ```powershell
 npm run backend:worker
 ```
 
-或者打开管理后台的系统诊断页，看 Worker 模式、Redis、数据库连接是否正常。
+或打开管理后台的系统诊断页，看 Worker 模式、Redis、数据库连接是否正常。

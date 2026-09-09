@@ -81,41 +81,23 @@ npm run frontend:build
 - Redis 不可用时系统能降级，但生产应修复 Redis，而不是长期依赖内存兜底。
 - Worker 日志能看到任务领取、成功、失败。
 
-## Docker 部署
+## 部署
 
-有 Docker 环境时执行：
-
-```powershell
-docker compose config
-docker compose up -d --build
-docker compose ps
-```
-
-必须确认：
-
-- `mysql` healthy。
-- `redis` healthy。
-- `api` healthy。
-- `worker` running。
-- `frontend` healthy。
-- `prometheus` running。
-- `grafana` running。
-- 浏览器访问 `/health` 返回后端健康检查。
-- 浏览器访问 `/metrics` 返回 Prometheus 文本指标。
+- `uvicorn FasdtApi.main:app --host 0.0.0.0 --port 8000 --workers 2` 与 `python -m service.background_worker`
+  分别由进程管理器常驻，异常退出能自动拉起。
+- `python -m alembic upgrade head` 已执行，表结构与迁移一致。
+- 前端 `npm run frontend:build` 产物由 Nginx 托管，`/api`、`/health`、`/metrics` 反代到后端。
+- 浏览器访问 `/health` 返回后端健康检查；`/metrics` 返回 Prometheus 文本指标。
 
 ## 备份恢复
 
-发布前执行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
+发布前用 `mysqldump --single-transaction --routines --triggers <库名>` 导出数据库。
 
 必须确认：
 
-- 备份包已生成。
-- 备份包包含 `mysql.sql` 和 `manifest.json`。
-- 备份包已复制到服务器以外的位置。
+- 数据库导出文件已生成。
+- `knowledge_files`、`vector_db`、`skills`、`skills_packages`、`prompt/prompts` 已一并打包。
+- 备份已复制到服务器以外的位置。
 - 至少在测试环境做过一次恢复演练。
 
 ## 压力测试
@@ -141,8 +123,7 @@ npm run load:test -- --base-url http://127.0.0.1 --scenario auth-read --username
 
 ## 监控检查
 
-- Prometheus `Targets` 页面中 `agent-api` 为 UP。
-- Grafana 可以登录，且 Prometheus 数据源连接成功。
+- `/metrics` 已接入现有 Prometheus，`agent-api` target 为 UP。
 - `agent_http_requests_total` 有请求计数。
 - `agent_http_request_duration_seconds_bucket` 有延迟桶数据。
 - `agent_db_pool_connections` 有连接池数据。
@@ -150,7 +131,6 @@ npm run load:test -- --base-url http://127.0.0.1 --scenario auth-read --username
 ## 安全检查
 
 - 生产 `.env` 已替换 `DB_PASSWORD`、`JWT_SECRET_KEY`、`LLM_ENCRYPTION_KEY`。
-- 生产 `.env` 已替换 `GRAFANA_ADMIN_PASSWORD`。
 - `TRUSTED_HOSTS` 已配置为真实域名和内部服务名。
 - `CORS_ALLOW_ORIGINS` 已配置为真实 HTTPS 前端域名。
 - HTTPS 生效后才开启 `ENABLE_HSTS=1`。

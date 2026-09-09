@@ -15,11 +15,7 @@
 
 ## 已有数据库接入
 
-上线或测试环境已有表时，先备份：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
+上线或测试环境已有表时，先用 `mysqldump --single-transaction --routines --triggers <库名>` 导出备份。
 
 确认当前表结构已经由应用启动补齐后，执行：
 

@@ -30,4 +30,4 @@ npm run load:test -- --base-url http://127.0.0.1 --scenario health --requests 20
 - 使用测试数据库覆盖注册、登录、权限隔离和管理员接口。
 - 使用临时文件目录覆盖知识库上传、入库任务和删除。
 - 使用 mock LLM/Embedding 服务覆盖聊天、RAG 检索和外部服务失败降级。
-- 在 CI 中自动执行编译、单元测试、前端构建和 Docker 配置检查。
+- 在 CI 中自动执行编译、单元测试和前端构建。
