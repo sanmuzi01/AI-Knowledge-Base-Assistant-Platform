@@ -56,7 +56,7 @@ WIDGET_FILES = [
     "service/widgets/connectors/http_api.py",
     "service/widgets/connectors/web_page.py",
     "service/widgets/connectors/knowledge_base.py",
-    "service/rag/widget_search.py",
+    "service/rag/search_entry.py",
     "models/user_widget_async_dao.py",
     "migrations/versions/20260909_0003_user_widgets.py",
     "frontend/src/views/WidgetStudio.vue",
