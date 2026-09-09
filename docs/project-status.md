@@ -28,8 +28,10 @@
 - 安全边界：已配置 CORS、Trusted Host、安全响应头、请求体大小限制和 Nginx 安全响应头。
 - 熔断/降级：LLM 与 Embedding HTTP 调用已统一超时、重试、指数退避和进程内熔断。
 - 配置校验：生产环境启动时会拦截占位密钥、缺 Redis、短信误配置、CORS/Host 未收紧等问题。
-- 自动化测试：单元测试覆盖缓存、验证码、模型 URL 适配、HTTP 重试熔断、生产配置校验，以及组件平台
-  全链路（连接器 / 处理器 / 调度 / 退避 / 保留 / 形态识别 / 导出导入 / 同步异步边界守卫）。
+- 自动化测试：单元测试覆盖缓存、验证码、模型 URL 适配、HTTP 重试熔断、生产配置校验，组件平台
+  全链路（连接器 / 处理器 / 调度 / 退避 / 保留 / 形态识别 / 导出导入 / 同步异步边界守卫）；
+  真实路由级测试（`tests/test_routes_isolation.py`：TestClient + 真实 JWT + 真实 DB）覆盖登录鉴权、
+  widgets / knowledge / agent / skill / conversation 的跨用户 404 隔离、后台任务管理员 403。
 - 发布自检：`npm run release:check` 检查上线关键文件、组件平台核心模块、`deploy/` 监控配置可解析、
   `deploy/` 无残留容器主机名、组件调度已接入 Worker，再跑编译 + 单元测试 + 前端构建。
 - 备份恢复：部署文档给出本地 MySQL `mysqldump` 导出 / 恢复命令与应用文件目录清单。
@@ -39,18 +41,18 @@
 
 ## 当前验证结果
 
-- Python 编译检查通过。
-- 前端生产构建通过。
-- FastAPI 应用导入和路由生成通过。
-- 单元测试全量通过（本地 MySQL）。
+- `python -m compileall` 通过。
+- 前端 `npm run build`（含 vue-tsc 类型检查）通过。
+- FastAPI 应用导入与路由生成通过。
+- `python -m unittest`：195 通过（含真实路由级测试，需本地 / CI MySQL）。
+- `npm run release:check` 静态检查通过。
 
 ## 当前主要风险
 
-- 自动化测试仍以 mock DAO + 纯逻辑为主，真实路由级测试（登录后访问、跨用户/管理员权限隔离）刚起步，覆盖面不足。
-- 同步 / 异步边界尚未完全收口：`service/widgets` 已 100% async 并有守卫测试；knowledge / agent 的
-  纯读接口已全量 AsyncSession（删掉旧的同步回退死分支）；但写入链路、诊断、RAG 检索管线仍是同步实现。
-- 异常类型：路由层已统一为 `service/exceptions.py` 领域异常（`FasdtApi/*.py` 无 `HTTPException(4xx)`），
-  统一处理器按 `[code]` 记日志、返回体带 `code`。service 层内部零散的 `raise ValueError` 仍待逐步替换。
+- 同步 / 异步边界部分收口：路由层读接口 + 知识库检索已 async / 线程桥接，`service/widgets` 100% async；
+  但 `agent_runtime`（聊天 ReAct 执行）、知识库上传/入库/重建/诊断、任务 Worker 主体仍是同步实现。
+  详见 `docs/sync-async-boundary.md`。
+- service 层内部零散的 `raise ValueError` / 裸 `Exception` 尚未全部换成领域异常（路由层已在 `except` 里翻译）。
 - 压力测试还未在真实服务器上形成基准报告；`/metrics` 缺生产压测基线和告警规则。
 - 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
 - 备份命令已给出，但还需在真实部署环境做恢复演练。
@@ -58,9 +60,9 @@
 
 ## 下一步建议
 
-1. 继续补真实路由级测试：知识库任务、Skill 导入、管理员接口、组件平台的跨用户隔离。
-2. 逐步收口同步 / 异步边界，优先 knowledge、agent 两个模块。
-3. 整理领域异常类型（区分「输入非法 / 无权限 / 未找到 / 上游失败」），统一日志定位。
-4. 拆分 `frontend/src/views/WidgetStudio.vue`，按卡片 / 弹窗 / 创建面板拆成子组件。
-5. 真实服务器压力测试基准报告；告警规则接入。
-6. 拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管。
+1. `agent_runtime` async 迁移：先出分阶段、可回滚的设计文档，逐层换 + 每层配集成测试。
+2. RAG 检索彻底 async（`embedding_service._get_client` / chunk 反查改异步 DAO），退役 `async_search`。
+3. service 层内部异常逐模块换成 `service/exceptions.py` 领域异常。
+4. 真实服务器压力测试基准报告；告警规则接入。
+5. 拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管。
+6. 多实例共享熔断状态（接 Redis）。
