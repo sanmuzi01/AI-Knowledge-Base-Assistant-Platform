@@ -169,6 +169,63 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"]).status_code, 200
         )
 
+    # ---- Agent 绑定知识库空间：绑定校验 + 越权 ----
+
+    def _make_space(self, user, name: str) -> int:
+        r = self.client.post(
+            "/knowledge-spaces",
+            json={"name": name, "purpose": "policy"},
+            headers=user["headers"],
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()["id"]
+
+    def test_agent_space_binding_and_cross_user_reject(self):
+        s1 = self._make_space(self.alice, f"rt-bind-a-{self.alice['id']}")
+        s2 = self._make_space(self.alice, f"rt-bind-b-{self.alice['id']}")
+        bob_space = self._make_space(self.bob, f"rt-bind-bob-{self.bob['id']}")
+
+        # 创建时绑定自己的两个空间 + kb_* 配置
+        c = self.client.post(
+            "/agent",
+            json={"name": f"rt-kb-agent-{self.alice['id']}", "rag_enabled": 1,
+                  "space_ids": [s1, s2], "kb_top_k": 8, "kb_force_citation": 1},
+            headers=self.alice["headers"],
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        agent_id = c.json()["agent_id"]
+
+        got = self.client.get(f"/agent/{agent_id}", headers=self.alice["headers"]).json()
+        self.assertCountEqual(got.get("space_ids", []), [s1, s2])
+        self.assertEqual(got.get("kb_top_k"), 8)
+
+        # 改绑：只留 s1
+        u = self.client.put(f"/agent/{agent_id}", json={"space_ids": [s1]}, headers=self.alice["headers"])
+        self.assertEqual(u.status_code, 200, u.text)
+        got = self.client.get(f"/agent/{agent_id}", headers=self.alice["headers"]).json()
+        self.assertEqual(got.get("space_ids"), [s1])
+
+        # 绑定别人的空间 -> 400（校验挡在 access_control.user_space_ids）
+        bad = self.client.put(
+            f"/agent/{agent_id}", json={"space_ids": [s1, bob_space]}, headers=self.alice["headers"]
+        )
+        self.assertEqual(bad.status_code, 400, bad.text)
+
+        # 创建时就绑别人的空间 -> 400
+        bad2 = self.client.post(
+            "/agent",
+            json={"name": f"rt-kb-bad-{self.alice['id']}", "space_ids": [bob_space]},
+            headers=self.alice["headers"],
+        )
+        self.assertEqual(bad2.status_code, 400, bad2.text)
+
+        # 清理绑定后删 Agent + 空间
+        self.client.put(f"/agent/{agent_id}", json={"space_ids": []}, headers=self.alice["headers"])
+        self.client.delete(f"/agent/{agent_id}", headers=self.alice["headers"])
+        for sid in (s1, s2):
+            self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"])
+        self.client.delete(f"/knowledge-spaces/{bob_space}", headers=self.bob["headers"])
+
     # ---- 会话 / 后台任务：领域异常 + 隔离 ----
 
     def test_conversation_cross_user_404_with_code(self):

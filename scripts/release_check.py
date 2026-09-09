@@ -43,6 +43,9 @@ REQUIRED_FILES = [
     "models/agent_knowledge_space_dao.py",
     "scripts/migrate_agent_kb_to_space.py",
     "docs/knowledge-space-plan.md",
+    # 知识库空间（阶段3）：多空间联合检索 + 引用 + Agent 绑定
+    "service/rag/space_search.py",
+    "frontend/src/components/knowledge/CitationList.vue",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",

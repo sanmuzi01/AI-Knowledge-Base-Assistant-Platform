@@ -58,3 +58,56 @@ def search_for_widget(user_id: int, agent_id: int, query: str, top_k: int = 5) -
         }
         for h in hits
     ]
+
+
+def search_for_agent(
+    user_id: int,
+    agent_id: int,
+    query: str,
+    top_k: int = 5,
+    rerank: Optional[bool] = None,
+    refuse_when_empty: bool = True,
+) -> Dict[str, Any]:
+    """Agent 对话时的统一检索入口（同步，自带 Session）。
+
+    - Agent 绑定了 ≥1 个知识库空间 -> 走 `space_search.search_spaces`，返回带 `【来源N】`
+      编号的 context 和 citations。
+    - 未绑定任何空间 -> 回退旧的「Agent 私有库」检索（`search_scoped`），context 为
+      `[知识片段N]` 形式，citations 为空。
+
+    统一返回：
+      {"mode": "spaces"|"agent", "hits": [...], "context": str,
+       "citations": [...], "refused": bool}
+    异步调用方经 `asyncio.to_thread` 调用本函数。
+    """
+    from models.init_db import SessionLocal
+    from models.agent_dao import get_agent_by_id
+    from models.agent_knowledge_space_dao import list_space_ids_by_agent
+
+    db = SessionLocal()
+    try:
+        agent = get_agent_by_id(db, agent_id)
+        if not agent or agent.user_id != user_id:
+            raise PermissionError("智能体不存在或无权限")
+        space_ids = list_space_ids_by_agent(db, agent_id)
+    finally:
+        db.close()
+
+    if space_ids:
+        from service.rag.space_search import search_spaces
+
+        res = search_spaces(
+            user_id, space_ids, query,
+            top_k=top_k, rerank=rerank, refuse_when_empty=refuse_when_empty,
+        )
+        return {
+            "mode": "spaces",
+            "hits": res["hits"],
+            "context": res["context"],
+            "citations": res["citations"],
+            "refused": res["refused"],
+        }
+
+    hits = search_scoped(user_id, agent_id, query, top_k=top_k)
+    context = "\n\n".join(f"[知识片段{i + 1}]\n{h.get('content', '')}" for i, h in enumerate(hits))
+    return {"mode": "agent", "hits": hits, "context": context, "citations": [], "refused": False}

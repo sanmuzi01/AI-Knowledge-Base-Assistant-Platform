@@ -17,10 +17,10 @@ from datetime import datetime
 from models.agent_run_dao import create_run, create_step, update_run_status
 from service.access_control import get_owned_agent
 from prompt.prompt_manager import build_prompt
-from service.rag.rag_service import search as rag_search
-from service.rag.rag_service import async_search as async_rag_search
 from utils.logger_handler import get_logger
-from service.runtime.sse_events import make_ready, make_done, make_error, make_retrieval, make_memory
+from service.runtime.sse_events import (
+    make_ready, make_done, make_error, make_retrieval, make_memory, make_citations,
+)
 from typing import Generator
 from service.memory.memory_service import load_memory, should_summarize, summarize_and_save
 from service.user_profile_service import format_user_profile_for_prompt
@@ -51,9 +51,11 @@ def _format_rag_audit(results: List[Dict[str, Any]], rag_context: str) -> str:
         "hits": [
             {
                 "knowledge_id": item.get("knowledge_id"),
-                "file_name": item.get("file_name"),
+                "file_name": item.get("file_name") or (item.get("source") or {}).get("file_name"),
+                "space_name": (item.get("source") or {}).get("space_name"),
                 "chunk_index": item.get("chunk_index"),
                 "score": item.get("score"),
+                "rerank_score": item.get("rerank_score"),
                 "distance": item.get("distance"),
                 "content_preview": (item.get("content") or "")[:500],
             }
@@ -62,6 +64,56 @@ def _format_rag_audit(results: List[Dict[str, Any]], rag_context: str) -> str:
         "context_preview": rag_context[:1000],
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _kb_retrieve(agent, user_id: int, agent_id: int, user_message: str) -> Dict[str, Any]:
+    """统一 RAG 检索：绑定了知识库空间走多空间联合检索（带来源），否则走旧 Agent 私有库。
+
+    返回 {context, citations, hit_count, mode, refused, error}。异常降级为空。
+    """
+    from service.rag import search_entry
+
+    try:
+        res = search_entry.search_for_agent(
+            user_id, agent_id, user_message,
+            top_k=int(getattr(agent, "kb_top_k", 5) or 5),
+            rerank=bool(getattr(agent, "kb_rerank_enabled", 0)),
+            refuse_when_empty=bool(getattr(agent, "kb_refuse_when_empty", 1)),
+        )
+        return {
+            "context": res.get("context", ""),
+            "citations": res.get("citations", []),
+            "hit_count": len(res.get("hits", [])),
+            "hits": res.get("hits", []),
+            "mode": res.get("mode", "agent"),
+            "refused": bool(res.get("refused")),
+            "error": "",
+        }
+    except Exception as e:  # noqa: BLE001 —— RAG 失败一律降级，不阻断对话
+        logger.warning(f"RAG 检索失败（降级跳过）: {e}")
+        return {"context": "", "citations": [], "hit_count": 0, "hits": [],
+                "mode": "error", "refused": False, "error": str(e)}
+
+
+def _compose_kb_prompt(system_prompt: str, agent, rag: Dict[str, Any]) -> str:
+    """把检索上下文 + 引用/拒答规则拼进 system prompt。"""
+    context = rag.get("context") or ""
+    if context:
+        rules = ["若参考资料不足以回答问题，请如实说明，不要编造。"]
+        if getattr(agent, "kb_force_citation", 1):
+            rules.append("引用规则：回答中每处引用了下面资料的内容，都要在句末用【来源N】标注（N 为资料编号）。")
+        return (
+            f"{system_prompt}\n\n"
+            f"=== 知识库参考资料（按编号）===\n{context}\n=== 参考资料结束 ===\n"
+            + "\n".join(rules)
+        )
+    if getattr(agent, "rag_enabled", 0) and getattr(agent, "kb_refuse_when_empty", 1):
+        return (
+            f"{system_prompt}\n\n"
+            f"注意：知识库中没有检索到与该问题相关的资料。"
+            f"请直接告知用户「知识库中没有相关内容」，不要凭常识或推测作答。"
+        )
+    return system_prompt
 
 
 def _compose_system_prompt(db, user_id: int, agent_id: int, agent) -> Dict[str, str]:
@@ -180,56 +232,32 @@ async def run_with_history(
         prompt_parts = _compose_system_prompt(db, user_id, agent_id, agent)
         system_prompt = prompt_parts["system_prompt"]
 
-        # RAG 降级
-        rag_context = ""
+        # RAG 检索：绑定知识库空间→多空间联合检索（带来源）；否则→旧 Agent 私有库。失败一律降级。
+        rag = {"context": "", "citations": [], "hit_count": 0, "hits": [], "mode": "off",
+               "refused": False, "error": ""}
+        citations: List[Dict[str, Any]] = []
         if agent.rag_enabled:
-            step_no = 1
-            try:
-                logger.info(f"RAG已启用，开始检索: query='{user_message[:30]}...'")
-                results = await async_rag_search(db, user_id, agent_id, user_message, top_k=3)
-                if results:
-                    rag_context = "\n\n".join([
-                        f"[知识片段{i+1}]\n{r['content']}"
-                        for i, r in enumerate(results)
-                    ])
-                    logger.info(f"RAG检索完成: 命中{len(results)}条")
-                    create_step(
-                        db=db, run_id=run.id, step_no=step_no, step_type="retrieval",
-                        thought=f"用户问题需要知识库辅助，检索到{len(results)}条相关片段",
-                        tool_name="rag_search", tool_args=user_message[:200],
-                        tool_result=_format_rag_audit(results, rag_context)
-                    )
-                else:
-                    logger.info("RAG检索无结果，将直接使用LLM回答")
-                    create_step(
-                        db=db, run_id=run.id, step_no=step_no, step_type="retrieval",
-                        thought="知识库中未检索到相关内容",
-                        tool_name="rag_search", tool_args=user_message[:200],
-                        tool_result="无匹配结果",
-                    )
-            except Exception as rag_err:
-                logger.warning(f"RAG检索失败（降级跳过，不使用知识库）: {rag_err}")
-                rag_context = ""
-                create_step(
-                    db=db, run_id=run.id, step_no=step_no, step_type="retrieval",
-                    thought=f"RAG检索异常，已降级跳过: {str(rag_err)[:100]}",
-                    tool_name="rag_search", tool_args=user_message[:200],
-                    tool_result="检索失败，已跳过",
-                )
+            import asyncio
+            logger.info(f"RAG已启用，开始检索: query='{user_message[:30]}...'")
+            rag = await asyncio.to_thread(_kb_retrieve, agent, user_id, agent_id, user_message)
+            citations = rag.get("citations", [])
+            if rag["error"]:
+                thought, audit = f"RAG检索异常，已降级跳过: {rag['error'][:100]}", "检索失败，已跳过"
+            elif rag["hit_count"]:
+                thought = f"检索到{rag['hit_count']}条相关片段（{rag['mode']}）"
+                audit = _format_rag_audit(rag["hits"], rag["context"])
+            else:
+                thought, audit = "知识库中未检索到相关内容", "无匹配结果"
+            create_step(
+                db=db, run_id=run.id, step_no=1, step_type="retrieval",
+                thought=thought, tool_name="rag_search",
+                tool_args=user_message[:200], tool_result=audit,
+            )
         else:
             logger.info("RAG未启用，跳过知识库检索")
 
-        # 拼接 RAG 上下文
-        if rag_context:
-            full_system_prompt = (
-                f"{system_prompt}\n\n"
-                f"=== 以下是从知识库检索到的参考资料，请基于这些内容回答用户问题 ===\n"
-                f"{rag_context}\n"
-                f"=== 参考资料结束 ===\n"
-                f"注意：如果参考资料中没有相关信息，请如实告知用户。"
-            )
-        else:
-            full_system_prompt = system_prompt
+        rag_context = rag["context"]
+        full_system_prompt = _compose_kb_prompt(system_prompt, agent, rag)
 
         # 4. 历史消息：直接用传入的（不再从旧 Chat 表查）
         if history is None:
@@ -284,6 +312,9 @@ async def run_with_history(
             "steps": total_steps,
             "question": user_message,
             "agent_id": agent_id,
+            "citations": citations,
+            "rag_mode": rag.get("mode", "off"),
+            "rag_refused": rag.get("refused", False),
         }
 
     except Exception as e:
@@ -349,57 +380,34 @@ def run_stream_with_history(
         if prompt_parts["memory_error"]:
             yield make_memory("error", f"加载记忆失败，已跳过: {prompt_parts['memory_error'][:100]}")
 
-        # RAG 降级
-        rag_context = ""
+        # RAG 检索：绑定知识库空间→多空间联合检索（带来源）；否则→旧 Agent 私有库。失败一律降级。
+        rag = {"context": "", "citations": [], "hit_count": 0, "hits": [], "mode": "off",
+               "refused": False, "error": ""}
         if agent.rag_enabled:
-            try:
-                logger.info(f"RAG已启用，开始检索: query='{user_message[:30]}...'")
-                results = rag_search(db, user_id, agent_id, user_message, top_k=3)
-                if results:
-                    rag_context = "\n\n".join([
-                        f"[知识片段{i+1}]\n{r['content']}"
-                        for i, r in enumerate(results)
-                    ])
-                    logger.info(f"RAG检索完成: 命中{len(results)}条")
-                    yield make_retrieval(hit_count=len(results), content_preview=rag_context)
-                    create_step(
-                        db=db, run_id=run.id, step_no=1, step_type="retrieval",
-                        thought=f"用户问题需要知识库辅助，检索到{len(results)}条相关片段",
-                        tool_name="rag_search", tool_args=user_message[:200],
-                        tool_result=_format_rag_audit(results, rag_context)
-                    )
-                else:
-                    logger.info("RAG检索无结果")
-                    yield make_retrieval(hit_count=0, content_preview="知识库无匹配内容")
-                    create_step(
-                        db=db, run_id=run.id, step_no=1, step_type="retrieval",
-                        thought="知识库中未检索到相关内容",
-                        tool_name="rag_search", tool_args=user_message[:200],
-                        tool_result="无匹配结果",
-                    )
-            except Exception as rag_err:
-                logger.warning(f"RAG检索失败（降级跳过）: {rag_err}")
-                yield make_retrieval(hit_count=0, content_preview=f"检索异常已跳过: {str(rag_err)[:100]}")
-                create_step(
-                    db=db, run_id=run.id, step_no=1, step_type="retrieval",
-                    thought=f"RAG检索异常，已降级跳过: {str(rag_err)[:100]}",
-                    tool_name="rag_search", tool_args=user_message[:200],
-                    tool_result="检索失败，已跳过",
-                )
+            logger.info(f"RAG已启用，开始检索: query='{user_message[:30]}...'")
+            rag = _kb_retrieve(agent, user_id, agent_id, user_message)
+            if rag["error"]:
+                thought, audit = f"RAG检索异常，已降级跳过: {rag['error'][:100]}", "检索失败，已跳过"
+                yield make_retrieval(hit_count=0, content_preview=f"检索异常已跳过: {rag['error'][:100]}")
+            elif rag["hit_count"]:
+                thought = f"检索到{rag['hit_count']}条相关片段（{rag['mode']}）"
+                audit = _format_rag_audit(rag["hits"], rag["context"])
+                yield make_retrieval(hit_count=rag["hit_count"], content_preview=rag["context"])
+            else:
+                thought, audit = "知识库中未检索到相关内容", "无匹配结果"
+                yield make_retrieval(hit_count=0, content_preview="知识库无匹配内容")
+            create_step(
+                db=db, run_id=run.id, step_no=1, step_type="retrieval",
+                thought=thought, tool_name="rag_search",
+                tool_args=user_message[:200], tool_result=audit,
+            )
+            if rag["citations"]:
+                yield make_citations(rag["citations"])
         else:
             logger.info("RAG未启用，跳过知识库检索")
 
-        # 拼接 RAG 上下文
-        if rag_context:
-            full_system_prompt = (
-                f"{system_prompt}\n\n"
-                f"=== 以下是从知识库检索到的参考资料，请基于这些内容回答用户问题 ===\n"
-                f"{rag_context}\n"
-                f"=== 参考资料结束 ===\n"
-                f"注意：如果参考资料中没有相关信息，请如实告知用户。"
-            )
-        else:
-            full_system_prompt = system_prompt
+        rag_context = rag["context"]
+        full_system_prompt = _compose_kb_prompt(system_prompt, agent, rag)
 
         # 4. 历史消息：用传入的
         if history is None:

@@ -36,6 +36,14 @@ def list_spaces_by_user(db, user_id: int, include_archived: bool = True) -> List
     return q.order_by(KnowledgeSpace.id.desc()).all()
 
 
+def list_spaces_by_ids(db, space_ids: List[int]) -> List[KnowledgeSpace]:
+    """按 id 批量取空间（检索编排用，调用方需先做归属校验）。"""
+    ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    if not ids:
+        return []
+    return db.query(KnowledgeSpace).filter(KnowledgeSpace.id.in_(ids)).all()
+
+
 def find_legacy_space(db, user_id: int, legacy_agent_id: int) -> Optional[KnowledgeSpace]:
     return (
         db.query(KnowledgeSpace)

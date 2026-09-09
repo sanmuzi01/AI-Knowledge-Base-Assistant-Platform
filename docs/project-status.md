@@ -11,9 +11,11 @@
 - 模型配置：用户级 API Key、模型列表、自动适配模型 URL、配置测试。
 - Skill 系统：创建、编辑、模板、导入、导出、校验、绑定 Agent。
 - 知识库：上传、批量上传、切块、Embedding、检索、片段查看、启停、重建、删除。
-- 知识库空间（阶段1）：`/knowledge-spaces` 空间 CRUD（用户级隔离），`knowledge.space_id` / `agent.kb_*`
-  字段，向量集合键 `agent_{id}` / `space_{id}` 双制式，存量迁移脚本。前端「知识库中心」页。
-  文档按空间管理、多空间联合检索、引用来源见 `docs/knowledge-space-plan.md` 阶段 2/3。
+- 知识库空间（阶段1-3）：`/knowledge-spaces` 空间 CRUD + 空间内文档管理（用户级隔离），
+  `knowledge.space_id` / `agent.kb_*` 字段，向量集合键 `agent_{id}` / `space_{id}` 双制式，存量迁移脚本。
+  Agent 可绑定多个空间做联合检索，回答带 `【来源N】` 引用来源，`kb_refuse_when_empty` 无命中拒答，
+  未绑定空间的旧 Agent 回退原私有库路径。前端「知识库中心」/「空间详情」页 + Agent 编辑「知识库」区块 +
+  聊天页「参考来源」。阶段 4+（调试台 / 健康分 / 企业权限）见 `docs/knowledge-space-plan.md`。
 - 网页抓取：支持输入公开 URL 抓取正文，保存为 Markdown 后进入知识库后台入库流程，并带基础 SSRF 防护。
 - 自定义工作台组件平台：自然语言 → 结构化组件配置（不落前端代码），统一运行引擎取数/处理/存快照 + 前端统一渲染器。
   - 数据源：内置示例、平台数据服务、我的运行统计、外部 HTTP、网页正文/更新监控、我的知识库。

@@ -2,6 +2,7 @@
 export type SseEventType =
   | 'ready'      // { run_id }
   | 'retrieval'  // { hit_count, content_preview }
+  | 'citations'  // { citations: [{ index, knowledge_id, file_name, space_id, space_name }] }
   | 'thinking'   // { content, tool_calls? }
   | 'tool_call'  // { name, args, step_no }
   | 'tool_result'// { name, result, step_no }
@@ -9,11 +10,20 @@ export type SseEventType =
   | 'done'       // { run_id, steps, answer_length, conversation_id? }
   | 'error'      // { message, detail? }
 
+export interface Citation {
+  index: number
+  knowledge_id: number
+  file_name: string
+  space_id: number
+  space_name?: string
+}
+
 export interface SseEvent {
   type: SseEventType
   run_id?: number
   hit_count?: number
   content_preview?: string
+  citations?: Citation[]
   content?: string
   tool_calls?: any[]
   name?: string

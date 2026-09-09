@@ -206,15 +206,18 @@
           :key="idx"
           :class="['flex', msg.role === 'user' ? 'justify-end' : 'justify-start']"
         >
-          <div
-            :class="[
-              'max-w-2xl px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
-              msg.role === 'user'
-                ? 'bg-blue-600 text-white rounded-br-md'
-                : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-            ]"
-            v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content"
-          ></div>
+          <div class="max-w-2xl">
+            <div
+              :class="[
+                'px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-md'
+                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+              ]"
+              v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content"
+            ></div>
+            <CitationList v-if="msg.role === 'assistant'" :citations="msg.citations" />
+          </div>
         </div>
 
         <!-- 思考/工具调用事件展示 -->
@@ -489,6 +492,8 @@ import * as llmConfigApi from '../api/llmConfig'
 import * as runApi from '../api/run'
 import type { LlmConfig } from '../api/llmConfig'
 import type { AgentRun, RunDetail } from '../api/run'
+import type { Citation } from '../api/chat'
+import CitationList from '../components/knowledge/CitationList.vue'
 import {
   BookOpen, PlusCircle, MoreHorizontal, Pencil, Trash2, Pin, Archive,
   GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search
@@ -841,6 +846,8 @@ const sendMessage = async () => {
           // 可选：记 run_id 供轨迹
         } else if (evt.type === 'retrieval') {
           eventTraces.value.push({ type: 'retrieval', hit_count: evt.hit_count })
+        } else if (evt.type === 'citations') {
+          messages.value[placeholderIdx].citations = (evt.citations || []) as Citation[]
         } else if (evt.type === 'thinking') {
           eventTraces.value.push({ type: 'thinking', content: evt.content || '' })
         } else if (evt.type === 'tool_call') {

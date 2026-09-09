@@ -25,6 +25,7 @@ EVENT_THINKING  = "thinking"
 EVENT_TOOL_CALL = "tool_call"
 EVENT_TOOL_RESULT = "tool_result"
 EVENT_RETRIEVAL = "retrieval"
+EVENT_CITATIONS = "citations"
 EVENT_MEMORY    = "memory"
 EVENT_ANSWER    = "answer"
 EVENT_DONE      = "done"
@@ -69,6 +70,11 @@ def make_retrieval(hit_count: int, content_preview: str) -> str:
         "hit_count": hit_count,
         "content_preview": (content_preview or "")[:300]
     })
+
+def make_citations(citations: list) -> str:
+    """回答引用来源（多知识库空间检索时非空）。"""
+    return format_event(EVENT_CITATIONS, {"citations": citations or []})
+
 
 def make_memory(action: str, message: str) -> str:
     return format_event(EVENT_MEMORY, {"action": action, "message": message})

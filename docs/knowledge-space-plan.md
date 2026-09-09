@@ -268,7 +268,7 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 | --- | --- | --- | --- |
 | **1 ✅** | Space 基础 + 存量升级 | 表 `knowledge_spaces` / `agent_knowledge_space`；`knowledge.space_id` 等列 + `agent.kb_*`；Space CRUD `/knowledge-spaces`；`vector_store` collection key 泛化（`agent_{id}` / `space_{id}`）；`scripts/migrate_agent_kb_to_space.py` 存量迁移（dry-run/`--apply`）；前端「知识库中心」页 + 侧栏入口。 | 旧上传/检索路径完全不变 |
 | **2 ✅** | 文档管理增强 | `knowledge.agent_id` 改可空 + `category/tags/version/source_*` 列；`/knowledge-spaces/{id}/documents` 上传/批量/抓取/列表(按分类·标签·状态筛)/改元数据/启停/重建/删除；`rag_service` 向量集合键按 `knowledge.space_id` 解析（`_vector_key`）；入库完成刷新空间统计；**旧 `/knowledge/{agent_id}/*` 上传/抓取内部落到该 Agent 的默认空间**；前端「空间详情」页 | 旧接口保留，行为=写进默认空间 |
-| **3** | 多空间检索 + 引用 | `space_search.search_spaces`；Agent 绑定多 space + `kb_*` 配置；`chat_service` 注入引用规则 + 透传 citations；拒答策略；前端 Agent 编辑「知识库」区块 + 聊天页「参考来源」 | 未绑定 space 的 Agent 回退旧路径 |
+| **3 ✅** | 多空间检索 + 引用 | `rag/space_search.search_spaces`（自带 Session + 逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` 组装 + 拒答）；`search_entry.search_for_agent` 统一入口（绑定→多空间，未绑定→旧 `search_scoped`）；`agent.kb_*` + `agent_knowledge_space` 绑定接入 create/update；`agent_runtime` 注入引用/拒答规则 + 透传 `citations`（SSE `citations` 事件）；前端 `AgentCreateDialog` 知识库区块 + `Chat.vue` `CitationList` | 未绑定 space 的 Agent 回退旧 `agent_{id}` 检索路径 |
 | **4** | 知识库调试台 | `/rag-debug` 接口（跑一次完整检索，返回全过程快照，可选调 LLM）；`rag_debug_samples` 表；前端调试台页；存为测试样例（对接现有 `rag_eval` 数据格式） | 纯新增 |
 | **5** | 质量与健康分 | `space_health` 任务：文档覆盖/过期/失败率、检索命中率、引用命中率、拒答率；`knowledge_spaces.health_*` 回填；`rag_eval_service` 增加「按 space 跑」入口；前端健康报告页；**Widget 新增知识库健康卡片**（复用 widget 平台 connector 机制，加 `knowledge_space` connector） | 纯新增 |
 | **6** | 企业权限落地 | `teams` / `organizations` / `space_members` / `kb_audit_log` 建表 + 接线；`user_space_ids` / `membership` 实现；role 分级写权限；管理员企业视角；权限测试 | `user_id` owner 语义保留为 role=owner |
@@ -363,12 +363,18 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 - 文档「重建索引」「启停」「删除」在 space 维度可用；错误信息可见。
 - `recount_space` 后 `doc_count` / `chunk_count` 与实际一致。
 
-**阶段 3**
+**阶段 3** ✅
 - Agent 可绑定 ≥2 个 space；检索命中来自多个空间，结果含 `source.file_name` / `space_name` / `score`。
-- 开 `kb_force_citation` 时回答带 `【来源N】`；关时不强制。
-- 开 `kb_refuse_when_empty` 且无命中时，模型输出「资料里没有相关内容」而非编造（用固定语料测）。
-- 用户绑定未授权 space → 400/403；检索传未授权 `space_ids` → 403。
-- 未绑定 space 的旧 Agent 聊天不受影响。
+  → `space_search.search_spaces` 逐 space 查 `space_{id}` collection（`vector_migrated=0` 双读 `agent_{legacy}`），
+  合并后按分数排序、反查 `knowledge` 元数据、过滤禁用文档。
+- 开 `kb_force_citation` 时回答带 `【来源N】`；关时不强制。→ `agent_runtime._compose_kb_prompt` 注入引用规则。
+- 开 `kb_refuse_when_empty` 且无命中 / 最高分 < `RAG_MIN_SCORE`(env,默认0.2) 时，
+  prompt 指示模型输出「知识库中没有相关内容」而非编造。→ `space_search._should_refuse`。
+- 用户绑定未授权 space → 400（`agent_service._validate_space_ids` 走 `access_control.user_space_ids`）；
+  检索传未授权 `space_ids` → `search_spaces` 抛 `PermissionError`。
+- 未绑定 space 的旧 Agent 聊天走 `search_entry.search_for_agent` 的 `mode="agent"` 回退分支，行为不变。
+- 测试：`tests/test_rag_space_search.py`（候选数/拒答阈值/`【来源N】`组装/rerank 纯逻辑）；
+  `tests/test_routes_isolation.py::test_agent_space_binding_and_cross_user_reject`（绑定 + 越权 400）。
 
 **阶段 4**
 - 调试接口返回 query / 命中 chunk（含 score、rerank_score）/ 来源文件 / 最终 context / 回答 / citations。

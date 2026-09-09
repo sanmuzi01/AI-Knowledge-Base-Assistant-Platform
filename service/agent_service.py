@@ -18,6 +18,7 @@ def list_agent(db,user)->List[Dict[str,Any]]:
     """
     agents : List[Agent] = list_agents_by_user(db,user.id)
     selected_id = user.selected_agent_id
+    from models.agent_knowledge_space_dao import list_space_ids_by_agent
     result = []
     for agent in agents:
         prompt = read_prompt_file(agent.id)
@@ -33,6 +34,11 @@ def list_agent(db,user)->List[Dict[str,Any]]:
             "memory_enabled": agent.memory_enabled,
             "temperature": agent.temperature,
             "skills": skills,
+            "space_ids": list_space_ids_by_agent(db, agent.id),
+            "kb_top_k": agent.kb_top_k,
+            "kb_rerank_enabled": agent.kb_rerank_enabled,
+            "kb_force_citation": agent.kb_force_citation,
+            "kb_refuse_when_empty": agent.kb_refuse_when_empty,
             "is_selected": (agent.id == selected_id)
         })
     return result
@@ -44,6 +50,7 @@ def get_agent(db,user,agent_id:int)->Optional[Dict[str,Any]]:
     if not agent or agent.user_id != user.id:
         return None
     from service.skill_service import list_agent_skills
+    from models.agent_knowledge_space_dao import list_space_ids_by_agent
     skills = list_agent_skills(db, agent.id)
     return {
         "id": agent.id,
@@ -54,23 +61,48 @@ def get_agent(db,user,agent_id:int)->Optional[Dict[str,Any]]:
         "memory_enabled": agent.memory_enabled,
         "temperature": agent.temperature,
         "skills": skills,
+        "space_ids": list_space_ids_by_agent(db, agent.id),
+        "kb_top_k": agent.kb_top_k,
+        "kb_rerank_enabled": agent.kb_rerank_enabled,
+        "kb_force_citation": agent.kb_force_citation,
+        "kb_refuse_when_empty": agent.kb_refuse_when_empty,
         "is_selected": (agent.id == user.selected_agent_id)
     }
+def _validate_space_ids(db, user_id: int, space_ids) -> Optional[str]:
+    """校验 space_ids 都属于当前用户（唯一隔离入口 access_control.user_space_ids）。"""
+    if not space_ids:
+        return None
+    from service.access_control import user_space_ids
+    allowed = user_space_ids(db, user_id)
+    bad = [int(s) for s in space_ids if int(s) not in allowed]
+    if bad:
+        return f"包含无权访问的知识库空间：{bad}"
+    return None
+
+
 #创建智能体（创建后为自动选中）
 def create(db,user,name:str,role:str = None, task: str = None,
            constraints: str = None, output: str = None,
            model_name: str = "glm-4",
            rag_enabled: int = 0, memory_enabled: int = 1,
            temperature: int = 70,
-           skill_ids: Optional[List[int]] = None)->Dict[str,Any]:
+           skill_ids: Optional[List[int]] = None,
+           space_ids: Optional[List[int]] = None,
+           kb_top_k: int = None, kb_rerank_enabled: int = None,
+           kb_force_citation: int = None, kb_refuse_when_empty: int = None)->Dict[str,Any]:
     """创建智能体，创建后自动选中"""
+    space_err = _validate_space_ids(db, user.id, space_ids)
+    if space_err:
+        return {"message": space_err}
     try:
         agent =create_agent(
             db=db, name=name, user_id=user.id,
             prompt_file=None,
             model_name=model_name, rag_enabled=rag_enabled,
             memory_enabled=memory_enabled,
-            temperature=temperature
+            temperature=temperature,
+            kb_top_k=kb_top_k, kb_rerank_enabled=kb_rerank_enabled,
+            kb_force_citation=kb_force_citation, kb_refuse_when_empty=kb_refuse_when_empty,
         )
         # 始终创建提示词 yml 文件（即使字段为空，保证每个 Agent 都有 prompt 文件）
         prompt_path = create_prompt_file(agent.id, role, task, constraints, output)
@@ -84,6 +116,9 @@ def create(db,user,name:str,role:str = None, task: str = None,
             if not update_agent_skills(db, agent.id, skill_ids, user_id=user.id, commit=False):
                 db.rollback()
                 return {"message": "绑定Skill失败，请检查Skill是否存在或有权限"}
+        if space_ids is not None:
+            from models.agent_knowledge_space_dao import set_agent_spaces
+            set_agent_spaces(db, agent.id, space_ids, commit=False)
         db.commit()
         return {
             "message": "创建成功",
@@ -142,11 +177,17 @@ def update(db, user, agent_id: int, name: str = None,role: str = None,
            task: str = None, constraints: str = None, output: str = None,
            model_name: str = None, rag_enabled: int = None,
            memory_enabled: int = None, temperature: int = None,
-           skill_ids: Optional[List[int]] = None) -> Dict[str, Any]:
-    """更新智能体，先验证归属"""
+           skill_ids: Optional[List[int]] = None,
+           space_ids: Optional[List[int]] = None,
+           kb_top_k: int = None, kb_rerank_enabled: int = None,
+           kb_force_citation: int = None, kb_refuse_when_empty: int = None) -> Dict[str, Any]:
+    """更新智能体，先验证归属。space_ids=None 不改绑定，[] 清空绑定。"""
     agent = get_agent_by_id(db, agent_id)
     if not agent or agent.user_id != user.id:
         return {"message": "智能体不存在或不属于当前用户"}
+    space_err = _validate_space_ids(db, user.id, space_ids)
+    if space_err:
+        return {"message": space_err}
     try:
         if role is not None or task is not None or constraints is not None or output is not None:
             existing = read_prompt_file(agent.id)
@@ -165,13 +206,18 @@ def update(db, user, agent_id: int, name: str = None,role: str = None,
             model_name=model_name,
             rag_enabled=rag_enabled,
             memory_enabled=memory_enabled,
-            temperature=temperature
+            temperature=temperature,
+            kb_top_k=kb_top_k, kb_rerank_enabled=kb_rerank_enabled,
+            kb_force_citation=kb_force_citation, kb_refuse_when_empty=kb_refuse_when_empty,
         )
         if skill_ids is not None:
             from service.skill_service import update_agent_skills
             if not update_agent_skills(db, agent_id, skill_ids, user_id=user.id, commit=False):
                 db.rollback()
                 return {"message": "绑定Skill失败，请检查Skill是否存在或有权限"}
+        if space_ids is not None:
+            from models.agent_knowledge_space_dao import set_agent_spaces
+            set_agent_spaces(db, agent_id, space_ids, commit=False)
         db.commit()
         return {"message":"更新成功","agent_id":agent_id}
     except SQLAlchemyError as e:
@@ -409,7 +455,7 @@ def dry_run_agent(db, user, agent_id: int, user_message: str, conversation_id: i
     """模拟一次 Agent 装配流程，不调用 LLM，不写入消息。"""
     import service.conversation_service as conv_service
     from models.conversation_dao import get_conversation_by_id
-    from service.rag.rag_service import search as rag_search
+    from service.rag import search_entry
 
     agent = get_agent_by_id(db, agent_id)
     if not agent or agent.user_id != user.id:
@@ -433,26 +479,30 @@ def dry_run_agent(db, user, agent_id: int, user_message: str, conversation_id: i
         "error": "",
         "hit_count": 0,
         "results": [],
+        "citations": [],
+        "mode": "off",
         "context_preview": "",
     }
     full_prompt = debug["prompt"]["final_prompt"]
     if agent.rag_enabled:
         try:
-            results = rag_search(db, user.id, agent_id, message, top_k=3)
-            rag["results"] = results
-            rag["hit_count"] = len(results)
-            rag_context = "\n\n".join([
-                f"[知识片段{i + 1}]\n{item.get('content', '')}"
-                for i, item in enumerate(results)
-            ])
+            res = search_entry.search_for_agent(
+                user.id, agent_id, message,
+                top_k=int(agent.kb_top_k or 5),
+                rerank=bool(agent.kb_rerank_enabled),
+                refuse_when_empty=bool(agent.kb_refuse_when_empty),
+            )
+            rag["results"] = res.get("hits", [])
+            rag["hit_count"] = len(res.get("hits", []))
+            rag["citations"] = res.get("citations", [])
+            rag["mode"] = res.get("mode", "agent")
+            rag_context = res.get("context", "")
             rag["context_preview"] = rag_context[:2000]
             if rag_context:
                 full_prompt = (
                     f"{full_prompt}\n\n"
-                    f"=== 以下是从知识库检索到的参考资料，请基于这些内容回答用户问题 ===\n"
-                    f"{rag_context}\n"
-                    f"=== 参考资料结束 ===\n"
-                    f"注意：如果参考资料中没有相关信息，请如实告知用户。"
+                    f"=== 知识库参考资料（按编号）===\n{rag_context}\n=== 参考资料结束 ===\n"
+                    f"若参考资料不足以回答，请如实说明，不要编造。"
                 )
         except Exception as e:
             rag["ok"] = False

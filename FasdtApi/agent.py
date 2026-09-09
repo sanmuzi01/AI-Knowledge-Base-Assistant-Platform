@@ -27,6 +27,11 @@ class AgentResponse(BaseModel):
     memory_enabled: int
     temperature: int
     skills: List[dict] = []
+    space_ids: List[int] = []
+    kb_top_k: int = 5
+    kb_rerank_enabled: int = 0
+    kb_force_citation: int = 1
+    kb_refuse_when_empty: int = 1
     class Config:
         from_attributes = True
 class AgentWithSelectedResponse(AgentResponse):
@@ -43,6 +48,12 @@ class AgentCreate(BaseModel):
     memory_enabled: int = Field(default=1, ge=0, le=1)
     temperature:int = Field(default=70,ge=0,le=100)
     skill_ids: List[int] = Field(default=[])
+    # 知识库空间绑定 + 检索行为（阶段3）
+    space_ids: List[int] = Field(default=[])
+    kb_top_k: int = Field(default=5, ge=1, le=20)
+    kb_rerank_enabled: int = Field(default=0, ge=0, le=1)
+    kb_force_citation: int = Field(default=1, ge=0, le=1)
+    kb_refuse_when_empty: int = Field(default=1, ge=0, le=1)
 
 # 更新用
 class AgentUpdate(BaseModel):
@@ -56,6 +67,12 @@ class AgentUpdate(BaseModel):
     memory_enabled: Optional[int] = Field(default=None, ge=0, le=1)
     temperature:Optional[int] = Field(default=None,ge=0,le=100)
     skill_ids: Optional[List[int]] = Field(default=None)
+    # 知识库空间绑定 + 检索行为（阶段3）。space_ids=None 不改绑定，[] 清空
+    space_ids: Optional[List[int]] = Field(default=None)
+    kb_top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    kb_rerank_enabled: Optional[int] = Field(default=None, ge=0, le=1)
+    kb_force_citation: Optional[int] = Field(default=None, ge=0, le=1)
+    kb_refuse_when_empty: Optional[int] = Field(default=None, ge=0, le=1)
 
 
 class AgentDryRunRequest(BaseModel):
@@ -184,6 +201,11 @@ def create_agent(
         memory_enabled=agent.memory_enabled,
         temperature=agent.temperature,
         skill_ids=agent.skill_ids,
+        space_ids=agent.space_ids,
+        kb_top_k=agent.kb_top_k,
+        kb_rerank_enabled=agent.kb_rerank_enabled,
+        kb_force_citation=agent.kb_force_citation,
+        kb_refuse_when_empty=agent.kb_refuse_when_empty,
     )
     if "agent_id" not in result:
         raise InvalidInput(result.get("message", "创建失败"))
@@ -211,6 +233,11 @@ def update_agent(
         memory_enabled=agent_update.memory_enabled,
         temperature=agent_update.temperature,
         skill_ids=agent_update.skill_ids,
+        space_ids=agent_update.space_ids,
+        kb_top_k=agent_update.kb_top_k,
+        kb_rerank_enabled=agent_update.kb_rerank_enabled,
+        kb_force_citation=agent_update.kb_force_citation,
+        kb_refuse_when_empty=agent_update.kb_refuse_when_empty,
     )
     if update_result.get("message") != "更新成功":
         raise InvalidInput(update_result.get("message", "更新失败"))

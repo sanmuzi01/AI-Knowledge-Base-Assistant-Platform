@@ -11,6 +11,12 @@ export interface AgentPayload {
   memory_enabled?: number
   temperature?: number
   skill_ids?: number[]
+  // 知识库空间绑定 + 检索行为（阶段3）
+  space_ids?: number[]
+  kb_top_k?: number
+  kb_rerank_enabled?: number
+  kb_force_citation?: number
+  kb_refuse_when_empty?: number
 }
 
 export interface AgentTemplate {
@@ -37,6 +43,7 @@ export interface AgentInfo extends AgentPayload {
   user_id: number
   create_time?: string
   skills?: any[]
+  space_ids?: number[]
   prompt?: {
     role?: string
     task?: string

@@ -48,7 +48,7 @@
 
 详见 `docs/widget-platform.md`。
 
-## 4c. 知识库空间（Knowledge Space，阶段1）
+## 4c. 知识库空间（Knowledge Space，阶段1-3）
 
 | 功能 | 路由 | Service | DAO |
 | --- | --- | --- | --- |
@@ -58,8 +58,12 @@
 | 隔离唯一入口 | - | `service.access_control.get_owned_space[_async]` / `user_space_ids[_async]`（阶段6 只改这里） | `knowledge_spaces`、`agent_knowledge_space` |
 | 存量迁移 | - | `scripts/migrate_agent_kb_to_space.py`（dry-run / `--apply`） | `knowledge.space_id` 回填 |
 | 向量集合键 | - | `service/rag/vector_store_service.py`：`agent_{id}` / `space_{id}` 双制式 | ChromaDB |
+| **多空间联合检索 + 引用（阶段3）** | - | `service/rag/space_search.py::search_spaces`（同步入口，自带 Session；逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` context + citations + 拒答） | `knowledge_chunk`、`knowledge`、`knowledge_spaces` |
+| **Agent 检索统一入口（阶段3）** | - | `service/rag/search_entry.py::search_for_agent`（绑定 space → `space_search`；未绑定 → 旧 `search_scoped`）；`agent_runtime` 经 `to_thread` 调用，`_compose_kb_prompt` 注入引用/拒答规则 | `agent_knowledge_space` |
+| **Agent 绑定 space + `kb_*` 配置（阶段3）** | `FasdtApi/agent.py`（`AgentCreate`/`AgentUpdate` 加 `space_ids` / `kb_top_k` / `kb_rerank_enabled` / `kb_force_citation` / `kb_refuse_when_empty`） | `service/agent_service.py`（`_validate_space_ids` + `set_agent_spaces` 同事务收尾）、`agent_async_service`（读回 `space_ids`） | `models/agent_knowledge_space_dao.py`、`agent.kb_*` 列 |
 
-阶段 2+ 见 `docs/knowledge-space-plan.md`。
+聊天回答的引用来源经 SSE `citations` 事件下发（`service/runtime/sse_events.make_citations`），
+前端 `Chat.vue` 用 `components/knowledge/CitationList.vue` 展示。阶段 4+ 见 `docs/knowledge-space-plan.md`。
 
 ## 5. Skill
 
@@ -120,7 +124,7 @@ npm run backend:worker
 | --- | --- |
 | `login.py` `admin.py` `background_task.py` `conversation_route.py` `agent_run.py` `memory.py` `llm_config.py` `web_monitor.py` | 已全量 async |
 | `agent.py` | 读接口 async；写接口（create/update/delete/clone/select）+ debug/dry-run 仍同步，`agent_service` 把 db/user 当同会话 ORM 对象改写 |
-| `chat.py` | history 等读接口 async；同步/流式对话走 `agent_runtime`（同步 ORM + 生成器），暂留同步。迁移方案见 `docs/agent-runtime-async-migration.md` |
+| `chat.py` | history 等读接口 async；同步/流式对话走 `agent_runtime`（同步 ORM + 生成器），暂留同步。RAG 检索经 `search_entry.search_for_agent`（自带 Session，async 路径 `to_thread` 调用），不把同步 Session 带进流程。迁移方案见 `docs/agent-runtime-async-migration.md` |
 | `evaluation.py` | 端点 async，但 db 同步 —— RAG 检索管线（`rag_service`、ChromaDB、DAO）仍同步 |
 | `knowledge.py` | 列表 / 文档详情 / 片段 全量 async；检索 `async def` + `to_thread(search_entry.search_scoped)`，处理器不持有同步 Session；诊断 / 上传 / 入库 / 重建 仍走同步 RAG 管线 |
 | `skill_route.py` | 读接口（我的/公开/单个、校验、Agent 绑定列表）全量 async（已删同步回退分支）；创建/绑定/导入导出走 `skills_core`（文件系统 + 同步 ORM） |

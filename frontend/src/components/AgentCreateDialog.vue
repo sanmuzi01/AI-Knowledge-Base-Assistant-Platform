@@ -187,6 +187,64 @@
             </div>
           </section>
 
+          <section v-if="ragEnabledBool" class="md:col-span-2 rounded-lg border border-slate-200 p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <Database :size="16" class="text-slate-500" />
+                <h3 class="text-sm font-semibold text-slate-800">知识库空间</h3>
+              </div>
+              <button
+                @click="router.push('/knowledge-spaces')"
+                type="button"
+                class="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                <Settings :size="13" />
+                管理知识库
+              </button>
+            </div>
+            <p class="mb-2 text-xs text-slate-500">选中的知识库空间会一起参与检索，回答会标注引用来源。不选则使用本助手自己上传的资料。</p>
+            <div class="max-h-40 overflow-y-auto rounded border border-slate-200 p-2">
+              <label
+                v-for="sp in spaces"
+                :key="sp.id"
+                class="flex cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  :checked="form.space_ids.includes(sp.id)"
+                  @change="toggleSpace(sp.id)"
+                  class="h-4 w-4"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate">{{ sp.name }}</span>
+                  <span class="block truncate text-xs text-slate-400">{{ sp.purpose_label }} · {{ sp.doc_count }} 份资料</span>
+                </span>
+              </label>
+              <div v-if="spaces.length === 0" class="py-6 text-center text-sm text-slate-400">
+                还没有知识库空间，可先去「知识库中心」创建
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-slate-600">检索条数（top_k）：{{ form.kb_top_k }}</label>
+                <input v-model.number="form.kb_top_k" type="range" min="1" max="20" class="h-8 w-full" />
+              </div>
+              <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+                <span class="text-sm text-slate-800">重排序（rerank）</span>
+                <input type="checkbox" v-model="kbRerankBool" class="h-4 w-4" />
+              </label>
+              <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+                <span class="text-sm text-slate-800">回答必须带来源</span>
+                <input type="checkbox" v-model="kbForceCitationBool" class="h-4 w-4" />
+              </label>
+              <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+                <span class="text-sm text-slate-800">查不到就说不知道</span>
+                <input type="checkbox" v-model="kbRefuseBool" class="h-4 w-4" />
+              </label>
+            </div>
+          </section>
+
           <section class="md:col-span-2 rounded-lg border border-slate-200 p-4">
             <div class="mb-3 flex items-center gap-2">
               <FileText :size="16" class="text-slate-500" />
@@ -358,6 +416,8 @@ import { useRouter } from 'vue-router'
 import { BookmarkPlus, Bot, Database, FileText, Info, KeyRound, Settings, Sparkles, Trash2, X, Zap } from 'lucide-vue-next'
 import * as agentApi from '../api/agent'
 import type { AgentTemplate } from '../api/agent'
+import * as knowledgeSpaceApi from '../api/knowledgeSpace'
+import type { KnowledgeSpace } from '../api/knowledgeSpace'
 import * as llmConfigApi from '../api/llmConfig'
 import * as skillApi from '../api/skill'
 import type { LlmConfig } from '../api/llmConfig'
@@ -388,6 +448,11 @@ const emptyForm = () => ({
   skill_ids: [] as number[],
   rag_enabled: 0,
   memory_enabled: 1,
+  space_ids: [] as number[],
+  kb_top_k: 5,
+  kb_rerank_enabled: 0,
+  kb_force_citation: 1,
+  kb_refuse_when_empty: 1,
 })
 
 const form = ref(emptyForm())
@@ -398,6 +463,7 @@ const skillValidationMap = ref<Record<number, SkillValidation>>({})
 const previewSkillValidation = ref<SkillValidation | null>(null)
 const templates = ref<AgentTemplate[]>([])
 const templateLoading = ref(false)
+const spaces = ref<KnowledgeSpace[]>([])
 const savingTemplate = ref(false)
 const selectedTemplateId = ref('')
 const missingTemplateSkillNames = ref<string[]>([])
@@ -454,6 +520,34 @@ const loadTemplates = async () => {
   }
 }
 
+const loadSpaces = async () => {
+  try {
+    spaces.value = (await knowledgeSpaceApi.listSpaces()).items
+  } catch {
+    spaces.value = []
+  }
+}
+
+const toggleSpace = (id: number) => {
+  const list = form.value.space_ids
+  const i = list.indexOf(id)
+  if (i >= 0) list.splice(i, 1)
+  else list.push(id)
+}
+
+const kbRerankBool = computed<boolean>({
+  get: () => form.value.kb_rerank_enabled === 1,
+  set: (v) => { form.value.kb_rerank_enabled = v ? 1 : 0 },
+})
+const kbForceCitationBool = computed<boolean>({
+  get: () => form.value.kb_force_citation === 1,
+  set: (v) => { form.value.kb_force_citation = v ? 1 : 0 },
+})
+const kbRefuseBool = computed<boolean>({
+  get: () => form.value.kb_refuse_when_empty === 1,
+  set: (v) => { form.value.kb_refuse_when_empty = v ? 1 : 0 },
+})
+
 const loadSkillValidations = async () => {
   const entries = await Promise.all(props.skills.map(async (skill) => {
     try {
@@ -497,6 +591,7 @@ const skillIdsByNames = (skillNames: string[]) => {
 const applyTemplate = (template: AgentTemplate) => {
   selectedTemplateId.value = template.id
   form.value = {
+    ...emptyForm(),
     name: template.name,
     model_name: template.model_name,
     temperature: template.temperature,
@@ -590,6 +685,7 @@ watch(() => props.agent, (a: any) => {
   }
   const prompt = a.prompt || {}
   form.value = {
+    ...emptyForm(),
     name: a.name || '',
     model_name: a.model_name || 'glm-4',
     temperature: a.temperature ?? 70,
@@ -600,6 +696,11 @@ watch(() => props.agent, (a: any) => {
     skill_ids: (a.skills || []).map((s: any) => s.id),
     rag_enabled: a.rag_enabled ?? 0,
     memory_enabled: a.memory_enabled ?? 1,
+    space_ids: Array.isArray(a.space_ids) ? [...a.space_ids] : [],
+    kb_top_k: a.kb_top_k ?? 5,
+    kb_rerank_enabled: a.kb_rerank_enabled ?? 0,
+    kb_force_citation: a.kb_force_citation ?? 1,
+    kb_refuse_when_empty: a.kb_refuse_when_empty ?? 1,
   }
   errorMsg.value = ''
   selectedTemplateId.value = ''
@@ -645,7 +746,7 @@ const submit = async () => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadConfigs(), loadSkillValidations(), loadTemplates()])
+  await Promise.all([loadConfigs(), loadSkillValidations(), loadTemplates(), loadSpaces()])
 })
 watch(() => props.skills, loadSkillValidations, { deep: true })
 </script>
