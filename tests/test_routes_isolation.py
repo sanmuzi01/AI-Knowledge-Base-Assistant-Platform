@@ -226,6 +226,54 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"])
         self.client.delete(f"/knowledge-spaces/{bob_space}", headers=self.bob["headers"])
 
+    # ---- 知识库调试台：越权检索 / 样例隔离 ----
+
+    def test_rag_debug_console_isolation(self):
+        sid = self._make_space(self.alice, f"rt-dbg-{self.alice['id']}")
+        h_a, h_b = self.alice["headers"], self.bob["headers"]
+
+        # alice 对自己的空间跑检索：过了归属校验，卡在向量化（测试用户没配 embedding Key）
+        mine = self.client.post(
+            "/rag-debug/run", json={"query": "年假几天", "space_ids": [sid], "top_k": 3}, headers=h_a
+        )
+        self.assertIn(mine.status_code, (200, 400), mine.text)
+
+        # bob 用 alice 的 space_id 跑检索 -> 403（PermissionError 在向量化之前）
+        theirs = self.client.post(
+            "/rag-debug/run", json={"query": "年假几天", "space_ids": [sid], "top_k": 3}, headers=h_b
+        )
+        self.assertEqual(theirs.status_code, 403, theirs.text)
+
+        # 存一条样例（不依赖检索是否成功，result 可为空快照）
+        saved = self.client.post(
+            "/rag-debug/samples",
+            json={"query": "年假几天", "space_ids": [sid],
+                  "result": {"hits": [], "context": "", "citations": []},
+                  "verdict": "useless", "in_eval_set": True},
+            headers=h_a,
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        sample_id = saved.json()["id"]
+
+        # 列表 / 导出：本人可见，别人 404 / 空
+        mine_list = self.client.get(f"/rag-debug/samples?space_id={sid}", headers=h_a).json()
+        self.assertIn(sample_id, [s["id"] for s in mine_list["items"]])
+        self.assertEqual(self.client.get(f"/rag-debug/samples?space_id={sid}", headers=h_b).status_code, 404)
+
+        exported = self.client.get(f"/rag-debug/samples/export?space_id={sid}", headers=h_a).json()
+        self.assertEqual(exported["total"], 1)
+        self.assertEqual(exported["cases"][0]["expected_knowledge_ids"], [])  # useless -> 期望查不到
+
+        # 别人改 / 删这条样例 -> 404
+        self.assertEqual(
+            self.client.patch(f"/rag-debug/samples/{sample_id}", json={"verdict": "useful"}, headers=h_b).status_code, 404
+        )
+        self.assertEqual(self.client.delete(f"/rag-debug/samples/{sample_id}", headers=h_b).status_code, 404)
+
+        # 本人删除后清理空间
+        self.assertEqual(self.client.delete(f"/rag-debug/samples/{sample_id}", headers=h_a).status_code, 200)
+        self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a)
+
     # ---- 会话 / 后台任务：领域异常 + 隔离 ----
 
     def test_conversation_cross_user_404_with_code(self):

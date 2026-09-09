@@ -61,6 +61,7 @@
 | **多空间联合检索 + 引用（阶段3）** | - | `service/rag/space_search.py::search_spaces`（同步入口，自带 Session；逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` context + citations + 拒答） | `knowledge_chunk`、`knowledge`、`knowledge_spaces` |
 | **Agent 检索统一入口（阶段3）** | - | `service/rag/search_entry.py::search_for_agent`（绑定 space → `space_search`；未绑定 → 旧 `search_scoped`）；`agent_runtime` 经 `to_thread` 调用，`_compose_kb_prompt` 注入引用/拒答规则 | `agent_knowledge_space` |
 | **Agent 绑定 space + `kb_*` 配置（阶段3）** | `FasdtApi/agent.py`（`AgentCreate`/`AgentUpdate` 加 `space_ids` / `kb_top_k` / `kb_rerank_enabled` / `kb_force_citation` / `kb_refuse_when_empty`） | `service/agent_service.py`（`_validate_space_ids` + `set_agent_spaces` 同事务收尾）、`agent_async_service`（读回 `space_ids`） | `models/agent_knowledge_space_dao.py`、`agent.kb_*` 列 |
+| **知识库调试台（阶段4）** | `FasdtApi/rag_debug.py`（`/rag-debug`：`/run` 跑检索快照 + 可选 LLM 回答；`/samples` CRUD + `/samples/export` → `rag_eval` cases） | `service/rag/debug_service.py`（`run_retrieval` 经 `to_thread`；`attach_answer` 调 `llm_service.async_chat` + `evaluate_faithfulness`；样例存取按 `user_space_ids` / `get_owned_space_async` 隔离） | `models/rag_debug_dao.py`（异步）、`rag_debug_samples` 表 |
 
 聊天回答的引用来源经 SSE `citations` 事件下发（`service/runtime/sse_events.make_citations`），
 前端 `Chat.vue` 用 `components/knowledge/CitationList.vue` 展示。阶段 4+ 见 `docs/knowledge-space-plan.md`。
@@ -127,6 +128,8 @@ npm run backend:worker
 | `chat.py` | history 等读接口 async；同步/流式对话走 `agent_runtime`（同步 ORM + 生成器），暂留同步。RAG 检索经 `search_entry.search_for_agent`（自带 Session，async 路径 `to_thread` 调用），不把同步 Session 带进流程。迁移方案见 `docs/agent-runtime-async-migration.md` |
 | `evaluation.py` | 端点 async，但 db 同步 —— RAG 检索管线（`rag_service`、ChromaDB、DAO）仍同步 |
 | `knowledge.py` | 列表 / 文档详情 / 片段 全量 async；检索 `async def` + `to_thread(search_entry.search_scoped)`，处理器不持有同步 Session；诊断 / 上传 / 入库 / 重建 仍走同步 RAG 管线 |
+| `knowledge_space.py` | 空间 CRUD 全量 async；文档上传/抓取/重建/启停/删除沿用 `knowledge_service` 同步 + 后台任务 |
+| `rag_debug.py` | 样例 CRUD / 导出全量 async；`/run` 端点 async + `to_thread(debug_service.run_retrieval)`（RAG 管线同步，不带同步 Session 进路由），可选 LLM 回答走 `llm_service.async_chat` |
 | `skill_route.py` | 读接口（我的/公开/单个、校验、Agent 绑定列表）全量 async（已删同步回退分支）；创建/绑定/导入导出走 `skills_core`（文件系统 + 同步 ORM） |
 
 同步 `def` 端点由 FastAPI 放线程池执行，不阻塞事件循环。彻底收口的前置条件是

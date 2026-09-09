@@ -123,6 +123,7 @@ def cleanup():
             db.execute(text(f"DELETE FROM background_task WHERE target_type='knowledge' AND target_id IN {kin}"))
         db.execute(text(f"DELETE FROM background_task WHERE user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM knowledge WHERE user_id IN {in_clause}"))
+        db.execute(text(f"DELETE FROM rag_debug_samples WHERE user_id IN {in_clause}"))
         # 知识库空间 + Agent 绑定
         db.execute(text(f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM knowledge_spaces WHERE user_id IN {in_clause}"))

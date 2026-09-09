@@ -72,6 +72,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/knowledge-spaces/:id/debug',
+      name: 'KnowledgeSpaceDebug',
+      component: () => import('../views/knowledge/RagDebugConsole.vue'),
+      props: true,
+    },
+    {
       path: '/chat/:agentId',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),

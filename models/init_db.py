@@ -269,6 +269,32 @@ class AgentKnowledgeSpace(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
+class RagDebugSample(Base):
+    """知识库调试台：一次检索（可选带 LLM 回答）的完整快照。
+
+    阶段4：用户在调试台跑一次检索后可「存为测试样例」，标注 useful/useless，
+    勾选进评估集（in_eval_set=1）后可导出成 rag_eval 的 cases 喂给 /evaluation。
+    """
+    __tablename__ = "rag_debug_samples"
+    __table_args__ = (
+        Index("idx_rds_user_created", "user_id", "created_at"),
+        Index("idx_rds_space", "space_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_rds_user"), nullable=False)
+    space_id = Column(Integer, nullable=True)          # 单空间样例时记录；多空间留空
+    space_ids_json = Column(Text, nullable=True)       # 实际检索用到的 space_id 列表
+    agent_id = Column(Integer, nullable=True)          # 旧「Agent 私有库」调试时记录
+    query = Column(Text, nullable=False)
+    top_k = Column(Integer, nullable=True)
+    rerank_enabled = Column(Integer, nullable=False, default=0)
+    result_json = Column(Text, nullable=True)          # 命中 chunk / score / rerank / context / answer / citations 快照
+    verdict = Column(String(10), nullable=True)        # useful / useless / null
+    in_eval_set = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 # 知识块表（文档切分后的块，含向量库id引用）
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunk"

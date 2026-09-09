@@ -269,7 +269,7 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 | **1 ✅** | Space 基础 + 存量升级 | 表 `knowledge_spaces` / `agent_knowledge_space`；`knowledge.space_id` 等列 + `agent.kb_*`；Space CRUD `/knowledge-spaces`；`vector_store` collection key 泛化（`agent_{id}` / `space_{id}`）；`scripts/migrate_agent_kb_to_space.py` 存量迁移（dry-run/`--apply`）；前端「知识库中心」页 + 侧栏入口。 | 旧上传/检索路径完全不变 |
 | **2 ✅** | 文档管理增强 | `knowledge.agent_id` 改可空 + `category/tags/version/source_*` 列；`/knowledge-spaces/{id}/documents` 上传/批量/抓取/列表(按分类·标签·状态筛)/改元数据/启停/重建/删除；`rag_service` 向量集合键按 `knowledge.space_id` 解析（`_vector_key`）；入库完成刷新空间统计；**旧 `/knowledge/{agent_id}/*` 上传/抓取内部落到该 Agent 的默认空间**；前端「空间详情」页 | 旧接口保留，行为=写进默认空间 |
 | **3 ✅** | 多空间检索 + 引用 | `rag/space_search.search_spaces`（自带 Session + 逐 space 归属校验 + 多集合合并 + rerank + `【来源N】` 组装 + 拒答）；`search_entry.search_for_agent` 统一入口（绑定→多空间，未绑定→旧 `search_scoped`）；`agent.kb_*` + `agent_knowledge_space` 绑定接入 create/update；`agent_runtime` 注入引用/拒答规则 + 透传 `citations`（SSE `citations` 事件）；前端 `AgentCreateDialog` 知识库区块 + `Chat.vue` `CitationList` | 未绑定 space 的 Agent 回退旧 `agent_{id}` 检索路径 |
-| **4** | 知识库调试台 | `/rag-debug` 接口（跑一次完整检索，返回全过程快照，可选调 LLM）；`rag_debug_samples` 表；前端调试台页；存为测试样例（对接现有 `rag_eval` 数据格式） | 纯新增 |
+| **4 ✅** | 知识库调试台 | `/rag-debug/run`（`debug_service.run_retrieval` 经 `to_thread` 跑一次检索快照，`with_answer` 时 `attach_answer` 调 LLM + 启发式忠诚度）；`rag_debug_samples` 表 + `models/rag_debug_dao.py`（异步）；`/rag-debug/samples` 增删改查 + `/samples/export`（评估集 → `rag_eval` cases）；前端 `RagDebugConsole.vue` + `RagTracePanel.vue`，`/knowledge-spaces/:id/debug` | 纯新增 |
 | **5** | 质量与健康分 | `space_health` 任务：文档覆盖/过期/失败率、检索命中率、引用命中率、拒答率；`knowledge_spaces.health_*` 回填；`rag_eval_service` 增加「按 space 跑」入口；前端健康报告页；**Widget 新增知识库健康卡片**（复用 widget 平台 connector 机制，加 `knowledge_space` connector） | 纯新增 |
 | **6** | 企业权限落地 | `teams` / `organizations` / `space_members` / `kb_audit_log` 建表 + 接线；`user_space_ids` / `membership` 实现；role 分级写权限；管理员企业视角；权限测试 | `user_id` owner 语义保留为 role=owner |
 
@@ -376,10 +376,16 @@ service/background_task_service.py（TASK_RUNNERS 注册新任务类型）
 - 测试：`tests/test_rag_space_search.py`（候选数/拒答阈值/`【来源N】`组装/rerank 纯逻辑）；
   `tests/test_routes_isolation.py::test_agent_space_binding_and_cross_user_reject`（绑定 + 越权 400）。
 
-**阶段 4**
-- 调试接口返回 query / 命中 chunk（含 score、rerank_score）/ 来源文件 / 最终 context / 回答 / citations。
-- 「存为测试样例」后能在评估里读到；样例带 `verdict`。
-- 越权调试别人的 space → 404/403。
+**阶段 4** ✅
+- `POST /rag-debug/run` 返回 query / mode / 命中 chunk（含 score、rerank_score、source）/ 最终 context /
+  citations / refused；`with_answer=1` 时附带 LLM 回答 + 启发式忠诚度（`evaluate_faithfulness`）。
+- `POST /rag-debug/samples` 存快照 → `GET /rag-debug/samples`（可按 space / 评估集筛）→
+  `PATCH`（`verdict` useful/useless、`in_eval_set`）→ `GET /samples/export` 产出 `rag_eval` 的 cases
+  （`expected_knowledge_ids` / `expected_chunk_ids` 从快照 hits 反推，useless 样例期望「查不到」）。
+- 越权：`run` 传别人的 `space_ids` → `space_search` 抛 `PermissionError` → 403；
+  `samples` 列表/导出传别人的 `space_id` → 404；改/删别人的样例 → 404。
+- 测试：`tests/test_rag_debug_service.py`（hit 归一化 / 样例序列化 / 导出用例 / 入参校验）；
+  `tests/test_routes_isolation.py::test_rag_debug_console_isolation`。
 
 **阶段 5**
 - 每个 space 有 `health_score` 与明细（失败率/过期率/命中率/拒答率）。

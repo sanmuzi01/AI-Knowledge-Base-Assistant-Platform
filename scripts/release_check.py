@@ -46,6 +46,14 @@ REQUIRED_FILES = [
     # 知识库空间（阶段3）：多空间联合检索 + 引用 + Agent 绑定
     "service/rag/space_search.py",
     "frontend/src/components/knowledge/CitationList.vue",
+    # 知识库空间（阶段4）：知识库调试台
+    "FasdtApi/rag_debug.py",
+    "service/rag/debug_service.py",
+    "models/rag_debug_dao.py",
+    "migrations/versions/20260910_0005_rag_debug_samples.py",
+    "frontend/src/api/ragDebug.ts",
+    "frontend/src/views/knowledge/RagDebugConsole.vue",
+    "frontend/src/components/knowledge/RagTracePanel.vue",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",
