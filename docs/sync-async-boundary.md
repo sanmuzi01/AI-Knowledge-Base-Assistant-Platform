@@ -54,6 +54,9 @@
      内部依旧是「向量化 async + 检索 sync」的半异步。
    - ⏳ 知识库上传 / 入库 / 重建 / 诊断仍走同步 `knowledge_service` + 后台任务。
    - 更彻底的做法（`_get_client` / chunk 反查改异步 DAO，ChromaDB/rerank 仍同步）留待评估。
-4. **异常统一**：迁移过程中把各模块的 `raise ValueError` / `HTTPException` / 裸 `Exception`
-   换成 `service/exceptions.py` 的领域异常（组件平台已完成，作为参考）。
+4. **异常统一**（进行中）：`service/exceptions.py` 领域异常 + `main.py` 统一处理器已落地。
+   - ✅ 组件平台、`knowledge.py`、`agent.py`：404 → `NotFound`、400 → `InvalidInput`
+     （500 兜底与 429 限流仍用 `HTTPException`，后者要保留 `Retry-After` 头）。
+   - 处理器按 `[code]` 记一行日志，返回体带 `code` 字段。
+   - ⏳ 其余模块（chat / evaluation / skill 写接口 / background_task 等）按同一套跟进。
 5. **写入链路 / Worker**：最后再评估是否值得异步化——收益低、风险高，可长期保持同步。

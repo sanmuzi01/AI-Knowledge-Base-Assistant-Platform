@@ -80,6 +80,12 @@ class RouteIsolationTest(unittest.TestCase):
         agent_id = r.json().get("agent_id")
         self.assertIsNotNone(agent_id, r.text)
 
+        # 同步 def 端点 + 领域异常：别人删 / 删不存在 都要 404（且带 code 字段）
+        gone = self.client.delete(f"/agent/{agent_id}", headers=self.bob["headers"])
+        self.assertEqual(gone.status_code, 404)
+        self.assertEqual(gone.json().get("code"), "not_found")
+        self.assertEqual(self.client.delete("/agent/999999", headers=self.alice["headers"]).status_code, 404)
+
         # bob 查 alice 的知识库诊断 —— 不放行
         got = self.client.get(f"/knowledge/{agent_id}/diagnostics", headers=self.bob["headers"])
         self.assertIn(got.status_code, (403, 404))

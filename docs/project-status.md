@@ -49,7 +49,8 @@
 - 自动化测试仍以 mock DAO + 纯逻辑为主，真实路由级测试（登录后访问、跨用户/管理员权限隔离）刚起步，覆盖面不足。
 - 同步 / 异步边界尚未完全收口：`service/widgets` 已 100% async 并有守卫测试；knowledge / agent 的
   纯读接口已全量 AsyncSession（删掉旧的同步回退死分支）；但写入链路、诊断、RAG 检索管线仍是同步实现。
-- 异常类型偏散：多处 `raise ValueError` / 裸 `Exception`，日志里不易一眼定位问题域。
+- 异常类型统一进行中：`service/exceptions.py` 领域异常 + 统一处理器已落地，组件平台 /
+  knowledge / agent 已迁移（按 `[code]` 记日志）；chat / evaluation / skill 写接口等仍待跟进。
 - 压力测试还未在真实服务器上形成基准报告；`/metrics` 缺生产压测基线和告警规则。
 - 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
 - 备份命令已给出，但还需在真实部署环境做恢复演练。

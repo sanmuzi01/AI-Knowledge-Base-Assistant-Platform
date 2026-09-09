@@ -1,11 +1,11 @@
-from fastapi import APIRouter,Depends,HTTPException,status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel,Field
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from models.init_db import get_db, User
 from models.async_db import get_async_db
 from service.dependencies import get_current_user, get_current_user_async
-from service.exceptions import NotFound
+from service.exceptions import InvalidInput, NotFound
 from service import agent_service
 from service import agent_async_service
 from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
@@ -95,9 +95,9 @@ def delete_template(
         template_id: str,
         current_user: User = Depends(get_current_user)):
     if not template_id.startswith("custom_"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="内置模板不能删除")
+        raise InvalidInput("内置模板不能删除")
     if not delete_user_template(current_user.id, template_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="模板不存在或无权限")
+        raise NotFound("模板不存在或无权限")
     return {"message": "删除成功", "template_id": template_id}
 
 @router.get("/list",summary="查询用户的智能体列表",response_model=List[AgentWithSelectedResponse])
@@ -129,7 +129,7 @@ def get_agent_debug(
         current_user: User = Depends(get_current_user)):
     result = agent_service.get_agent_debug(db, current_user, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 
@@ -148,9 +148,9 @@ def dry_run_agent(
             conversation_id=data.conversation_id,
         )
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 @router.post("/{agent_id:int}/clone", summary="复制Agent")
@@ -161,9 +161,9 @@ def clone_agent(
         current_user: User = Depends(get_current_user)):
     result = agent_service.clone(db, current_user, agent_id, name=data.name)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限复制")
+        raise NotFound("智能体不存在或无权限复制")
     if "agent_id" not in result:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.get("message", "复制失败"))
+        raise InvalidInput(result.get("message", "复制失败"))
     return result
 
 @router.post("",summary="创建智能体")
@@ -186,7 +186,7 @@ def create_agent(
         skill_ids=agent.skill_ids,
     )
     if "agent_id" not in result:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.get("message", "创建失败"))
+        raise InvalidInput(result.get("message", "创建失败"))
     return result
 @router.put("/{agent_id}",summary="更新智能体信息")
 def update_agent(
@@ -196,7 +196,7 @@ def update_agent(
         current_user:User = Depends(get_current_user)):
     result = agent_service.get_agent(db, current_user, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限更新")
+        raise NotFound("智能体不存在或无权限更新")
     update_result = agent_service.update(
         db=db,
         user=current_user,
@@ -213,7 +213,7 @@ def update_agent(
         skill_ids=agent_update.skill_ids,
     )
     if update_result.get("message") != "更新成功":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=update_result.get("message", "更新失败"))
+        raise InvalidInput(update_result.get("message", "更新失败"))
     return update_result
 @router.get("/{agent_id}/delete_preview", summary="删除智能体预检（返回将被删除的数据量）")
 def delete_preview_agent(
@@ -224,7 +224,7 @@ def delete_preview_agent(
     """前端展示删除确认弹窗时先调这个，拿到影响范围再让用户确认"""
     result = agent_service.delete_preview(db, current_user, agent_id)
     if not result:
-        raise HTTPException(status_code=404, detail="智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 @router.delete("/{agent_id}",summary="删除智能体")
 def delete_agent(
@@ -234,7 +234,7 @@ def delete_agent(
 ):
     result = agent_service.get_agent(db, current_user, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND,detail = "智能体不存在或无权限删除")
+        raise NotFound("智能体不存在或无权限删除")
     return agent_service.delete(db, current_user, agent_id)
 @router.post("/{agent_id}/select",summary="选中智能体")
 def select_agent(
@@ -244,7 +244,7 @@ def select_agent(
 ):
     result = agent_service.get_agent(db, current_user, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限选中")
+        raise NotFound("智能体不存在或无权限选中")
     return agent_service.select(
         db,current_user,agent_id
     )

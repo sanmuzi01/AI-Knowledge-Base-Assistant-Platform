@@ -17,11 +17,12 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
 
-# 迁移边界：列表 / 文档详情 / 片段等纯读接口已全量 AsyncSession（get_async_db + *_async_service），
-# 不再保留「未装 asyncmy 时回退同步」的旧分支（asyncmy 已是硬依赖，见 models/async_db.py）。
-# 上传 / 入库 / 重建索引 / 检索 / 诊断仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的
-# RAG 管线（rag_service、切分、embedding 落库），FastAPI 会把 def 端点放线程池。
-# 待 RAG 管线 async 化后再统一收口，见 docs/sync-async-boundary.md。
+# 迁移边界：列表 / 文档详情 / 片段等纯读接口已全量 AsyncSession（get_async_db + *_async_service）；
+# 检索为 async def + asyncio.to_thread(search_entry.search_scoped)，处理器不持有同步 Session。
+# 上传 / 入库 / 重建索引 / 诊断仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的 RAG 管线
+#（切分 / embedding 落库 / ChromaDB），FastAPI 会把这些环节放线程池。
+# 领域异常：本文件的 404/400 已统一为 service.exceptions（500 兜底与 429 限流保留 HTTPException）。
+# 收口进度见 docs/sync-async-boundary.md。
 
 # 允许的文件类型
 ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
@@ -52,20 +53,14 @@ def _limit_error(exc: LimitExceeded) -> HTTPException:
 def _ensure_agent_owner(db: Session, user_id: int, agent_id: int):
     agent = get_owned_agent(db, user_id, agent_id)
     if not agent:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="智能体不存在或无权限",
-        )
+        raise NotFound("智能体不存在或无权限")
     return agent
 
 
 def _validate_upload_file_name(file_name: str) -> str:
     file_type = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
     if file_type not in ALLOWED_TYPES:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail=f"不支持的文件类型: {file_type}，支持: {list(ALLOWED_TYPES)}"
-        )
+        raise InvalidInput(f"不支持的文件类型: {file_type}，支持: {list(ALLOWED_TYPES)}")
     return file_type
 
 
@@ -136,7 +131,7 @@ async def upload_document(
         }
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"上传失败: {str(e)}")
@@ -163,9 +158,9 @@ async def upload_documents(
     except LimitExceeded as e:
         raise _limit_error(e)
     if not files:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请选择至少一个文件")
+        raise InvalidInput("请选择至少一个文件")
     if len(files) > 20:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="一次最多上传20个文件")
+        raise InvalidInput("一次最多上传20个文件")
 
     created = []
     try:
@@ -188,7 +183,7 @@ async def upload_documents(
         raise
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"批量上传失败: {str(e)}")
@@ -221,7 +216,7 @@ async def crawl_documents(
         if item and item not in unique_urls:
             unique_urls.append(item)
     if not unique_urls:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请填写至少一个 URL")
+        raise InvalidInput("请填写至少一个 URL")
 
     created = []
     failed = []
@@ -245,7 +240,7 @@ async def crawl_documents(
         if not pages:
             db.rollback()
             first_error = failed[0]["error"] if failed else "没有网页被成功抓取"
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=first_error)
+            raise InvalidInput(first_error)
 
         created = knowledge_service.create_crawl_tasks(
             db, background_tasks, current_user.id, agent_id, pages
@@ -259,10 +254,10 @@ async def crawl_documents(
         }
     except CrawlerError as e:
         db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -293,9 +288,9 @@ async def import_document_to_agent(
     _ensure_agent_owner(db, current_user.id, agent_id)
     source = get_owned_knowledge(db, current_user.id, knowledge_id)
     if not source:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="资料不存在或无权限")
+        raise NotFound("资料不存在或无权限")
     if source.agent_id == agent_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="该资料已经属于当前助手")
+        raise InvalidInput("该资料已经属于当前助手")
     try:
         return knowledge_service.import_existing_document(
             db, background_tasks, current_user.id, agent_id, source
@@ -389,7 +384,7 @@ async def update_document_enabled(
     _ensure_agent_owner(db, current_user.id, agent_id)
     doc = get_owned_knowledge(db, current_user.id, knowledge_id, agent_id=agent_id)
     if not doc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
+        raise NotFound("文档不存在或无权限")
     return knowledge_service.set_document_enabled(db, doc, data.is_enabled)
 
 
@@ -404,7 +399,7 @@ async def reindex_document(
     _ensure_agent_owner(db, current_user.id, agent_id)
     doc = get_owned_knowledge(db, current_user.id, knowledge_id, agent_id=agent_id)
     if not doc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
+        raise NotFound("文档不存在或无权限")
     try:
         return knowledge_service.create_reindex_task(
             db,
@@ -416,7 +411,7 @@ async def reindex_document(
         )
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"重新入库失败: {str(e)}")
@@ -432,7 +427,7 @@ async def delete_document(
     _ensure_agent_owner(db, current_user.id, agent_id)
     knowledge = get_owned_knowledge(db, current_user.id, knowledge_id, agent_id=agent_id)
     if not knowledge:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
+        raise NotFound("文档不存在或无权限")
 
     try:
         return knowledge_service.delete_document_completely(db, agent_id, knowledge_id)
