@@ -114,3 +114,5 @@ npm run backend:worker
 
 同步 `def` 端点由 FastAPI 放线程池执行，不阻塞事件循环。彻底收口的前置条件是
 把 `agent_runtime`、RAG 管线、`skills_core` 迁到 AsyncSession，并补接口级集成测试。
+
+边界规则、组件平台的收口做法、以及 knowledge/agent 的下一步计划见 `docs/sync-async-boundary.md`。
