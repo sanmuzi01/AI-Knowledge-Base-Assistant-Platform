@@ -1,7 +1,7 @@
 """守卫：service/widgets 包必须保持 100% 异步，不得泄漏同步 DB / 同步 HTTP。
 
 允许的跨界方式只有一种：asyncio.to_thread 调用 RAG / 爬虫等同步子系统的入口
-（rag_service.search_for_widget、web_crawler_service.crawl_url_to_markdown 等）。
+（search_entry.search_for_widget、web_crawler_service.crawl_url_to_markdown 等）。
 """
 
 import pathlib

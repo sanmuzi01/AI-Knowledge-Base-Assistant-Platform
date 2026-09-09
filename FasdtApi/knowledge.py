@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 from models.init_db import get_db, User
 from models.async_db import get_async_db
 from service.dependencies import get_current_user_async
-from service.exceptions import NotFound
-from service.rag import rag_service
+from service.exceptions import InvalidInput, NotFound
+from service.rag.search_entry import search_scoped
 from service import knowledge_async_service, knowledge_diagnostics_async_service, knowledge_service
 from service.access_control import get_owned_agent, get_owned_knowledge
 from service.web_crawler_service import CrawlerError
@@ -337,13 +337,13 @@ async def list_document_chunks(
 async def search_knowledge(
         agent_id: int,
         data: KnowledgeSearchRequest,
-        db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    _ensure_agent_owner(db, current_user.id, agent_id)
+    # 归属校验 + 文档启用检查 + 检索本体都在 search_entry.search_scoped 里（同步 RAG 子系统），
+    # 通过 asyncio.to_thread 调用，本处理器不再持有同步 Session。
     query = data.query.strip()
     if not query:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="检索关键词不能为空")
+        raise InvalidInput("检索关键词不能为空")
     try:
         require_limit(
             key=f"knowledge_search:user:{current_user.id}",
@@ -355,12 +355,6 @@ async def search_knowledge(
         )
     except LimitExceeded as e:
         raise _limit_error(e)
-    if data.knowledge_id is not None:
-        doc = get_owned_knowledge(db, current_user.id, data.knowledge_id, agent_id=agent_id)
-        if not doc:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
-        if doc.is_enabled == 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="该文档已禁用，不参与检索")
     try:
         with concurrency_guard(
             key=f"knowledge_search:user:{current_user.id}",
@@ -370,19 +364,16 @@ async def search_knowledge(
             default_ttl=120,
             label="知识库检索",
         ):
-            results = await rag_service.async_search(
-                db=db,
-                user_id=current_user.id,
-                agent_id=agent_id,
-                query=query,
-                top_k=data.top_k,
-                knowledge_id=data.knowledge_id,
+            results = await asyncio.to_thread(
+                search_scoped, current_user.id, agent_id, query, data.top_k, data.knowledge_id
             )
         return {"query": query, "count": len(results), "top_k": data.top_k, "results": results}
     except LimitExceeded as e:
         raise _limit_error(e)
+    except PermissionError as e:
+        raise NotFound(str(e))
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise InvalidInput(str(e))
     except Exception as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"检索失败: {str(e)}")
 

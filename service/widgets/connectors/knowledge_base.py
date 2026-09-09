@@ -3,7 +3,7 @@
 按 ctx.user_id 过滤：只能检索属于当前用户的 Agent 的知识库。
 
 同步/异步边界：RAG 检索链路（向量化 + ChromaDB + 同步 DAO + rerank）是同步子系统，
-统一入口在 service.rag.widget_search.search_for_widget（自带同步 Session + 归属校验）。
+统一入口在 service.rag.search_entry.search_for_widget（自带同步 Session + 归属校验）。
 这里通过 asyncio.to_thread 跨线程调用，本模块不出现任何同步 Session。
 
 config:
@@ -41,7 +41,7 @@ class KnowledgeBaseConnector(BaseConnector):
         return errors
 
     async def fetch(self, ctx: WidgetRunContext, config: Dict[str, Any]) -> Any:
-        from service.rag.widget_search import search_for_widget
+        from service.rag.search_entry import search_for_widget
 
         config = config or {}
         agent_id = int(config.get("agent_id"))

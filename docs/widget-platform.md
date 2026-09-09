@@ -92,7 +92,7 @@ service/widgets/
 
 | 子系统 | 入口 | 说明 |
 | --- | --- | --- |
-| RAG 检索 | `service.rag.widget_search.search_for_widget(user_id, agent_id, query, top_k)` | 自带同步 Session + Agent 归属校验；ChromaDB / rerank 仍是同步 |
+| RAG 检索 | `service.rag.search_entry.search_scoped(user_id, agent_id, query, top_k, knowledge_id=None)` | 自带同步 Session + 归属校验；ChromaDB / rerank 仍是同步。组件用 `search_for_widget` 薄封装 |
 | 网页抓取 | `service.web_crawler_service.crawl_url_to_markdown(url)` | requests + 重定向逐跳校验 + 大小限制；`validate_crawl_url` 的阻塞 DNS 也走 to_thread |
 
 外呼 HTTP（`http` 连接器）已是 httpx 原生（`service.http_resilience.async_request_with_retry`）。

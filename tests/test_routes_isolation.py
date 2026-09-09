@@ -97,6 +97,17 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.get(f"/knowledge/{agent_id}/999999", headers=self.alice["headers"]).status_code, 404
         )
 
+        # 检索：本人过了归属校验（测试用户没配 embedding Key，会在向量化那步 400），别人在归属校验就 404
+        mine = self.client.post(f"/knowledge/{agent_id}/search", json={"query": "x", "top_k": 3},
+                                headers=self.alice["headers"])
+        self.assertIn(mine.status_code, (200, 400), mine.text)
+        if mine.status_code == 400:
+            self.assertIn("API Key", mine.text)          # 说明已越过归属校验，卡在向量化
+        self.assertEqual(
+            self.client.post(f"/knowledge/{agent_id}/search", json={"query": "x"},
+                             headers=self.bob["headers"]).status_code, 404
+        )
+
     # ---- Skill 读接口（已全量 async）----
 
     def test_skill_read_routes_work_and_404(self):

@@ -9,7 +9,7 @@
 - runner / scheduler / 所有 connector.fetch / processor 一律 `async`，只接受 `AsyncSession`（`ctx.db`）。
 - 禁止 `SessionLocal(` / `get_db` / 同步 `requests`，由 `tests/test_widget_sync_boundary.py` 守卫。
 - 跨到同步子系统只经 `asyncio.to_thread` 调它们的单一入口：
-  - RAG 检索 → `service/rag/widget_search.py::search_for_widget`（自带同步 Session + 归属校验）
+  - RAG 检索 → `service/rag/search_entry.py::search_for_widget`（自带同步 Session + 归属校验）
   - 网页抓取 → `service/web_crawler_service.py::crawl_url_to_markdown`
 - 后台 Worker 用**进程内常驻事件循环**跑组件调度 tick，不再每轮 `asyncio.run()` 建/拆 loop。
 
@@ -46,8 +46,14 @@
 2. ~~**删掉读接口的同步回退分支**~~ —— 已完成：knowledge / agent / skill_route 清理完毕，
    conversation / 其余路由核查无死分支；`models/async_db.py` 的 `get_optional_async_db` 别名已删除
    （`grep -rn get_optional_async_db FasdtApi` 为空）。
-3. **RAG 检索异步化**：`_get_client` / 知识 chunk 反查改异步 DAO；ChromaDB / rerank 仍同步，
-   统一封在 `asyncio.to_thread` 里（就像 `widget_search.py` 现在的做法），对上层呈现 `async`。
+3. **RAG 检索走线程桥接**（进行中）：
+   - ✅ `service/rag/search_entry.py::search_scoped`（自带同步 Session + 归属/文档校验）+
+     `FasdtApi/knowledge.py::search_knowledge` 改为 `await asyncio.to_thread(search_scoped, ...)`，
+     处理器不再持有同步 `Session`。`PermissionError→NotFound`、`ValueError→InvalidInput`。
+   - ⏳ `rag_service.async_search` 仍保留（`rag_eval_service`、`agent_runtime` 在用），
+     内部依旧是「向量化 async + 检索 sync」的半异步。
+   - ⏳ 知识库上传 / 入库 / 重建 / 诊断仍走同步 `knowledge_service` + 后台任务。
+   - 更彻底的做法（`_get_client` / chunk 反查改异步 DAO，ChromaDB/rerank 仍同步）留待评估。
 4. **异常统一**：迁移过程中把各模块的 `raise ValueError` / `HTTPException` / 裸 `Exception`
    换成 `service/exceptions.py` 的领域异常（组件平台已完成，作为参考）。
 5. **写入链路 / Worker**：最后再评估是否值得异步化——收益低、风险高，可长期保持同步。

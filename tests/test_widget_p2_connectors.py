@@ -128,7 +128,7 @@ class KnowledgeBaseConnectorTest(unittest.IsolatedAsyncioTestCase):
             seen.update(user_id=user_id, agent_id=agent_id, query=query, top_k=top_k)
             return [{"content": "命中片段", "score": 0.9, "file_name": "a.pdf", "knowledge_id": 11}]
 
-        with patch("service.rag.widget_search.search_for_widget", fake_search):
+        with patch("service.rag.search_entry.search_for_widget", fake_search):
             out = await self.conn.fetch(_ctx(db=object()), {"agent_id": 3, "query": "合同风险", "top_k": 4})
 
         self.assertEqual(seen, {"user_id": 42, "agent_id": 3, "query": "合同风险", "top_k": 4})
@@ -139,7 +139,7 @@ class KnowledgeBaseConnectorTest(unittest.IsolatedAsyncioTestCase):
         def denies(*a, **k):
             raise PermissionError("知识库不存在或无权访问")
 
-        with patch("service.rag.widget_search.search_for_widget", denies):
+        with patch("service.rag.search_entry.search_for_widget", denies):
             with self.assertRaises(AppError):
                 await self.conn.fetch(_ctx(db=object()), {"agent_id": 9, "query": "x", "top_k": 3})
 
