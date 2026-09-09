@@ -5,6 +5,7 @@ from typing import Optional, List
 from models.init_db import get_db, User
 from models.async_db import get_async_db
 from service.dependencies import get_current_user, get_current_user_async
+from service.exceptions import NotFound
 from service import agent_service
 from service import agent_async_service
 from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
@@ -118,7 +119,7 @@ async def get_agent(
         current_user: User =Depends(get_current_user_async) ):
     result = await agent_async_service.get_agent(async_db, current_user, agent_id)
     if result is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND,detail = "智能体不存在或无权限")
+        raise NotFound("智能体不存在或无权限")
     return result
 
 @router.get("/{agent_id:int}/debug", summary="查看Agent运行调试信息")

@@ -89,6 +89,14 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.get(f"/knowledge/{agent_id}/diagnostics", headers=self.alice["headers"]).status_code, 200
         )
 
+        # 纯读接口（已全量 async）：本人 200、别人 404
+        self.assertEqual(self.client.get(f"/knowledge/{agent_id}/list", headers=self.alice["headers"]).status_code, 200)
+        self.assertEqual(self.client.get(f"/knowledge/{agent_id}/list", headers=self.bob["headers"]).status_code, 404)
+        self.assertEqual(self.client.get("/knowledge/my/list", headers=self.alice["headers"]).status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/knowledge/{agent_id}/999999", headers=self.alice["headers"]).status_code, 404
+        )
+
     # ---- 管理员接口隔离 ----
 
     def test_admin_routes_reject_regular_user(self):

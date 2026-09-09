@@ -90,7 +90,7 @@ DB_POOL_RECYCLE=1800
 DB_POOL_PRE_PING=true
 ```
 
-同步数据库链路使用 `mysql+pymysql`，异步读取链路使用 `mysql+asyncmy`。两条链路复用同一组连接池参数，生产环境安装 `requirements.txt` 后会自动启用异步读取；本地未安装 `asyncmy` 时接口会回退到原同步查询，避免开发环境直接崩溃。
+同步数据库链路使用 `mysql+pymysql`，异步读取链路使用 `mysql+asyncmy`。两条链路复用同一组连接池参数。`asyncmy` 是硬依赖（`requirements.txt` 固定版本，`models/async_db.py` 缺驱动会直接启动失败），已不再保留「未装 asyncmy 时回退同步查询」的旧分支；纯读接口全量走 AsyncSession，写入 / RAG 检索链路仍是同步（见 `docs/sync-async-boundary.md`）。
 
 安全相关配置：
 

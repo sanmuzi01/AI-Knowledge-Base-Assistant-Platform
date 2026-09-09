@@ -15,19 +15,17 @@
 
 ## 未收口
 
-### 高频读取接口的「异步双轨」
-`FasdtApi/knowledge.py`、`FasdtApi/agent.py` 等的读接口目前是：
+### ~~高频读取接口的「异步双轨」~~ —— 已收口
 
-```python
-async def handler(db: Session = Depends(get_db), async_db = Depends(get_optional_async_db), ...):
-    if async_db is not None:
-        return await xxx_async_service...(async_db, ...)     # 主路径
-    # 回退：本地未装 asyncmy 时走同步
-    return xxx_service...(db, ...)
-```
+`asyncmy` 早已是硬依赖（`models/async_db.py` 缺驱动直接 `raise`，`get_optional_async_db = get_async_db`），
+所以旧的 `if async_db is not None: ... else: <同步回退>` 分支其实是死代码。已删除：
 
-这是刻意的过渡设计（见提交 `7fd82b0 feat(service): 补齐高频读取接口的异步 service 双轨`）：
-生产装了 `asyncmy` 走异步，开发没装则回退同步、不崩。代价是每个请求仍申请一条同步连接。
+- `FasdtApi/knowledge.py`：`list_my_documents` / `{agent}/list` / `{agent}/{kid}` / `{agent}/{kid}/chunks`
+  改为只依赖 `get_async_db`，去掉同步回退分支与随之无用的同步 DAO import（`_doc_to_dict`、
+  `list_knowledge_*`、`list_chunks_by_knowledge`）。
+- `FasdtApi/agent.py`：读接口本来就只用 `get_async_db`，无需改；`get_agent` 404 改抛 `NotFound`。
+
+回归由 `tests/test_routes_isolation.py` 兜底（本人 200 / 别人 404）。
 
 ### RAG 检索
 `rag_service.search` / `_build_search_results` 依赖同步 Session + 同步 ChromaDB + 同步 rerank。
@@ -39,11 +37,10 @@ async def handler(db: Session = Depends(get_db), async_db = Depends(get_optional
 
 ## 收口计划（优先 knowledge、agent）
 
-1. **把 asyncmy 定为硬依赖**：确认 `requirements.txt` 固定 asyncmy 版本、CI 一定安装；
-   更新 `docs/deployment.md`（当前承诺「未装 asyncmy 会回退同步」——收口后删掉该承诺）。
-2. **删掉读接口的同步回退分支**：`get_optional_async_db` → `get_async_db`，
-   移除 `db: Session = Depends(get_db)` 与随之无用的同步 DAO import，一个模块一个模块来
-   （knowledge → agent → conversation → …）。以 `tests/test_routes_isolation.py` 式的路由级测试兜底。
+1. ~~**把 asyncmy 定为硬依赖**~~ —— 早已是（`requirements.txt` 固定 `asyncmy==0.2.10`，
+   `models/async_db.py` 缺驱动直接 `raise`）。`docs/deployment.md` 的「回退同步」表述已订正。
+2. ~~**删掉读接口的同步回退分支**~~ —— knowledge / agent 已完成（见上）。
+   其余模块（conversation / skill 等）如还有类似死分支，按同样方式清。
 3. **RAG 检索异步化**：`_get_client` / 知识 chunk 反查改异步 DAO；ChromaDB / rerank 仍同步，
    统一封在 `asyncio.to_thread` 里（就像 `widget_search.py` 现在的做法），对上层呈现 `async`。
 4. **异常统一**：迁移过程中把各模块的 `raise ValueError` / `HTTPException` / 裸 `Exception`

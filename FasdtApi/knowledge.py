@@ -5,15 +5,11 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from models.init_db import get_db, User
-from models.async_db import get_optional_async_db
+from models.async_db import get_async_db
 from service.dependencies import get_current_user_async
+from service.exceptions import NotFound
 from service.rag import rag_service
 from service import knowledge_async_service, knowledge_diagnostics_async_service, knowledge_service
-from models.knowledge_dao import (
-    list_knowledge_by_agent,
-    list_knowledge_with_agent_by_user,
-)
-from models.knowledge_chunk_dao import list_chunks_by_knowledge
 from service.access_control import get_owned_agent, get_owned_knowledge
 from service.web_crawler_service import CrawlerError
 from service.web_crawler_async_service import async_crawl_url_to_markdown
@@ -21,10 +17,11 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
 
-# 迁移边界：列表/诊断等纯读接口已走 AsyncSession + *_async_service。
-# 上传 / 入库 / 重建索引 / 检索仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的
+# 迁移边界：列表 / 文档详情 / 片段等纯读接口已全量 AsyncSession（get_async_db + *_async_service），
+# 不再保留「未装 asyncmy 时回退同步」的旧分支（asyncmy 已是硬依赖，见 models/async_db.py）。
+# 上传 / 入库 / 重建索引 / 检索 / 诊断仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的
 # RAG 管线（rag_service、切分、embedding 落库），FastAPI 会把 def 端点放线程池。
-# 待 RAG 管线 async 化后再统一收口。
+# 待 RAG 管线 async 化后再统一收口，见 docs/sync-async-boundary.md。
 
 # 允许的文件类型
 ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
@@ -72,32 +69,12 @@ def _validate_upload_file_name(file_name: str) -> str:
     return file_type
 
 
-def _doc_to_dict(doc, agent_name: str = None):
-    return {
-        "id": doc.id,
-        "agent_id": doc.agent_id,
-        "agent_name": agent_name,
-        "file_name": doc.file_name,
-        "file_type": doc.file_type,
-        "file_size": doc.file_size,
-        "chunk_count": doc.chunk_count,
-        "status": doc.status,
-        "is_enabled": doc.is_enabled if doc.is_enabled is not None else 1,
-        "error_msg": doc.error_msg,
-        "created_at": doc.created_at.strftime("%Y-%m-%d %H:%M:%S") if doc.created_at else None,
-    }
-
-
 @router.get("/my/list", summary="查看我的全部资料")
 async def list_my_documents(
-        db: Session = Depends(get_db),
-        async_db=Depends(get_optional_async_db),
+        async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        return await knowledge_async_service.list_my_documents(async_db, current_user.id)
-    rows = list_knowledge_with_agent_by_user(db, current_user.id)
-    return [_doc_to_dict(doc, agent_name=agent_name) for doc, agent_name in rows]
+    return await knowledge_async_service.list_my_documents(async_db, current_user.id)
 
 
 @router.post("/crawl/check", summary="检测网页地址是否允许抓取")
@@ -296,18 +273,13 @@ async def crawl_documents(
 @router.get("/{agent_id}/list", summary="查看知识库文档列表")
 async def list_documents(
         agent_id: int,
-        db: Session = Depends(get_db),
-        async_db=Depends(get_optional_async_db),
+        async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        result = await knowledge_async_service.list_owned_documents(async_db, current_user.id, agent_id)
-        if result is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="智能体不存在或无权限")
-        return result
-    _ensure_agent_owner(db, current_user.id, agent_id)
-    docs = list_knowledge_by_agent(db, agent_id)
-    return [_doc_to_dict(d) for d in docs]
+    result = await knowledge_async_service.list_owned_documents(async_db, current_user.id, agent_id)
+    if result is None:
+        raise NotFound("智能体不存在或无权限")
+    return result
 
 
 @router.post("/{agent_id}/import/{knowledge_id}", summary="把我的已有资料导入当前智能体")
@@ -337,67 +309,28 @@ async def import_document_to_agent(
 async def get_document(
         agent_id: int,
         knowledge_id: int,
-        db: Session = Depends(get_db),
-        async_db=Depends(get_optional_async_db),
+        async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        result = await knowledge_async_service.get_document(async_db, current_user.id, agent_id, knowledge_id)
-        if not result:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
-        return result
-    _ensure_agent_owner(db, current_user.id, agent_id)
-    doc = get_owned_knowledge(db, current_user.id, knowledge_id, agent_id=agent_id)
-    if not doc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
-    return {
-        "id": doc.id,
-        "file_name": doc.file_name,
-        "file_type": doc.file_type,
-        "file_size": doc.file_size,
-        "chunk_count": doc.chunk_count,
-        "status": doc.status,
-        "is_enabled": doc.is_enabled if doc.is_enabled is not None else 1,
-        "error_msg": doc.error_msg,
-        "created_at": doc.created_at.strftime("%Y-%m-%d %H:%M:%S") if doc.created_at else None,
-    }
+    result = await knowledge_async_service.get_document(async_db, current_user.id, agent_id, knowledge_id)
+    if not result:
+        raise NotFound("文档不存在或无权限")
+    return result
 
 
 @router.get("/{agent_id}/{knowledge_id}/chunks", summary="查看文档切分片段")
 async def list_document_chunks(
         agent_id: int,
         knowledge_id: int,
-        db: Session = Depends(get_db),
-        async_db=Depends(get_optional_async_db),
+        async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        result = await knowledge_async_service.list_document_chunks(
-            async_db, current_user.id, agent_id, knowledge_id
-        )
-        if result is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
-        return result
-    _ensure_agent_owner(db, current_user.id, agent_id)
-    doc = get_owned_knowledge(db, current_user.id, knowledge_id, agent_id=agent_id)
-    if not doc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文档不存在或无权限")
-    chunks = list_chunks_by_knowledge(db, knowledge_id)
-    return {
-        "knowledge_id": knowledge_id,
-        "count": len(chunks),
-        "chunks": [
-            {
-                "id": c.id,
-                "chunk_index": c.chunk_index,
-                "content": c.content,
-                "token_count": c.token_count,
-                "vector_id": c.vector_id,
-                "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else None,
-            }
-            for c in chunks
-        ],
-    }
+    result = await knowledge_async_service.list_document_chunks(
+        async_db, current_user.id, agent_id, knowledge_id
+    )
+    if result is None:
+        raise NotFound("文档不存在或无权限")
+    return result
 
 
 @router.post("/{agent_id}/search", summary="检索知识库")
