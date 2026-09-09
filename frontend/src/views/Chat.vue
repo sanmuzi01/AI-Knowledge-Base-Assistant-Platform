@@ -178,7 +178,7 @@
     <!-- 右侧聊天区 -->
     <section class="flex-1 flex flex-col">
       <!-- 消息区域 -->
-      <div ref="messageListRef" class="flex-1 overflow-y-auto px-8 py-6 space-y-5">
+      <div ref="messageListRef" class="flex-1 overflow-y-auto px-8 pb-28 pt-6 space-y-5">
         <div class="mx-auto max-w-4xl rounded-lg border border-slate-200 bg-white px-4 py-3">
           <div class="flex flex-wrap items-center gap-2 text-xs">
             <span class="font-medium text-slate-700">{{ currentAgent?.name || '当前助手' }}</span>
@@ -295,7 +295,7 @@
       </div>
     </section>
           <!-- 右下角：运行轨迹浮动按钮（仅本轮对话有 run 时可用） -->
-    <div class="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+    <div class="fixed bottom-24 right-6 z-30 flex flex-col items-end gap-2">
       <!-- 当前会话下产生的 run 数徽标 -->
       <button
         @click="showTraceDrawer = true"

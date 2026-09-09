@@ -45,13 +45,13 @@ conversation / agent_run / memory / web_monitor / background_task 路由早已�
 | --- | --- | --- |
 | `rag_service.async_search` / `_build_search_results` | 半异步：向量化 async，ChromaDB + DAO 反查 + rerank 同步 | `rag_eval_service`、`agent_runtime` 仍在用，直接传同步 `db` |
 | 知识库上传 / 入库 / 重建 / 诊断 | `async def` 端点 + 同步 `knowledge_service` + 后台任务 | 重活在同步 Worker，端点只做 ownership + 建任务行 |
-| `agent_runtime`（聊天 ReAct 执行） | `chat_service.chat_with_agent` 是 `async def` 但全程同步 `db`：建会话 / 存消息 / 工具执行 / 记忆 | 最大的一块，需先出迁移设计 |
+| `agent_runtime`（聊天 ReAct 执行） | `chat_service.chat_with_agent` 是 `async def` 但全程同步 `db`：建会话 / 存消息 / 工具执行 / 记忆。旧 `run()` / `run_stream()` 死路径已删 | 分阶段方案见 `docs/agent-runtime-async-migration.md` |
 | 任务 Worker 主体 | 同步循环（`service/background_worker.py::run_once`） | 组件调度 tick 已是常驻 async loop |
 | service 层内部 `raise ValueError` 等 | 路由层已在 `except` 里翻译成领域异常 | 可随各模块迁移逐步替换为直接抛领域异常 |
 
 ## 剩余计划
 
-1. **`agent_runtime` async 化**：独立课题。先出分阶段、可回滚的迁移设计（runtime → 工具执行 →
+1. **`agent_runtime` async 化**：分阶段方案已写 `docs/agent-runtime-async-migration.md`（阶段 0 死代码清理已做）。按设计（runtime → 工具执行 →
    `conv_service` / `conv_dao` → 记忆），每层配集成测试，全程保证聊天可用。
 2. **RAG 检索彻底 async**：`embedding_service._get_client` / 知识 chunk 反查改异步 DAO，
    ChromaDB / rerank 仍同步但统一封 `to_thread`；届时 `async_search` 可退役。
