@@ -114,6 +114,38 @@ class RouteIsolationTest(unittest.TestCase):
                              headers=self.bob["headers"]).status_code, 404
         )
 
+    # ---- 知识库空间：CRUD + 跨用户隔离 ----
+
+    def test_knowledge_space_is_private_to_owner(self):
+        c = self.client.post(
+            "/knowledge-spaces",
+            json={"name": f"rt-space-{self.alice['id']}", "purpose": "policy", "tags": ["制度"]},
+            headers=self.alice["headers"],
+        )
+        self.assertEqual(c.status_code, 200, c.text)
+        sid = c.json()["id"]
+
+        mine = self.client.get("/knowledge-spaces", headers=self.alice["headers"]).json()
+        self.assertIn(sid, [s["id"] for s in mine["items"]])
+        self.assertTrue(any(p["key"] == "policy" for p in mine["purposes"]))
+
+        h = self.bob["headers"]
+        self.assertEqual(self.client.get(f"/knowledge-spaces/{sid}", headers=h).status_code, 404)
+        self.assertEqual(self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "x"}, headers=h).status_code, 404)
+        d = self.client.delete(f"/knowledge-spaces/{sid}", headers=h)
+        self.assertEqual(d.status_code, 404)
+        self.assertEqual(d.json().get("code"), "not_found")
+        self.assertNotIn(sid, [s["id"] for s in self.client.get("/knowledge-spaces", headers=h).json()["items"]])
+
+        # owner 改名 + 删除
+        self.assertEqual(
+            self.client.patch(f"/knowledge-spaces/{sid}", json={"name": "改过的名字"},
+                              headers=self.alice["headers"]).status_code, 200
+        )
+        self.assertEqual(
+            self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"]).status_code, 200
+        )
+
     # ---- 会话 / 后台任务：领域异常 + 隔离 ----
 
     def test_conversation_cross_user_404_with_code(self):

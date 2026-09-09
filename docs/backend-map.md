@@ -48,6 +48,18 @@
 
 详见 `docs/widget-platform.md`。
 
+## 4c. 知识库空间（Knowledge Space，阶段1）
+
+| 功能 | 路由 | Service | DAO |
+| --- | --- | --- | --- |
+| 空间 CRUD（用户级隔离） | `FasdtApi/knowledge_space.py`（`/knowledge-spaces`） | `service/knowledge_space/space_async_service.py` | `models/knowledge_space_async_dao.py` |
+| 迁移 / 兜底 / 统计 | - | `service/knowledge_space/{space_service,binding_service,membership}.py` | `models/{knowledge_space_dao,agent_knowledge_space_dao}.py` |
+| 隔离唯一入口 | - | `service.access_control.get_owned_space[_async]` / `user_space_ids[_async]`（阶段6 只改这里） | `knowledge_spaces`、`agent_knowledge_space` |
+| 存量迁移 | - | `scripts/migrate_agent_kb_to_space.py`（dry-run / `--apply`） | `knowledge.space_id` 回填 |
+| 向量集合键 | - | `service/rag/vector_store_service.py`：`agent_{id}` / `space_{id}` 双制式 | ChromaDB |
+
+阶段 2+ 见 `docs/knowledge-space-plan.md`。
+
 ## 5. Skill
 
 | 功能 | 路由 | Service | DAO |

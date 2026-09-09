@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Bot, Brain, Bug, Database, Globe2, KeyRound, Layers3, LayoutGrid, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
+import { Bot, Brain, Bug, Database, Globe2, KeyRound, Layers3, LayoutGrid, Library, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'
 import type { AgentInfo } from '../api/agent'
@@ -81,6 +81,7 @@ const activeAgentId = computed(() => {
 const primaryItems = computed(() => {
   return [
     { label: '工作台', path: '/agents', icon: Layers3, active: route.path.startsWith('/agents') },
+    { label: '知识库中心', path: '/knowledge-spaces', icon: Library, active: route.path.startsWith('/knowledge-spaces') },
     { label: '我的小窗口', path: '/widgets', icon: LayoutGrid, active: route.path.startsWith('/widgets') },
     { label: '连接模型', path: '/llm-configs', icon: KeyRound, active: route.path.startsWith('/llm-configs') },
     { label: '技能中心', path: '/skills', icon: Zap, active: route.path.startsWith('/skills') },

@@ -138,9 +138,14 @@ class Agent(Base):
     # Prompt文件路径
     prompt_file = Column( String(255),nullable=True)
     model_name = Column(String(100), default="glm-4")             # 用的大模型
-    rag_enabled = Column(Integer, default=0)                       # 是否启用RAG（0=否，1=是）
+    rag_enabled = Column(Integer, default=0)                       # 是否启用RAG（0=否，1=是），总开关
     memory_enabled = Column(Integer, default=1)                    # 是否启用长期记忆（0=否，1=是）
     temperature = Column(Integer, default=70)                      # 温度参数（0-100，控制创造性）
+    # ---- 知识库空间检索行为（阶段1 加列；阶段3 接线）----
+    kb_top_k = Column(Integer, nullable=False, default=5)
+    kb_rerank_enabled = Column(Integer, nullable=False, default=0)
+    kb_force_citation = Column(Integer, nullable=False, default=1)     # 回答强制带来源
+    kb_refuse_when_empty = Column(Integer, nullable=False, default=1)  # 无命中时拒答
     skills: Mapped[List["Skill"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="agents"
     )
@@ -206,6 +211,63 @@ class Knowledge(Base):
     is_enabled = Column(Integer, default=1)                 # 0=禁用 1=启用，控制是否参与RAG检索
     error_msg = Column(Text, nullable=True)                 # 失败原因
     created_at = Column(DateTime,default=utcnow, nullable=False)
+    # ---- 知识库空间升级（阶段1，加列不删旧列；agent_id 仍保留给旧路径与 legacy 向量集合）----
+    space_id = Column(Integer, ForeignKey("knowledge_spaces.id", name="fk_knowledge_space"), nullable=True)
+    category = Column(String(60), nullable=True)            # 文档分类
+    tags_json = Column(Text, nullable=True)                 # ["制度","2024"]
+    version = Column(String(40), nullable=True)             # 用户自填版本号
+    source_type = Column(String(20), nullable=False, default="upload")  # upload / web / import
+    source_url = Column(String(1000), nullable=True)        # web 抓取来源
+    updated_at = Column(DateTime, nullable=True)
+
+
+class KnowledgeSpace(Base):
+    """企业知识库空间：可复用的知识库容器，Agent 通过 agent_knowledge_space 绑定。
+
+    阶段1 为用户级隔离（user_id = owner）；team_id / organization_id 为阶段6 预留。
+    统计字段（doc_count / chunk_count / last_indexed_at）由后台任务异步回填，不实时算。
+    """
+    __tablename__ = "knowledge_spaces"
+    __table_args__ = (
+        Index("idx_kspace_user_status", "user_id", "status"),
+        Index("idx_kspace_team", "team_id"),
+        Index("idx_kspace_org", "organization_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_kspace_user"), nullable=False)
+    name = Column(String(120), nullable=False)
+    description = Column(String(500), nullable=True)
+    purpose = Column(String(60), nullable=True)             # customer_service / legal / product ...
+    tags_json = Column(Text, nullable=True)
+    is_enabled = Column(Integer, nullable=False, default=1)  # 0=停用 1=启用
+    status = Column(String(20), nullable=False, default="active")   # active / archived
+    doc_count = Column(Integer, nullable=False, default=0)
+    chunk_count = Column(Integer, nullable=False, default=0)
+    last_indexed_at = Column(DateTime, nullable=True)
+    health_score = Column(Integer, nullable=True)           # 0~100，阶段5 回填
+    health_json = Column(Text, nullable=True)
+    # 迁移 / 企业预留
+    legacy_agent_id = Column(Integer, nullable=True)        # 由某 Agent 私有库升级而来
+    vector_migrated = Column(Integer, nullable=False, default=1)   # 0=检索需双读 legacy collection
+    team_id = Column(Integer, nullable=True)
+    organization_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class AgentKnowledgeSpace(Base):
+    """Agent ↔ 知识库空间 多对多绑定。"""
+    __tablename__ = "agent_knowledge_space"
+    __table_args__ = (
+        Index("uq_agent_space", "agent_id", "space_id", unique=True),
+        Index("idx_aks_space", "space_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(Integer, ForeignKey("agent.id", name="fk_aks_agent"), nullable=False)
+    space_id = Column(Integer, ForeignKey("knowledge_spaces.id", name="fk_aks_space"), nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 # 知识块表（文档切分后的块，含向量库id引用）
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunk"
@@ -514,6 +576,29 @@ def _run_migrations():
          "ALTER TABLE user_profile ADD COLUMN auto_summary TEXT NULL COMMENT 'AI自动提炼的用户画像'"),
         ("user_profile", "last_inferred_at",
          "ALTER TABLE user_profile ADD COLUMN last_inferred_at DATETIME NULL COMMENT '最近一次自动画像更新时间'"),
+        # ---- 知识库空间升级（阶段1）----
+        ("knowledge", "space_id",
+         "ALTER TABLE knowledge ADD COLUMN space_id INT NULL COMMENT '所属知识库空间'"),
+        ("knowledge", "category",
+         "ALTER TABLE knowledge ADD COLUMN category VARCHAR(60) NULL COMMENT '文档分类'"),
+        ("knowledge", "tags_json",
+         "ALTER TABLE knowledge ADD COLUMN tags_json TEXT NULL COMMENT '文档标签'"),
+        ("knowledge", "version",
+         "ALTER TABLE knowledge ADD COLUMN version VARCHAR(40) NULL COMMENT '用户自填版本号'"),
+        ("knowledge", "source_type",
+         "ALTER TABLE knowledge ADD COLUMN source_type VARCHAR(20) NOT NULL DEFAULT 'upload' COMMENT 'upload/web/import'"),
+        ("knowledge", "source_url",
+         "ALTER TABLE knowledge ADD COLUMN source_url VARCHAR(1000) NULL COMMENT 'web 抓取来源'"),
+        ("knowledge", "updated_at",
+         "ALTER TABLE knowledge ADD COLUMN updated_at DATETIME NULL COMMENT '最近更新时间'"),
+        ("agent", "kb_top_k",
+         "ALTER TABLE agent ADD COLUMN kb_top_k INT NOT NULL DEFAULT 5 COMMENT '知识库检索 top_k'"),
+        ("agent", "kb_rerank_enabled",
+         "ALTER TABLE agent ADD COLUMN kb_rerank_enabled INT NOT NULL DEFAULT 0 COMMENT '知识库检索是否 rerank'"),
+        ("agent", "kb_force_citation",
+         "ALTER TABLE agent ADD COLUMN kb_force_citation INT NOT NULL DEFAULT 1 COMMENT '回答强制带来源'"),
+        ("agent", "kb_refuse_when_empty",
+         "ALTER TABLE agent ADD COLUMN kb_refuse_when_empty INT NOT NULL DEFAULT 1 COMMENT '无命中时拒答'"),
     ]
     with engine.connect() as conn:
         for table, col, ddl in migrations:

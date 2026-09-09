@@ -23,6 +23,7 @@ from FasdtApi.agent import router as agent_router
 from FasdtApi.llm_config import router as llm_config_router
 from FasdtApi.chat import router as chat_router
 from FasdtApi.knowledge import router as knowledge_router
+from FasdtApi.knowledge_space import router as knowledge_space_router
 from FasdtApi.agent_run import router as agent_run_router
 from FasdtApi.skill_route import router as skill_router
 from FasdtApi.conversation_route import router as conversation_router
@@ -95,6 +96,7 @@ app.include_router(agent_router)
 app.include_router(llm_config_router)
 app.include_router(chat_router)
 app.include_router(knowledge_router)
+app.include_router(knowledge_space_router)
 app.include_router(agent_run_router)
 app.include_router(skill_router)
 app.include_router(conversation_router)  # 注册会话路由

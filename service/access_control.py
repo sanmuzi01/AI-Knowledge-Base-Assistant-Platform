@@ -127,3 +127,33 @@ async def get_owned_memory_async(
     from models.memory_async_dao import get_owned_memory_async as _dao
 
     return await _dao(db, user_id, memory_id, agent_id)
+
+
+# ---------------------------------------------------------------------------
+# 知识库空间（Knowledge Space）—— 阶段1 用户级隔离。
+# user_space_ids / get_owned_space 是**唯一的隔离入口**：阶段6 加团队/企业权限时
+# 只改这两个函数的实现，调用点不变。
+# ---------------------------------------------------------------------------
+
+def get_owned_space(db, user_id: int, space_id: int):
+    from models.knowledge_space_dao import get_owned_space as _dao
+
+    return _dao(db, user_id, space_id)
+
+
+def user_space_ids(db, user_id: int) -> set:
+    from models.knowledge_space_dao import list_spaces_by_user
+
+    return {s.id for s in list_spaces_by_user(db, user_id)}
+
+
+async def get_owned_space_async(db, user_id: int, space_id: int):
+    from models.knowledge_space_async_dao import get_owned_space_async as _dao
+
+    return await _dao(db, user_id, space_id)
+
+
+async def user_space_ids_async(db, user_id: int) -> set:
+    from models.knowledge_space_async_dao import user_space_ids_async as _dao
+
+    return set(await _dao(db, user_id))

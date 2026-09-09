@@ -111,6 +111,9 @@ def cleanup():
         # 知识 + chunk（按 agent 归属）
         db.execute(text(f"DELETE c FROM knowledge_chunk c JOIN knowledge k ON c.knowledge_id=k.id JOIN agent a ON k.agent_id=a.id WHERE a.user_id IN {in_clause}"))
         db.execute(text(f"DELETE k FROM knowledge k JOIN agent a ON k.agent_id=a.id WHERE a.user_id IN {in_clause}"))
+        # 知识库空间 + Agent 绑定
+        db.execute(text(f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {in_clause}"))
+        db.execute(text(f"DELETE FROM knowledge_spaces WHERE user_id IN {in_clause}"))
         db.execute(text(f"UPDATE `user` SET selected_agent_id=NULL WHERE id IN {in_clause}"))
         db.execute(text(f"DELETE FROM agent WHERE user_id IN {in_clause}"))
         db.execute(text(f"DELETE FROM user_role WHERE user_id IN {in_clause}"))

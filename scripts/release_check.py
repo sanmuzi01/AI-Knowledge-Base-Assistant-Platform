@@ -31,6 +31,17 @@ REQUIRED_FILES = [
     "docs/load-testing.md",
     "docs/database-migrations.md",
     "docs/testing.md",
+    # 知识库空间（阶段1）
+    "FasdtApi/knowledge_space.py",
+    "service/knowledge_space/space_async_service.py",
+    "service/knowledge_space/space_service.py",
+    "service/knowledge_space/binding_service.py",
+    "service/knowledge_space/membership.py",
+    "models/knowledge_space_dao.py",
+    "models/knowledge_space_async_dao.py",
+    "models/agent_knowledge_space_dao.py",
+    "scripts/migrate_agent_kb_to_space.py",
+    "docs/knowledge-space-plan.md",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",
