@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from models.init_db import User, get_db
-from models.async_db import get_optional_async_db
+from models.async_db import get_async_db
 from service.dependencies import get_current_user, get_current_user_async
+from service.exceptions import NotFound
 from service import skill_async_service
 from service.skill_service import (
     bind_skill,
@@ -16,31 +17,26 @@ from service.skill_service import (
     export_skill_package,
     create_skill,
     delete_skill,
-    get_skill,
-    get_skill_config,
     get_template_config,
     import_skill_from_upload,
     install_public_skill,
-    list_agent_skills,
     list_available_tools,
-    list_public_skills,
     list_templates,
-    list_user_skills,
     unbind_skill,
     update_agent_skills,
     update_skill,
     update_skill_with_config,
     update_skill_config,
     update_template,
-    validate_skill,
 )
 
 router = APIRouter(prefix="/skill", tags=["Skill管理"])
 
-# 迁移边界：部分读接口已走 AsyncSession + skill_async_service。
-# 创建 / 绑定 / 导入导出 / 安装公共 Skill 仍用同步 get_db —— skill_service /
-# skills_core 里混了文件系统操作（写 SKILL.md、打包 zip）和同步 ORM，
-# FastAPI 会把 def 端点放线程池。待 skills_core 迁到 AsyncSession 后再统一收口。
+# 迁移边界：读接口（我的/公开/单个 Skill、校验、Agent 绑定列表）已全量 AsyncSession，
+# 不再保留「未装 asyncmy 回退同步」的死分支（asyncmy 已是硬依赖）。
+# 创建 / 绑定 / 导入导出 / 安装公共 Skill 仍用同步 get_db —— skill_service / skills_core
+# 里混了文件系统操作（写 SKILL.md、打包 zip）和同步 ORM，FastAPI 会把 def 端点放线程池。
+# 待 skills_core 迁到 AsyncSession 后再统一收口，见 docs/sync-async-boundary.md。
 
 
 class SkillCreate(BaseModel):
@@ -97,27 +93,19 @@ def api_create_skill(
 
 @router.get("/", summary="查询当前用户的所有Skill")
 async def api_list_my_skills(
-    db: Session = Depends(get_db),
-    async_db=Depends(get_optional_async_db),
+    async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        skills = await skill_async_service.list_user_skills(async_db, current_user.id)
-        return {"code": 200, "msg": "查询成功", "data": skills}
-    skills = list_user_skills(db, current_user.id)
+    skills = await skill_async_service.list_user_skills(async_db, current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 
 @router.get("/public", summary="查询所有公开Skill")
 async def api_list_public_skills(
-    db: Session = Depends(get_db),
-    async_db=Depends(get_optional_async_db),
+    async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        skills = await skill_async_service.list_public_skills(async_db)
-        return {"code": 200, "msg": "查询成功", "data": skills}
-    skills = list_public_skills(db)
+    skills = await skill_async_service.list_public_skills(async_db)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 
@@ -198,16 +186,12 @@ def api_list_tools(
 @router.get("/{skill_id}/validate", summary="校验Skill是否可用")
 async def api_validate_skill(
     skill_id: int,
-    db: Session = Depends(get_db),
-    async_db=Depends(get_optional_async_db),
+    async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        result = await skill_async_service.validate_skill(async_db, skill_id, user_id=current_user.id)
-    else:
-        result = validate_skill(db, skill_id, user_id=current_user.id)
+    result = await skill_async_service.validate_skill(async_db, skill_id, user_id=current_user.id)
     if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
+        raise NotFound("Skill不存在")
     return {"code": 200, "msg": "校验完成", "data": result}
 
 
@@ -271,18 +255,12 @@ async def api_import_skill(
 @router.get("/{skill_id}", summary="查询单个Skill详情")
 async def api_get_skill(
     skill_id: int,
-    db: Session = Depends(get_db),
-    async_db=Depends(get_optional_async_db),
+    async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        skill = await skill_async_service.get_skill_with_config(async_db, skill_id, user_id=current_user.id)
-    else:
-        skill = get_skill(db, skill_id, user_id=current_user.id)
-        if skill:
-            skill["config"] = get_skill_config(db, skill_id, user_id=current_user.id)
+    skill = await skill_async_service.get_skill_with_config(async_db, skill_id, user_id=current_user.id)
     if not skill:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill不存在")
+        raise NotFound("Skill不存在")
     return {"code": 200, "msg": "查询成功", "data": skill}
 
 
@@ -357,14 +335,10 @@ def api_unbind_skill(
 @router.get("/agent/{agent_id}", summary="查询Agent绑定的所有Skill")
 async def api_list_agent_skills(
     agent_id: int,
-    db: Session = Depends(get_db),
-    async_db=Depends(get_optional_async_db),
+    async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    if async_db is not None:
-        skills = await skill_async_service.list_agent_skills(async_db, agent_id, user_id=current_user.id)
-        return {"code": 200, "msg": "查询成功", "data": skills}
-    skills = list_agent_skills(db, agent_id, user_id=current_user.id)
+    skills = await skill_async_service.list_agent_skills(async_db, agent_id, user_id=current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 

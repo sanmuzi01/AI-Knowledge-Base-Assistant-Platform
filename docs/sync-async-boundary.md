@@ -24,8 +24,12 @@
   改为只依赖 `get_async_db`，去掉同步回退分支与随之无用的同步 DAO import（`_doc_to_dict`、
   `list_knowledge_*`、`list_chunks_by_knowledge`）。
 - `FasdtApi/agent.py`：读接口本来就只用 `get_async_db`，无需改；`get_agent` 404 改抛 `NotFound`。
+- `FasdtApi/skill_route.py`：`/`、`/public`、`/{id}`、`/{id}/validate`、`/agent/{id}` 五个读接口
+  收敛为纯 `get_async_db`，删同步回退分支与随之无用的 `list_user_skills` / `list_public_skills` /
+  `validate_skill` / `list_agent_skills` / `get_skill` / `get_skill_config` import；404 改抛 `NotFound`。
+- `FasdtApi/conversation_route.py`：早已全量 `get_async_db`，无死分支。
 
-回归由 `tests/test_routes_isolation.py` 兜底（本人 200 / 别人 404）。
+回归由 `tests/test_routes_isolation.py` 兜底（本人 200 / 别人 404 / 不存在 404）。
 
 ### RAG 检索
 `rag_service.search` / `_build_search_results` 依赖同步 Session + 同步 ChromaDB + 同步 rerank。
