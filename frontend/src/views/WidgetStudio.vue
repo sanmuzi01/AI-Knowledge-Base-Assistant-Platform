@@ -1,18 +1,12 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent">
-    <header class="flex h-16 items-center justify-between border-b border-sky-200/70 bg-white/78 px-6 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
-      <div class="flex min-w-0 items-center gap-3">
-        <button
-          @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
-          title="返回工作台"
-        >
-          <ArrowLeft :size="16" />
-        </button>
-        <div class="min-w-0">
-          <h1 class="truncate text-base font-semibold text-slate-900">我的小窗口</h1>
-          <p class="truncate text-xs text-slate-500">用一句话描述你想看的内容，AI 帮你做成小窗口放在这里</p>
-        </div>
+    <header class="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-sky-200/70 bg-white/78 px-6 py-2 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
+      <div class="flex min-w-0 flex-col gap-1.5">
+        <SectionTabs :tabs="[
+          { label: '我的小窗口', path: '/widgets' },
+          { label: '网页监控', path: '/web-monitor' },
+        ]" />
+        <p class="truncate text-xs text-slate-500">用一句话描述你想看的内容，AI 帮你做成小窗口放在这里</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -106,8 +100,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowLeft, Bell, RefreshCcw, Upload } from 'lucide-vue-next'
+import { Bell, RefreshCcw, Upload } from 'lucide-vue-next'
+import SectionTabs from '../components/SectionTabs.vue'
 import {
   deleteWidget,
   exportWidget,
@@ -124,7 +118,6 @@ import WidgetEditDialog from '../components/widgets/studio/WidgetEditDialog.vue'
 import WidgetDetailDialog from '../components/widgets/studio/WidgetDetailDialog.vue'
 import WidgetTransferDialog from '../components/widgets/studio/WidgetTransferDialog.vue'
 
-const router = useRouter()
 
 const widgets = ref<WidgetItem[]>([])
 const loading = ref(true)

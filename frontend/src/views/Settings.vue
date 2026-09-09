@@ -1,19 +1,25 @@
 <template>
   <div class="h-screen overflow-y-auto bg-transparent p-6">
     <div class="mx-auto max-w-5xl">
-      <header class="mb-5 flex items-center justify-between">
-        <div>
-          <h1 class="text-base font-semibold text-slate-950">个人设置</h1>
-          <p class="text-xs text-slate-500">让 AI 了解你的使用习惯、回答偏好，并查看服务是否正常运行。</p>
+      <header class="mb-4">
+        <div class="mb-3 flex items-center justify-between">
+          <div>
+            <h1 class="text-base font-semibold text-slate-950">设置</h1>
+            <p class="text-xs text-slate-500">连接 AI 服务、个性化画像，以及查看系统运行状态。</p>
+          </div>
+          <button
+            @click="loadHealth"
+            :disabled="loading"
+            class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
+          >
+            <RefreshCcw :size="15" :class="loading ? 'animate-spin' : ''" />
+            刷新
+          </button>
         </div>
-        <button
-          @click="loadHealth"
-          :disabled="loading"
-          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
-        >
-          <RefreshCcw :size="15" :class="loading ? 'animate-spin' : ''" />
-          刷新
-        </button>
+        <SectionTabs :tabs="[
+          { label: '模型连接', path: '/llm-configs' },
+          { label: '个性化与系统状态', path: '/settings' },
+        ]" />
       </header>
 
       <section class="sci-panel mb-5 overflow-hidden rounded-lg p-5">
@@ -251,6 +257,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { AlertTriangle, CheckCircle2, KeyRound, RefreshCcw, Save, UserRound } from 'lucide-vue-next'
+import SectionTabs from '../components/SectionTabs.vue'
 import * as systemApi from '../api/system'
 import type { HealthStatus } from '../api/system'
 import { defaultProfile, getUserProfile, saveUserProfile } from '../api/userProfile'

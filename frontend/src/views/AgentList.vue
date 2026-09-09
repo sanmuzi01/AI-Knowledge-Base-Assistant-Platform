@@ -458,7 +458,7 @@
                   <MessageSquare :size="15" />
                 </button>
                 <button
-                  @click="router.push(`/knowledge/${agent.id}`)"
+                  @click="router.push(`/agents/${agent.id}/knowledge`)"
                   class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
                     title="添加资料"
                 >
@@ -744,7 +744,7 @@ const featureModules = computed(() => {
       value: `${knowledgeDone} / ${knowledgeTotal} 已入库`,
       desc: knowledgeDone > 0 ? '资料已经能被检索，后续可继续增加网页和文档来源。' : '还没有可检索内容，建议先上传文档或抓取网页。',
       icon: Database,
-      path: selectedAgent.value ? `/knowledge/${selectedAgent.value.id}` : '/agents',
+      path: selectedAgent.value ? `/agents/${selectedAgent.value.id}/knowledge` : '/agents',
       state: knowledgeDone > 0 ? '可检索' : '空',
       stateClass: knowledgeDone > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
     },
@@ -774,7 +774,7 @@ const featureModules = computed(() => {
       value: `${counts?.memories ?? 0} 条记忆`,
       desc: (counts?.memories ?? 0) > 0 ? '助手可结合历史偏好和项目背景回答。' : '记忆还未沉淀，持续对话后会更个性化。',
       icon: Brain,
-      path: selectedAgent.value ? `/memory/${selectedAgent.value.id}` : '/settings',
+      path: selectedAgent.value ? `/agents/${selectedAgent.value.id}/memory` : '/agents',
       state: (counts?.memories ?? 0) > 0 ? '已沉淀' : '待生成',
       stateClass: (counts?.memories ?? 0) > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500',
     },
@@ -945,7 +945,7 @@ const setupItems = computed(() => {
       icon: Database,
       done: (dashboard.value?.counts.knowledge_done ?? 0) > 0,
       active: shouldAddKnowledge,
-      action: () => selected ? router.push(`/knowledge/${selected.id}`) : openCreateDialog(),
+      action: () => selected ? router.push(`/agents/${selected.id}/knowledge`) : openCreateDialog(),
     },
     {
       key: 'chat',
@@ -1087,7 +1087,7 @@ const reload = async () => {
 }
 
 const enterChat = (agentId: number) => {
-  router.push(`/chat/${agentId}`)
+  router.push(`/agents/${agentId}/chat`)
 }
 
 const openCreateDialog = () => {

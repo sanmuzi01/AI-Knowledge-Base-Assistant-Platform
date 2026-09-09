@@ -104,7 +104,18 @@ viewer 只读、editor 增删文档、admin 改空间·管成员、owner 删空�
 | 请求 ID 中间件 | - | `service/request_context_middleware.py` | - |
 | 指标 | `FasdtApi/main.py` | `service/metrics_service.py` | Prometheus |
 
-## 8. 调试入口
+## 8. 前端信息架构（整合后）
+
+侧栏「主要功能」6 项：工作台 `/agents` · 知识库中心 `/knowledge-spaces` · 小窗口与监控 `/widgets`
+（`网页监控` `/web-monitor` 通过页内 `SectionTabs` 切换）· 技能中心 `/skills` · 任务中心 `/tasks` ·
+设置 `/settings`（`模型连接` `/llm-configs` 通过 `SectionTabs` 切换）。
+
+侧栏「当前助手」收为 1 项「助手空间」→ `/agents/:id/chat`，页内用 `AgentSubnav` 在
+聊天 `/agents/:id/chat` · 知识库 `/agents/:id/knowledge`（`AgentKnowledgePanel.vue`：看绑定的空间 +
+快速检索测试，管理跳知识库中心）· 记忆 `/agents/:id/memory` · 运行检查 `/agents/:id/debug` 间切换。
+旧路径 `/chat/:id` `/memory/:id` `/knowledge/:id` 均重定向到新路径，后端接口不变。
+
+## 8b. 调试入口
 
 常用命令：
 

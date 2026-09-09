@@ -1,25 +1,22 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent text-slate-950">
     <header class="border-b border-slate-200/80 bg-white/88 px-5 py-4 shadow-sm backdrop-blur-xl lg:px-8">
-      <div class="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div class="flex items-start gap-3">
-          <button
-            @click="router.push('/agents')"
-            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-            title="返回工作台"
-          >
-            <ArrowLeft :size="16" />
-          </button>
+      <div class="mx-auto max-w-6xl">
+        <SectionTabs class="mb-3" :tabs="[
+          { label: '模型连接', path: '/llm-configs' },
+          { label: '个性化与系统状态', path: '/settings' },
+        ]" />
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 class="text-xl font-semibold text-slate-950">连接 AI 服务</h1>
             <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
               选择你已有的平台，粘贴一次访问密钥，系统会自动准备“回答问题”和“读取资料”两项能力。
             </p>
           </div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 lg:w-[330px]">
-          <StatusCard label="回答问题" :ok="chatConfigs.length > 0" :text="chatConfigs.length ? '已开启' : '未开启'" />
-          <StatusCard label="读取资料" :ok="embeddingConfigs.length > 0" :text="embeddingConfigs.length ? '已开启' : '未开启'" />
+          <div class="grid grid-cols-2 gap-2 lg:w-[330px]">
+            <StatusCard label="回答问题" :ok="chatConfigs.length > 0" :text="chatConfigs.length ? '已开启' : '未开启'" />
+            <StatusCard label="读取资料" :ok="embeddingConfigs.length > 0" :text="embeddingConfigs.length ? '已开启' : '未开启'" />
+          </div>
         </div>
       </div>
     </header>
@@ -182,8 +179,8 @@
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowLeft, CheckCircle2, Clipboard, KeyRound, Trash2 } from 'lucide-vue-next'
+import { CheckCircle2, Clipboard, KeyRound, Trash2 } from 'lucide-vue-next'
+import SectionTabs from '../components/SectionTabs.vue'
 import * as llmApi from '../api/llmConfig'
 import type { LlmConfig, LlmConfigTestResult, SupportedModel } from '../api/llmConfig'
 import { getErrorMessage } from '../utils/request'
@@ -192,7 +189,6 @@ import { toastError, toastSuccess } from '../utils/toast'
 type ProviderKey = 'zhipu' | 'deepseek' | 'openai'
 type CapabilityKey = 'chat' | 'embedding'
 
-const router = useRouter()
 const configs = ref<LlmConfig[]>([])
 const supportedCatalog = ref<{ chat: SupportedModel[]; embedding: SupportedModel[] }>({ chat: [], embedding: [] })
 const selectedProvider = ref<ProviderKey>('zhipu')

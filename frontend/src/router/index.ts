@@ -84,10 +84,24 @@ const router = createRouter({
       component: () => import('../views/knowledge/SpaceHealth.vue'),
       props: true,
     },
+    // 助手空间：聊天 / 知识库 / 记忆 / 运行检查 统一收在 /agents/:agentId/* 下
+    { path: '/agents/:agentId', redirect: (to) => `/agents/${to.params.agentId}/chat` },
     {
-      path: '/chat/:agentId',
+      path: '/agents/:agentId/chat',
       name: 'Chat',
       component: () => import('../views/Chat.vue'),
+      props: true,
+    },
+    {
+      path: '/agents/:agentId/knowledge',
+      name: 'AgentKnowledge',
+      component: () => import('../views/AgentKnowledgePanel.vue'),
+      props: true,
+    },
+    {
+      path: '/agents/:agentId/memory',
+      name: 'Memory',
+      component: () => import('../views/Memory.vue'),
       props: true,
     },
     {
@@ -96,18 +110,10 @@ const router = createRouter({
       component: () => import('../views/AgentDebug.vue'),
       props: true,
     },
-    {
-      path: '/memory/:agentId',
-      name: 'Memory',
-      component: () => import('../views/Memory.vue'),
-      props: true,
-    },
-    {
-        path: '/knowledge/:agentId',
-        name: 'Knowledge',
-        component: () => import('../views/Knowledge.vue'),
-        props: true,
-    },
+    // 旧链接兼容重定向（不删功能）
+    { path: '/chat/:agentId', redirect: (to) => `/agents/${to.params.agentId}/chat` },
+    { path: '/memory/:agentId', redirect: (to) => `/agents/${to.params.agentId}/memory` },
+    { path: '/knowledge/:agentId', redirect: (to) => `/agents/${to.params.agentId}/knowledge` },
   ],
 })
 

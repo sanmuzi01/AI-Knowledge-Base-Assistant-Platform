@@ -13,7 +13,7 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-2 py-3">
-          <p class="px-3 pb-1 text-[11px] font-medium text-sky-600/70">开始使用</p>
+          <p class="px-3 pb-1 text-[11px] font-medium text-sky-600/70">主要功能</p>
           <RouterLink
             v-for="item in primaryItems"
             :key="item.path"
@@ -25,17 +25,15 @@
           </RouterLink>
 
           <div class="my-3 border-t border-sky-100"></div>
-          <p class="px-3 pb-1 text-[11px] font-medium text-sky-600/70">当前使用</p>
-
+          <p class="px-3 pb-1 text-[11px] font-medium text-sky-600/70">当前助手</p>
           <RouterLink
-            v-for="item in agentItems"
-            :key="item.label"
-            :to="item.disabled ? route.fullPath : item.path"
-            :class="navClass(item.active, item.disabled)"
+            :to="agentSpace.disabled ? route.fullPath : agentSpace.path"
+            :class="navClass(agentSpace.active, agentSpace.disabled)"
           >
-            <component :is="item.icon" :size="16" />
-            <span>{{ item.label }}</span>
+            <MessageSquare :size="16" />
+            <span class="truncate">{{ agentSpace.label }}</span>
           </RouterLink>
+          <p v-if="agentSpace.disabled" class="px-3 pt-1 text-[11px] text-slate-400">先在工作台选一个助手</p>
         </nav>
 
         <div class="border-t border-sky-100 p-2">
@@ -59,7 +57,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Bot, Brain, Bug, Database, Globe2, KeyRound, Layers3, LayoutGrid, Library, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
+import { Bot, Layers3, LayoutGrid, Library, ListChecks, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import * as agentApi from '../api/agent'
 import type { AgentInfo } from '../api/agent'
@@ -78,50 +76,26 @@ const activeAgentId = computed(() => {
   return routeAgentId.value || selectedAgent.value?.id || userStore.user?.selected_agent_id || null
 })
 
-const primaryItems = computed(() => {
-  return [
-    { label: '工作台', path: '/agents', icon: Layers3, active: route.path.startsWith('/agents') },
-    { label: '知识库中心', path: '/knowledge-spaces', icon: Library, active: route.path.startsWith('/knowledge-spaces') },
-    { label: '我的小窗口', path: '/widgets', icon: LayoutGrid, active: route.path.startsWith('/widgets') },
-    { label: '连接模型', path: '/llm-configs', icon: KeyRound, active: route.path.startsWith('/llm-configs') },
-    { label: '技能中心', path: '/skills', icon: Zap, active: route.path.startsWith('/skills') },
-    { label: '网页监控', path: '/web-monitor', icon: Globe2, active: route.path.startsWith('/web-monitor') },
-    { label: '系统状态', path: '/settings', icon: Settings, active: route.path.startsWith('/settings') },
-  ]
-})
+const primaryItems = computed(() => [
+  { label: '工作台', path: '/agents', icon: Layers3, active: route.path === '/agents' },
+  { label: '知识库中心', path: '/knowledge-spaces', icon: Library, active: route.path.startsWith('/knowledge-spaces') },
+  { label: '小窗口与监控', path: '/widgets', icon: LayoutGrid, active: route.path.startsWith('/widgets') || route.path.startsWith('/web-monitor') },
+  { label: '技能中心', path: '/skills', icon: Zap, active: route.path.startsWith('/skills') },
+  { label: '任务中心', path: '/tasks', icon: ListChecks, active: route.path.startsWith('/tasks') },
+  { label: '设置', path: '/settings', icon: Settings, active: route.path.startsWith('/settings') || route.path.startsWith('/llm-configs') },
+])
 
-const agentItems = computed(() => {
+const agentSpace = computed(() => {
   const agentId = activeAgentId.value
-  return [
-    {
-      label: '聊天',
-      path: agentId ? `/chat/${agentId}` : route.fullPath,
-      icon: MessageSquare,
-      active: route.path.startsWith('/chat'),
-      disabled: !agentId,
-    },
-    {
-      label: '本助手知识库',
-      path: agentId ? `/knowledge/${agentId}` : route.fullPath,
-      icon: Database,
-      active: route.path.startsWith('/knowledge/'),
-      disabled: !agentId,
-    },
-    {
-      label: '长期记忆',
-      path: agentId ? `/memory/${agentId}` : route.fullPath,
-      icon: Brain,
-      active: route.path.startsWith('/memory'),
-      disabled: !agentId,
-    },
-    {
-      label: '运行检查',
-      path: agentId ? `/agents/${agentId}/debug` : route.fullPath,
-      icon: Bug,
-      active: route.path.includes('/debug'),
-      disabled: !agentId,
-    },
-  ]
+  const inSpace = agentId != null && route.path.startsWith(`/agents/${agentId}/`)
+  return {
+    label: inSpace || agentId != null
+      ? `助手空间${selectedAgent.value?.name ? ' · ' + selectedAgent.value.name : ''}`
+      : '助手空间',
+    path: agentId != null ? `/agents/${agentId}/chat` : route.fullPath,
+    active: inSpace,
+    disabled: agentId == null,
+  }
 })
 
 const navClass = (active: boolean, disabled = false) => [

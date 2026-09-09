@@ -64,6 +64,10 @@ REQUIRED_FILES = [
     "migrations/versions/20260911_0006_space_permissions.py",
     "frontend/src/components/knowledge/SpaceMembersPanel.vue",
     "frontend/src/views/admin/AdminKnowledgeSpaces.vue",
+    # 前端信息架构整合：助手空间标签导航 + 分区标签
+    "frontend/src/components/agent/AgentSubnav.vue",
+    "frontend/src/components/SectionTabs.vue",
+    "frontend/src/views/AgentKnowledgePanel.vue",
     # 反向代理 + 监控模板
     "deploy/nginx.conf",
     "deploy/prometheus.yml",

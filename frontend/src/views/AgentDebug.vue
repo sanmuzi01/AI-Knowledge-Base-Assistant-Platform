@@ -1,26 +1,19 @@
 <template>
   <div class="h-screen overflow-y-auto bg-transparent">
     <div class="mx-auto max-w-7xl px-4 py-5 lg:px-6">
-      <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-medium text-sky-700">Agent Workbench</p>
-          <h1 class="mt-1 truncate text-xl font-semibold text-slate-950">{{ debug?.agent.name || `助手 #${agentId}` }}</h1>
-          <p class="mt-1 text-sm text-slate-500">检查配置、验证资料命中、评估 RAG 质量，把调试工作收在一个清晰工作台里。</p>
-        </div>
-        <div class="flex shrink-0 flex-wrap gap-2">
-          <button @click="runOneClickCheck" :disabled="dryRunLoading" class="inline-flex h-9 items-center gap-2 rounded border border-sky-200 bg-white px-3 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-60">
-            <ClipboardCheck :size="15" />
-            一键体检
-          </button>
-          <button @click="router.push(`/chat/${agentId}`)" class="inline-flex h-9 items-center gap-2 rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50">
-            <MessageSquare :size="15" />
-            去聊天
-          </button>
-          <button @click="loadDebug" :disabled="loading" class="sci-primary inline-flex h-9 items-center gap-2 rounded px-3 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none">
-            <RefreshCcw :size="15" :class="loading ? 'animate-spin' : ''" />
-            刷新
-          </button>
-        </div>
+      <header class="mb-4 rounded-lg border border-sky-200/70 bg-white/70 px-3 py-2">
+        <AgentSubnav :agent-id="agentId" :agent-name="debug?.agent.name" active="debug">
+          <template #actions>
+            <button @click="runOneClickCheck" :disabled="dryRunLoading" class="inline-flex h-9 items-center gap-2 rounded border border-sky-200 bg-white px-3 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-60">
+              <ClipboardCheck :size="15" />
+              一键体检
+            </button>
+            <button @click="loadDebug" :disabled="loading" class="sci-primary inline-flex h-9 items-center gap-2 rounded px-3 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none">
+              <RefreshCcw :size="15" :class="loading ? 'animate-spin' : ''" />
+              刷新
+            </button>
+          </template>
+        </AgentSubnav>
       </header>
 
       <div v-if="loading && !debug" class="rounded-lg border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
@@ -286,7 +279,7 @@
               <div class="border-t border-slate-200 p-4">
                 <div class="mb-3 flex items-center justify-between gap-3">
                   <h3 class="text-sm font-semibold text-slate-900">知识库文档</h3>
-                  <button @click="router.push(`/knowledge/${agentId}`)" class="rounded border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">管理资料</button>
+                  <button @click="router.push(`/agents/${agentId}/knowledge`)" class="rounded border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50">管理资料</button>
                 </div>
                 <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
                   <article v-for="doc in debug.knowledge" :key="doc.id" class="rounded border border-slate-200 bg-white p-3">
@@ -348,10 +341,10 @@ import {
   Eye,
   EyeOff,
   FileText,
-  MessageSquare,
   RefreshCcw,
   Wrench,
 } from 'lucide-vue-next'
+import AgentSubnav from '../components/agent/AgentSubnav.vue'
 import * as agentApi from '../api/agent'
 import type { AgentDebugInfo, AgentDryRunInfo } from '../api/agent'
 import { evaluateRag } from '../api/evaluation'
@@ -533,7 +526,7 @@ const diagnostics = computed<DiagnosticItem[]>(() => {
       title: '资料库还没有内容',
       description: '需要先上传文件或抓取网页并完成入库。',
       actionText: '添加资料',
-      action: () => router.push(`/knowledge/${agentId.value}`),
+      action: () => router.push(`/agents/${agentId.value}/knowledge`),
     })
   }
 
@@ -578,7 +571,7 @@ const diagnostics = computed<DiagnosticItem[]>(() => {
       title: '刚才的资料检索失败',
       description: lastDryRun.rag.error || '请检查检索模型、资料入库状态和后端日志。',
       actionText: '去资料库',
-      action: () => router.push(`/knowledge/${agentId.value}`),
+      action: () => router.push(`/agents/${agentId.value}/knowledge`),
     })
   }
 
@@ -589,7 +582,7 @@ const diagnostics = computed<DiagnosticItem[]>(() => {
       title: '刚才的问题没有命中资料',
       description: '可以换更接近文档原文的问题，或补充更准确的资料。',
       actionText: '去资料库',
-      action: () => router.push(`/knowledge/${agentId.value}`),
+      action: () => router.push(`/agents/${agentId.value}/knowledge`),
     })
   }
 

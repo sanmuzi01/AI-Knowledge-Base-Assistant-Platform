@@ -1,36 +1,25 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent">
-    <header class="flex h-16 items-center justify-between border-b border-sky-200/70 bg-white/78 px-6 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
-      <div class="flex min-w-0 items-center gap-3">
-        <button
-          @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
-          title="返回工作台"
-        >
-          <ArrowLeft :size="16" />
-        </button>
-        <div class="min-w-0">
-          <h1 class="truncate text-base font-semibold text-slate-900">长期记忆</h1>
-          <p class="truncate text-xs text-slate-500">{{ currentAgent?.name || `助手 #${agentId}` }} 会长期记住的重要信息</p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          @click="loadData"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
-          title="刷新"
-        >
-          <RefreshCcw :size="15" />
-        </button>
-        <button
-          @click="handleClear"
-          :disabled="loading || memories.length === 0"
-          class="inline-flex items-center gap-2 rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Trash2 :size="15" />
-          清空
-        </button>
-      </div>
+    <header class="flex min-h-16 flex-wrap items-center gap-3 border-b border-sky-200/70 bg-white/78 px-6 py-2 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
+      <AgentSubnav :agent-id="agentId" :agent-name="currentAgent?.name" active="memory">
+        <template #actions>
+          <button
+            @click="loadData"
+            class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+            title="刷新"
+          >
+            <RefreshCcw :size="15" />
+          </button>
+          <button
+            @click="handleClear"
+            :disabled="loading || memories.length === 0"
+            class="inline-flex items-center gap-2 rounded border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Trash2 :size="15" />
+            清空
+          </button>
+        </template>
+      </AgentSubnav>
     </header>
 
     <main class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
@@ -179,8 +168,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Pencil, Plus, RefreshCcw, Save, Trash2, X } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
+import { Pencil, Plus, RefreshCcw, Save, Trash2, X } from 'lucide-vue-next'
+import AgentSubnav from '../components/agent/AgentSubnav.vue'
 import * as agentApi from '../api/agent'
 import type { AgentInfo } from '../api/agent'
 import * as memoryApi from '../api/memory'
@@ -189,7 +179,6 @@ import { toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
 
 const route = useRoute()
-const router = useRouter()
 const agentId = computed(() => Number(route.params.agentId))
 const currentAgent = ref<AgentInfo | null>(null)
 const memories = ref<MemoryItem[]>([])

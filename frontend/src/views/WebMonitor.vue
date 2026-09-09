@@ -1,27 +1,21 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent text-slate-950">
     <header class="border-b border-sky-200/70 bg-white/80 px-5 py-4 shadow-sm backdrop-blur-xl lg:px-8">
-      <div class="mx-auto flex max-w-6xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div class="flex items-start gap-3">
+      <div class="mx-auto max-w-6xl">
+        <SectionTabs class="mb-3" :tabs="[
+          { label: '我的小窗口', path: '/widgets' },
+          { label: '网页监控', path: '/web-monitor' },
+        ]" />
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <p class="text-sm text-slate-500">添加网页、公告或实时数据地址，手动检查变化；后续可接入定时任务和通知。</p>
           <button
-            @click="router.push('/agents')"
-            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-            title="返回工作台"
+            @click="showCreate = true"
+            class="sci-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
           >
-            <ArrowLeft :size="16" />
+            <Plus :size="16" />
+            添加监控
           </button>
-          <div>
-            <h1 class="text-xl font-semibold">网页监控</h1>
-            <p class="mt-1 text-sm text-slate-500">添加网页、公告或实时数据地址，手动检查变化；后续可接入定时任务和通知。</p>
-          </div>
         </div>
-        <button
-          @click="showCreate = true"
-          class="sci-primary inline-flex h-10 items-center gap-2 rounded px-4 text-sm font-medium text-white"
-        >
-          <Plus :size="16" />
-          添加监控
-        </button>
       </div>
     </header>
 
@@ -127,14 +121,12 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowLeft, Globe2, Plus, Trash2, X } from 'lucide-vue-next'
+import { Globe2, Plus, Trash2, X } from 'lucide-vue-next'
+import SectionTabs from '../components/SectionTabs.vue'
 import * as webMonitorApi from '../api/webMonitor'
 import type { WebMonitor } from '../api/webMonitor'
 import { getErrorMessage } from '../utils/request'
 import { toastError, toastSuccess } from '../utils/toast'
-
-const router = useRouter()
 const monitors = ref<WebMonitor[]>([])
 const loading = ref(false)
 const loadError = ref('')
