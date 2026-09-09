@@ -13,7 +13,7 @@ from models import user_widget_async_dao as dao
 from utils.timeutil import utcnow
 from service.widgets import schema
 from service.widgets.designer import design_widget
-from service.widgets.runner import compute_next_run_at, run_widget, spec_from_widget
+from service.widgets.runner import compute_next_run_at, run_spec_preview, run_widget, spec_from_widget
 from service.widgets.validator import validate_and_normalize
 
 
@@ -49,9 +49,34 @@ def _point_to_dict(point) -> Optional[Dict[str, Any]]:
     }
 
 
+def _attention_from_point(point) -> Optional[str]:
+    """从最近一次运行结果里判断这个组件是否「需要关注」。
+
+    - threshold_alert 处理器给出的 level=alert/warn
+    - web_page monitor 模式检测到内容变化 changed=true
+    返回 "alert" / "warn" / "changed" / None。
+    """
+    if not point or not point.payload_json:
+        return None
+    try:
+        payload = json.loads(point.payload_json)
+    except (TypeError, ValueError):
+        return None
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return None
+    level = result.get("level")
+    if level in ("alert", "warn"):
+        return level
+    if result.get("changed") is True:
+        return "changed"
+    return None
+
+
 def _widget_to_dict(widget, latest=None) -> Dict[str, Any]:
     spec = spec_from_widget(widget)
     return {
+        "attention": _attention_from_point(latest),
         "id": widget.id,
         "name": widget.name,
         "type": widget.type,
@@ -86,6 +111,53 @@ def _widget_to_dict(widget, latest=None) -> Dict[str, Any]:
 
 async def design(db, user, prompt: str) -> Dict[str, Any]:
     return await design_widget(db, user.id, prompt)
+
+
+async def preview_widget(db, user, draft: Dict[str, Any]) -> Dict[str, Any]:
+    """按草稿真实跑一次取数/处理流程，但不落库。用于「创建前先看看效果」。"""
+    result = validate_and_normalize(draft)
+    if result.needs_clarification:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message)
+    if not result.ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=result.message or "组件配置无效")
+
+    spec = result.spec
+    run = await run_spec_preview(db, user.id, spec)
+    return {
+        "ok": run.ok,
+        "message": "预览成功" if run.ok else ("这次没取到数据：" + (run.error or "未知原因")),
+        "explain": schema.describe_spec(spec),
+        "view": spec["view"],
+        "view_kind": spec["view"].get("kind"),
+        "data": run.payload,
+        "label": run.label,
+        "value": run.value,
+    }
+
+
+async def export_widget(db, user, widget_id: int) -> Dict[str, Any]:
+    """导出一个组件的配置（可分享 / 再导入）。只含 spec，不含运行状态和用户信息。"""
+    widget = await dao.get_owned_widget_async(db, user.id, widget_id)
+    if not widget:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="组件不存在或无权限")
+    spec = spec_from_widget(widget)
+    return {
+        "export_version": 1,
+        "kind": "user_widget",
+        "name": widget.name,
+        "exported_at": utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        "spec": spec,
+    }
+
+
+async def import_widget(db, user, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """从导出的 JSON 再建一个组件。服务端照常校验，不信任导入内容。"""
+    if not isinstance(payload, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="导入内容格式不对")
+    spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else payload
+    if not isinstance(spec, dict) or not spec.get("type"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="导入内容里没有可用的组件配置")
+    return await create_widget(db, user, spec)
 
 
 async def list_widgets(db, user_id: int) -> Dict[str, Any]:

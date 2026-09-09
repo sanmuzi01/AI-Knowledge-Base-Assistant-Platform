@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 
@@ -6,6 +7,17 @@ from service import background_task_service
 from utils.logger_handler import get_logger
 
 logger = get_logger("background_worker")
+
+# 组件调度是异步的，但任务 Worker 主体是同步循环。用一个进程内常驻的事件循环来跑
+# 异步部分，避免每 60s asyncio.run() 建/拆一个 loop（连带重建 asyncmy 连接池）。
+_widget_loop: "asyncio.AbstractEventLoop | None" = None
+
+
+def _get_widget_loop() -> "asyncio.AbstractEventLoop":
+    global _widget_loop
+    if _widget_loop is None or _widget_loop.is_closed():
+        _widget_loop = asyncio.new_event_loop()
+    return _widget_loop
 
 
 def _env_float(name: str, default: float) -> float:
@@ -64,13 +76,11 @@ def run_once() -> bool:
 
 
 def _run_widget_scheduler_tick() -> None:
-    """到点的自定义组件调度入口（默认关闭，WIDGET_SCHEDULER_ENABLED=1 开启）。
+    """到点的自定义组件调度入口（默认开启，WIDGET_SCHEDULER_ENABLED=0 关闭）。
 
-    P1 只把入口接好；真正批量运行的逻辑在 service.widgets.scheduler.run_due_widgets，
+    真正批量运行的逻辑在 service.widgets.scheduler.run_due_widgets：逐个抢占 + 提交，
     最终都走 runner.run_widget，与手动运行完全一致。
     """
-    import asyncio
-
     from service.widgets.scheduler import run_due_widgets, scheduler_enabled
 
     if not scheduler_enabled():
@@ -82,7 +92,7 @@ def _run_widget_scheduler_tick() -> None:
             async with AsyncSessionLocal() as db:
                 return await run_due_widgets(db)
 
-        summary = asyncio.run(_tick())
+        summary = _get_widget_loop().run_until_complete(_tick())
         if summary.get("due"):
             logger.info(f"组件调度: {summary}")
     except Exception as exc:  # noqa: BLE001 - 调度失败不能拖垮任务 Worker
@@ -92,22 +102,32 @@ def _run_widget_scheduler_tick() -> None:
 def run_forever() -> None:
     """持续运行 Worker。
 
-    生产环境应由 Docker、systemd 或进程管理器托管该进程；进程退出后由外部系统拉起。
+    生产环境应由 systemd / supervisor / nssm 等进程管理器托管该进程；进程退出后由外部系统拉起。
     """
     # Worker 可能先于 API 启动，需保证表结构就绪（幂等，进程内只跑一次）。
     bootstrap_database()
     poll_seconds = _env_float("TASK_WORKER_POLL_SECONDS", 2.0)
     widget_poll_seconds = _env_float("WIDGET_SCHEDULER_POLL_SECONDS", 60.0)
-    logger.info(f"后台任务 Worker 已启动，poll={poll_seconds}s")
+
+    from service.widgets.scheduler import scheduler_enabled
+
+    logger.info(
+        f"后台任务 Worker 已启动，poll={poll_seconds}s，"
+        f"组件调度={'开启' if scheduler_enabled() else '关闭'}（每 {widget_poll_seconds:g}s 一轮）"
+    )
     last_widget_tick = 0.0
-    while True:
-        handled = run_once()
-        now = time.time()
-        if now - last_widget_tick >= widget_poll_seconds:
-            _run_widget_scheduler_tick()
-            last_widget_tick = now
-        if not handled:
-            time.sleep(poll_seconds)
+    try:
+        while True:
+            handled = run_once()
+            now = time.time()
+            if now - last_widget_tick >= widget_poll_seconds:
+                _run_widget_scheduler_tick()
+                last_widget_tick = now
+            if not handled:
+                time.sleep(poll_seconds)
+    finally:
+        if _widget_loop is not None and not _widget_loop.is_closed():
+            _widget_loop.close()
 
 
 if __name__ == "__main__":

@@ -57,9 +57,9 @@ class DesignerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_out_of_whitelist_output_degrades_to_clarification(self):
         async def fake_llm(messages):
-            return json.dumps({"type": "chart", "data_source": {"kind": "http", "config": {"url": "http://x"}}})
+            return json.dumps({"type": "chart", "data_source": {"kind": "telepathy", "config": {}}})
 
-        out = await design_widget(db=None, user_id=1, prompt="抓个网页", llm_call=fake_llm)
+        out = await design_widget(db=None, user_id=1, prompt="随便给我点数据", llm_call=fake_llm)
         self.assertTrue(out["needs_clarification"])
 
 

@@ -52,7 +52,7 @@ class WidgetValidatorTest(unittest.TestCase):
         self.assertTrue(any("展示方式" in e for e in result.errors))
 
     def test_unknown_connector_is_rejected(self):
-        result = validate_and_normalize(_chart_draft(data_source={"kind": "http", "config": {}}))
+        result = validate_and_normalize(_chart_draft(data_source={"kind": "ftp_dump", "config": {}}))
         self.assertFalse(result.ok)
         self.assertTrue(any("数据来源" in e for e in result.errors))
 

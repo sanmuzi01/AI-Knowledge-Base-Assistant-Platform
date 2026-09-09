@@ -71,14 +71,14 @@ class ExtensionPointTest(unittest.IsolatedAsyncioTestCase):
             async def add_data_point_async(self, db, wid, **kw):
                 saved_points.append(kw)
 
-            async def prune_data_points_async(self, db, wid, keep):
+            async def apply_retention_async(self, db, wid, **kw):
                 return 0
 
         import models.user_widget_async_dao as real_dao
         fake = _FakeDao()
         originals = {
             name: getattr(real_dao, name)
-            for name in ("get_owned_widget_async", "add_data_point_async", "prune_data_points_async")
+            for name in ("get_owned_widget_async", "add_data_point_async", "apply_retention_async")
         }
         for name in originals:
             setattr(real_dao, name, getattr(fake, name))

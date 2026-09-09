@@ -42,7 +42,9 @@
 | 功能 | 路由 | Service | DAO |
 | --- | --- | --- | --- |
 | 组件 design / CRUD / run | `FasdtApi/user_widget.py` | `service/widget_async_service.py`、`service/widgets/*` | `models/user_widget_async_dao.py` |
-| 数据源连接器 / 处理器 / 校验 / 运行引擎 | - | `service/widgets/{connectors,processors,validator,designer,runner,scheduler,schema}` | `user_widgets`、`widget_data_points` |
+| 数据源连接器 / 处理器 / 校验 / 运行引擎 / 保留策略 | - | `service/widgets/{connectors,processors,validator,designer,runner,scheduler,retention,schema}` | `user_widgets`、`widget_data_points` |
+| 到点自动调度 | 后台 Worker（`service/background_worker.py` 的 `_run_widget_scheduler_tick`） | `service/widgets/scheduler.py`（默认开启，`WIDGET_SCHEDULER_ENABLED=0` 关） | 乐观锁抢占 `user_widgets.next_run_at` |
+| 外部数据源 | - | `service/widgets/connectors/{http_api,web_page,knowledge_base}.py`（复用 `web_crawler_service` 的 SSRF 校验 + `http_resilience` 的重试/熔断） | - |
 
 详见 `docs/widget-platform.md`。
 

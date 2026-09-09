@@ -31,21 +31,26 @@ CAPABILITIES: List[str] = [
     "chart", "metric", "table", "text", "monitor", "list", "stats",
 ]
 
-# P1 已实现的数据源；P2 再加 http（用户自定义 URL，带 SSRF 防护）、web_page、knowledge_base 等
 CONNECTOR_KINDS: List[str] = [
     "sample",         # 内置示例数据，保证演示永远能跑
     "catalog",        # 服务端内置数据源目录（gold_price / usd_cny / weather ...）
     "system_stats",   # 当前用户的系统 / 运行概览
     "agent_runs",     # 当前用户的 Agent 运行记录统计
+    # --- P2：外部数据源，统一走出站安全校验（SSRF 防护）+ 超时/重试/熔断 ---
+    "http",           # 用户自定义接口 URL（JSON / 文本）
+    "web_page",       # 抓取一个网页正文，可做「有没有更新」的监控
+    "knowledge_base", # 从「我的知识库」按问题检索
 ]
 
-# P2 再加 llm_summarize / threshold_alert / trend_analysis / classification / ranking
+# 以后再加 trend_analysis / classification / ranking
 PROCESSOR_KINDS: List[str] = [
     "passthrough",
     "normalize_timeseries",
     "pick_fields",
     "aggregate",
     "json_extract",
+    "llm_summarize",    # 用用户自己的模型把取到的数据总结成一段话
+    "threshold_alert",  # 按阈值判定 ok / warn / alert，给出提醒文案
 ]
 
 # P2 再加 calendar / kanban / map / timeline / alert / progress / image / file_preview
@@ -87,6 +92,9 @@ CONNECTOR_LABELS: Dict[str, str] = {
     "catalog": "平台数据服务",
     "system_stats": "我的使用与运行概览",
     "agent_runs": "我的 AI 运行记录",
+    "http": "外部接口地址",
+    "web_page": "网页内容",
+    "knowledge_base": "我的知识库",
 }
 
 CATALOG_PROVIDER_LABELS: Dict[str, str] = {
@@ -153,6 +161,10 @@ def describe_spec(spec: Dict[str, Any]) -> Dict[str, str]:
         data_from = CATALOG_PROVIDER_LABELS.get(provider, "平台数据服务")
     elif source_kind == "sample":
         data_from = "内置示例数据（用于演示）"
+    elif source_kind in ("http", "web_page"):
+        url = str(source_config.get("url") or "").strip()
+        host = url.split("//", 1)[-1].split("/", 1)[0] if url else ""
+        data_from = f"{CONNECTOR_LABELS[source_kind]}（{host}）" if host else CONNECTOR_LABELS[source_kind]
     else:
         data_from = CONNECTOR_LABELS.get(source_kind, "数据服务")
 
@@ -163,6 +175,8 @@ def describe_spec(spec: Dict[str, Any]) -> Dict[str, str]:
         "pick_fields": "只保留需要的字段",
         "aggregate": "汇总计算出一个数值",
         "json_extract": "从结果里取出指定内容",
+        "llm_summarize": "用 AI 总结成一段话",
+        "threshold_alert": "按阈值判断要不要提醒",
     }.get(processor_kind, "整理数据")
 
     view = spec.get("view") or {}

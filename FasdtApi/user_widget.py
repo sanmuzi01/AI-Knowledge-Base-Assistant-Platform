@@ -33,6 +33,10 @@ class UpdateWidgetRequest(BaseModel):
     spec: Optional[Dict[str, Any]] = None
 
 
+class ImportWidgetRequest(BaseModel):
+    payload: Dict[str, Any]
+
+
 @router.post("/design", summary="用自然语言生成组件草稿")
 async def design_widget_route(
         data: DesignRequest,
@@ -40,6 +44,15 @@ async def design_widget_route(
         current_user: User = Depends(get_current_user_async),
 ):
     return await widget_async_service.design(async_db, current_user, data.prompt)
+
+
+@router.post("/preview", summary="按草稿真实跑一次（不保存）")
+async def preview_widget_route(
+        data: CreateWidgetRequest,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await widget_async_service.preview_widget(async_db, current_user, data.draft)
 
 
 @router.post("", summary="根据草稿创建组件")
@@ -57,6 +70,24 @@ async def list_widgets_route(
         current_user: User = Depends(get_current_user_async),
 ):
     return await widget_async_service.list_widgets(async_db, current_user.id)
+
+
+@router.post("/import", summary="从导出的 JSON 导入组件")
+async def import_widget_route(
+        data: ImportWidgetRequest,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await widget_async_service.import_widget(async_db, current_user, data.payload)
+
+
+@router.get("/{widget_id:int}/export", summary="导出组件配置")
+async def export_widget_route(
+        widget_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await widget_async_service.export_widget(async_db, current_user, widget_id)
 
 
 @router.patch("/{widget_id:int}", summary="修改组件（名称/显示/排序/配置）")

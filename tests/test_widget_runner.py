@@ -62,7 +62,7 @@ class RunnerTest(unittest.IsolatedAsyncioTestCase):
         self.widget = _widget()
         self._orig = {
             n: getattr(real_dao, n)
-            for n in ("get_owned_widget_async", "add_data_point_async", "prune_data_points_async")
+            for n in ("get_owned_widget_async", "add_data_point_async", "apply_retention_async")
         }
         widget = self.widget
         points = self.points
@@ -73,12 +73,12 @@ class RunnerTest(unittest.IsolatedAsyncioTestCase):
         async def add_point(db, wid, **kw):
             points.append(kw)
 
-        async def prune(db, wid, keep):
+        async def apply_retention(db, wid, **kw):
             return 0
 
         real_dao.get_owned_widget_async = get_owned
         real_dao.add_data_point_async = add_point
-        real_dao.prune_data_points_async = prune
+        real_dao.apply_retention_async = apply_retention
 
     def tearDown(self):
         for n, fn in self._orig.items():

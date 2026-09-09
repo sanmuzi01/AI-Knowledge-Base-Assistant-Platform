@@ -31,7 +31,15 @@ def _system_prompt() -> str:
   - catalog 需要 config.provider，取值: {provider_keys}
   - sample 用于演示，config 可含 series、points
   - system_stats / agent_runs 是"当前用户自己的"统计，无需额外 config
+  - http 需要 config.url（http/https）；可选 config.method(GET/POST)、config.headers、config.json_path
+  - web_page 需要 config.url；可选 config.mode（text 纯展示 / monitor 关注是否更新）
+  - knowledge_base 需要 config.agent_id(数字) 和 config.query（检索问题）；可选 config.top_k
 - processor.kind: {", ".join(schema.PROCESSOR_KINDS)}
+  - llm_summarize 用 AI 把取到的数据总结成有条理的一段 Markdown，配合 view.kind=markdown；
+    可选 config.instruction、config.style（brief 结论+要点 / report 分小节 / one_line 一句话）
+  - threshold_alert 按阈值判定 ok/warn/alert，配合 view.kind=metric 或 markdown；
+    config 用简写 {{"gt": 100}} 或 {{"lt": 5}}，或 config.rules=[{{"level":"warn|alert","op":"gt|lt|gte|lte|eq","value":N,"message":"…"}}]，
+    可加 config.field 指定比较哪个字段
 - view.kind: {", ".join(schema.VIEW_KINDS)}；chart 的 config.chart_type 取值: {", ".join(schema.CHART_TYPES)}
 - trigger.kind: {", ".join(schema.TRIGGER_KINDS)}；daily 需要 config.run_at(HH:MM) 和 config.timezone
 - actions: {", ".join(schema.ACTIONS)}
@@ -40,7 +48,12 @@ def _system_prompt() -> str:
 - "每天/每日更新" -> trigger.kind=daily；"每小时" -> hourly；"手动/点一下刷新" -> manual
 - "折线图" -> view.kind=chart, chart_type=line；"柱状图" -> bar；"饼图" -> pie
 - "表格" -> table；"摘要/报告/文字" -> markdown；"指标/数字/卡片" -> metric
-- "网页/监控某个页面" -> type=web_monitor, view.kind=web_monitor
+- "网页/监控某个页面" -> type=web_monitor, view.kind=web_monitor, data_source.kind=web_page
+- "关注某网页有没有更新/变化" -> data_source.kind=web_page, config.mode=monitor
+- "调用我自己的接口 / 某个 API 地址 / http 链接返回的数据" -> data_source.kind=http
+- "从我的知识库 / 资料里查" -> data_source.kind=knowledge_base
+- "总结 / 提炼 / 概括成一段话" -> processor.kind=llm_summarize + view.kind=markdown
+- "超过 / 低于 X 就提醒 / 报警 / 预警" -> processor.kind=threshold_alert（把 X 放进 config）
 - "我的运行/调用/Agent 统计" -> data_source.kind=agent_runs
 - "系统状态/使用概览" -> data_source.kind=system_stats
 - 金价 -> catalog provider gold_price；汇率/美元人民币 -> usd_cny；天气 -> weather

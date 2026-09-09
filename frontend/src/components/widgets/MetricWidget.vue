@@ -1,12 +1,13 @@
 <template>
-  <div class="flex h-full flex-col justify-center p-4">
+  <div class="flex h-full flex-col justify-center p-4" :class="levelBg">
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
     <template v-else-if="hasValue">
-      <p class="text-xs text-slate-500">{{ label }}</p>
-      <p class="mt-1 text-3xl font-semibold text-slate-950">
+      <p class="text-xs" :class="level ? 'font-medium' : 'text-slate-500'">{{ label }}</p>
+      <p class="mt-1 text-3xl font-semibold" :class="levelText">
         {{ displayValue }}<span v-if="unit" class="ml-1 text-base font-normal text-slate-500">{{ unit }}</span>
       </p>
-      <p v-if="delta !== null" class="mt-1 text-xs" :class="delta >= 0 ? 'text-emerald-600' : 'text-red-600'">
+      <p v-if="alertText" class="mt-1.5 text-xs" :class="levelText">{{ alertText }}</p>
+      <p v-else-if="delta !== null" class="mt-1 text-xs" :class="delta >= 0 ? 'text-emerald-600' : 'text-red-600'">
         {{ delta >= 0 ? '▲' : '▼' }} {{ Math.abs(delta) }} 较上次
       </p>
     </template>
@@ -35,4 +36,18 @@ const delta = computed<number | null>(() => {
 })
 const unit = computed(() => props.widget.view?.config?.unit || props.result?.unit || '')
 const label = computed(() => props.widget.view?.config?.label || props.widget.latest?.label || '当前值')
+
+// threshold_alert 处理器的产出
+const level = computed<string>(() => (props.result && typeof props.result === 'object' ? props.result.level || '' : ''))
+const alertText = computed<string>(() =>
+  props.result && typeof props.result === 'object' && props.result.level && props.result.level !== 'ok'
+    ? props.result.text || ''
+    : '',
+)
+const levelBg = computed(() =>
+  level.value === 'alert' ? 'bg-red-50' : level.value === 'warn' ? 'bg-amber-50' : '',
+)
+const levelText = computed(() =>
+  level.value === 'alert' ? 'text-red-600' : level.value === 'warn' ? 'text-amber-600' : 'text-slate-950',
+)
 </script>

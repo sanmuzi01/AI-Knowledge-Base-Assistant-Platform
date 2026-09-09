@@ -31,6 +31,7 @@ export interface WidgetItem {
   actions: string[]
   friendly: WidgetFriendly
   config: Record<string, any>
+  attention: 'alert' | 'warn' | 'changed' | null
   status: {
     last_run_at: string | null
     last_status: string | null
@@ -63,6 +64,24 @@ export interface DesignResponse {
   explain?: WidgetFriendly
 }
 
+export interface PreviewResponse {
+  ok: boolean
+  message: string
+  explain?: WidgetFriendly
+  view: { kind: string; config: Record<string, any> }
+  view_kind: string
+  data: any
+  label?: string | null
+  value?: number | null
+}
+
+export interface WidgetSeriesPoint {
+  recorded_at: string | null
+  ok: boolean
+  label: string | null
+  value: number | null
+}
+
 export async function designWidget(prompt: string): Promise<DesignResponse> {
   const { data } = await request.post<DesignResponse>('/user/widgets/design', { prompt })
   return data
@@ -70,6 +89,11 @@ export async function designWidget(prompt: string): Promise<DesignResponse> {
 
 export async function createWidget(draft: any): Promise<WidgetItem> {
   const { data } = await request.post<WidgetItem>('/user/widgets', { draft })
+  return data
+}
+
+export async function previewWidget(draft: any): Promise<PreviewResponse> {
+  const { data } = await request.post<PreviewResponse>('/user/widgets/preview', { draft })
   return data
 }
 
@@ -96,7 +120,20 @@ export async function runWidget(id: number): Promise<{ ok: boolean; message: str
   return data
 }
 
-export async function getWidgetData(id: number, withSeries = false): Promise<{ widget: WidgetItem; series?: any[] }> {
+export async function getWidgetData(
+  id: number,
+  withSeries = false,
+): Promise<{ widget: WidgetItem; series?: WidgetSeriesPoint[] }> {
   const { data } = await request.get(`/user/widgets/${id}/data`, { params: { with_series: withSeries } })
+  return data
+}
+
+export async function exportWidget(id: number): Promise<any> {
+  const { data } = await request.get(`/user/widgets/${id}/export`)
+  return data
+}
+
+export async function importWidget(payload: any): Promise<WidgetItem> {
+  const { data } = await request.post<WidgetItem>('/user/widgets/import', { payload })
   return data
 }
