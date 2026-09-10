@@ -51,6 +51,22 @@ async def get_memory_by_id_async(db: AsyncSession, memory_id: int) -> Optional[M
     return result.scalars().first()
 
 
+async def get_latest_summary_async(
+        db: AsyncSession, user_id: int, agent_id: int,
+) -> Optional[Memory]:
+    """最新一条会话摘要（每次总结会覆盖旧的，只取 1 条）。对齐同步版 memory_dao.get_latest_summary。"""
+    result = await db.execute(
+        select(Memory)
+        .where(
+            Memory.user_id == user_id,
+            Memory.agent_id == agent_id,
+            Memory.memory_type == "summary",
+        )
+        .order_by(Memory.created_at.desc())
+    )
+    return result.scalars().first()
+
+
 async def get_owned_memory_async(
         db: AsyncSession,
         user_id: int,

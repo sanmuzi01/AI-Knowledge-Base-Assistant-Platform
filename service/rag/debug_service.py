@@ -97,6 +97,7 @@ def run_retrieval(
         raise InvalidInput(str(e))
 
     hits = _normalize_hits(res.get("hits", []))
+    context = res.get("context", "")
     return {
         "query": query,
         "mode": mode,
@@ -107,11 +108,29 @@ def run_retrieval(
         "refused": bool(res.get("refused")),
         "hit_count": len(hits),
         "hits": hits,
-        "context": res.get("context", ""),
+        "context": context,
         "citations": res.get("citations", []),
+        "stats": res.get("stats") or _retrieval_savings(hits, context),
         "answer": None,
         "faithfulness": None,
     }
+
+
+def _retrieval_savings(hits: List[Dict[str, Any]], context: str) -> Dict[str, Any]:
+    """调试台快照的「上下文压缩 / Token 节省」。同步，自带 Session。"""
+    from models.init_db import SessionLocal
+    from models.knowledge_chunk_dao import sum_content_chars_by_knowledge_ids
+    from service.rag.rag_stats import build_savings, hit_knowledge_ids
+
+    kids = hit_knowledge_ids(hits)
+    src_chars = 0
+    if kids:
+        db = SessionLocal()
+        try:
+            src_chars = sum_content_chars_by_knowledge_ids(db, kids)
+        finally:
+            db.close()
+    return build_savings(src_chars, context, len(hits))
 
 
 # --------------------------- 可选 LLM 回答（异步） ---------------------------

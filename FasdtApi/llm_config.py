@@ -16,6 +16,12 @@ class ConfigSave(BaseModel):
     api_key: str = Field(min_length=1, max_length=500)
     api_url: Optional[str] = Field(default=None, max_length=500)
 
+
+class QuickConnect(BaseModel):
+    provider: str = Field(min_length=1, max_length=40)
+    api_key: str = Field(min_length=1, max_length=500)
+    capabilities: Optional[list[str]] = Field(default=None)  # ["chat","embedding"]，缺省=全部
+
 @router.get("/list",summary="获取用户的模型配置列表")
 async def list_configs(
         async_db=Depends(get_async_db),
@@ -40,6 +46,18 @@ async def save_config(
 ):
     return await llm_config_service.async_save_config(
         async_db, current_user, config.model_name, config.api_key, config.api_url
+    )
+
+
+@router.post("/quick_connect", summary="一次连接，多项能力（普通模式）")
+async def quick_connect(
+        payload: QuickConnect,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    """选平台 + 粘一次 Key → 自动配好聊天 + 资料读取两条配置并逐条测试。"""
+    return await llm_config_service.async_quick_connect(
+        async_db, current_user, payload.provider, payload.api_key, payload.capabilities,
     )
 
 

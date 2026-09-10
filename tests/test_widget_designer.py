@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from service.widgets.designer import NO_MODEL_MESSAGE, design_widget
 
@@ -61,6 +62,77 @@ class DesignerTest(unittest.IsolatedAsyncioTestCase):
 
         out = await design_widget(db=None, user_id=1, prompt="随便给我点数据", llm_call=fake_llm)
         self.assertTrue(out["needs_clarification"])
+
+    async def test_catalog_forced_onto_unrelated_subject_is_rejected(self):
+        # LLM 把"三角洲子弹价格"硬塞成 gold_price —— 用户原话没提黄金/金价，应打回追问
+        async def fake_llm(messages):
+            return json.dumps({
+                "name": "三角洲子弹价格走势", "type": "chart",
+                "data_source": {"kind": "catalog", "config": {"provider": "gold_price"}},
+                "processor": {"kind": "normalize_timeseries", "config": {}},
+                "view": {"kind": "chart", "config": {"chart_type": "line"}},
+                "trigger": {"kind": "daily", "config": {"run_at": "09:19", "timezone": "Asia/Shanghai"}},
+            })
+
+        out = await design_widget(
+            db=None, user_id=1,
+            prompt="请给我三角洲每天的9.19的子弹的价格走势，每天更新", llm_call=fake_llm,
+        )
+        self.assertTrue(out["needs_clarification"])
+        self.assertEqual(out.get("reason"), "no_data_source")
+        self.assertIn("接口地址", out["message"])
+
+    async def test_catalog_kept_when_subject_matches(self):
+        async def fake_llm(messages):
+            return json.dumps({
+                "name": "美元人民币汇率", "type": "chart",
+                "data_source": {"kind": "catalog", "config": {"provider": "usd_cny"}},
+                "view": {"kind": "chart", "config": {"chart_type": "line"}},
+            })
+
+        out = await design_widget(db=None, user_id=1, prompt="每天看美元兑人民币汇率", llm_call=fake_llm)
+        self.assertFalse(out["needs_clarification"])
+        self.assertEqual(out["draft"]["data_source"]["config"]["provider"], "usd_cny")
+
+    async def test_unrelated_subject_routes_to_web_query_when_search_model_available(self):
+        # 用户配了支持联网的模型 -> 无现成数据源的主题改走 web_query，而不是打回
+        async def fake_llm(messages):
+            return json.dumps({
+                "name": "三角洲子弹价格", "type": "chart",
+                "data_source": {"kind": "catalog", "config": {"provider": "gold_price"}},
+                "view": {"kind": "chart", "config": {"chart_type": "line"}},
+                "trigger": {"kind": "daily", "config": {"run_at": "09:19"}},
+            })
+
+        with patch("service.widgets.designer._web_search_available_async",
+                   new=AsyncMock(return_value=True)):
+            out = await design_widget(
+                db=object(), user_id=1,
+                prompt="请给我三角洲每天的子弹价格走势，每天更新", llm_call=fake_llm,
+            )
+        self.assertFalse(out["needs_clarification"])
+        self.assertEqual(out["draft"]["data_source"]["kind"], "web_query")
+        self.assertIn("子弹", out["draft"]["data_source"]["config"]["query"])
+        self.assertEqual(out.get("reason"), "auto_web_query")
+        # 联网检索固定 markdown 展示（连接器输出带 summary，没数字也有东西看）
+        self.assertEqual(out["draft"]["view"]["kind"], "markdown")
+        self.assertEqual(out["draft"]["processor"]["kind"], "passthrough")
+
+    async def test_web_query_draft_from_llm_passes_through(self):
+        async def fake_llm(messages):
+            return json.dumps({
+                "name": "某加密货币行情", "type": "metric",
+                "data_source": {"kind": "web_query", "config": {"query": "XYZ 币 当前美元价格"}},
+                "view": {"kind": "metric", "config": {}},
+                "trigger": {"kind": "daily", "config": {"run_at": "08:00"}},
+            })
+
+        out = await design_widget(db=None, user_id=1, prompt="每天看 XYZ 币价格", llm_call=fake_llm)
+        self.assertFalse(out["needs_clarification"])
+        self.assertEqual(out["draft"]["data_source"]["kind"], "web_query")
+        self.assertEqual(out["draft"]["data_source"]["config"]["query"], "XYZ 币 当前美元价格")
+        # LLM 选了 metric，验证器纠正成 markdown
+        self.assertEqual(out["draft"]["view"]["kind"], "markdown")
 
 
 if __name__ == "__main__":

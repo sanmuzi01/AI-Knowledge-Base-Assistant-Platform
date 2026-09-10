@@ -24,8 +24,14 @@ class WidgetRouteShapeTest(unittest.TestCase):
         paths = {route.path for route in user_widget.router.routes}
         self.assertEqual(user_widget.router.prefix, "/user/widgets")
         self.assertIn("/user/widgets/design", paths)
+        self.assertIn("/user/widgets/templates", paths)
+        self.assertIn("/user/widgets/from-template", paths)
         self.assertIn("/user/widgets", paths)
         self.assertIn("/user/widgets/{widget_id:int}/run", paths)
+
+    def test_template_routes_are_async(self):
+        self.assertTrue(inspect.iscoroutinefunction(user_widget.list_templates_route))
+        self.assertTrue(inspect.iscoroutinefunction(user_widget.from_template_route))
 
 
 class WidgetRouteWiringTest(unittest.IsolatedAsyncioTestCase):

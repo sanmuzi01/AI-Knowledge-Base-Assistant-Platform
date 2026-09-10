@@ -358,8 +358,8 @@
           <section>
             <div class="mb-3 flex items-center justify-between">
               <div>
-                <h2 class="text-sm font-semibold text-slate-950">我的助手</h2>
-                <p class="mt-1 text-xs text-slate-500">{{ agents.length ? '选择一个助手开始聊天、添加资料或调整能力。' : '创建第一个助手后就可以开始对话。' }}</p>
+                <h2 class="text-sm font-semibold text-slate-950">{{ selectedAgent ? '其他助手' : '我的助手' }}</h2>
+                <p class="mt-1 text-xs text-slate-500">{{ agentListHint }}</p>
               </div>
             </div>
 
@@ -369,9 +369,13 @@
               <p class="mt-1 text-sm text-slate-500">先连接模型，再创建一个能聊天的助手。</p>
             </div>
 
+            <div v-else-if="floatingAgentList.length === 0" class="rounded-lg border border-dashed border-sky-200 bg-white/60 py-8 text-center text-sm text-slate-500">
+              当前只有一个助手，已经固定到右上角浮窗。
+            </div>
+
             <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <article
-            v-for="agent in agents"
+            v-for="agent in floatingAgentList"
             :key="agent.id"
             class="sci-panel rounded-lg p-4 transition hover:border-cyan-300/45 hover:shadow-xl hover:shadow-cyan-950/20"
           >
@@ -637,6 +641,7 @@ import {
   Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
 } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
+import { useAgentSessionStore } from '../stores/agentSession'
 import * as agentApi from '../api/agent'
 import type { AgentInfo } from '../api/agent'
 import * as llmConfigApi from '../api/llmConfig'
@@ -651,6 +656,7 @@ import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
 
 const userStore = useUserStore()
+const agentSession = useAgentSessionStore()
 const router = useRouter()
 
 const agents = ref<AgentInfo[]>([])
@@ -673,8 +679,15 @@ const workspaceCommand = ref('')
 const workspaceCommandSubmitting = ref(false)
 const workspaceCommandActions = ref<string[]>([])
 
-const selectedAgentName = computed(() => agents.value.find(a => a.is_selected)?.name || '')
-const selectedAgent = computed(() => agents.value.find(a => a.is_selected) || agents.value[0] || null)
+const defaultAgent = computed(() => agents.value.find(a => a.is_selected) || null)
+const selectedAgentName = computed(() => defaultAgent.value?.name || '')
+const selectedAgent = computed(() => defaultAgent.value || agents.value[0] || null)
+const floatingAgentList = computed(() => agents.value.filter((agent) => !agent.is_selected))
+const agentListHint = computed(() => {
+  if (!agents.value.length) return '创建第一个助手后就可以开始对话。'
+  if (defaultAgent.value) return '当前默认助手已经固定到右上角，可以在这里切换其他助手。'
+  return '选择一个助手开始聊天、添加资料或调整能力。'
+})
 const configuredModelNames = computed(() => new Set(configs.value.map((config) => config.model_name.toLowerCase())))
 const hasChatKey = computed(() => configs.value.some((config) => !isEmbeddingModel(config.model_name)))
 const hasEmbeddingKey = computed(() => configs.value.some((config) => {
@@ -1042,23 +1055,34 @@ const reload = async () => {
   loading.value = true
   loadError.value = ''
   try {
-    const [agentList, userSkills, publicSkills, llmConfigs, dashboardData] = await Promise.all([
+    const [agentList, llmConfigs] = await Promise.all([
       agentApi.listAgents(),
-      skillApi.listUserSkills(),
-      skillApi.listPublicSkills(),
       llmConfigApi.listConfigs(),
-      getUserDashboard(),
     ])
     agents.value = agentList
     configs.value = llmConfigs
+    agentSession.setSelectedFromList(agentList)
+    void loadSecondaryData()
+  } catch (e: any) {
+    loadError.value = getErrorMessage(e, '加载助手列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const loadSecondaryData = async () => {
+  try {
+    const [userSkills, publicSkills, dashboardData] = await Promise.all([
+      skillApi.listUserSkills(),
+      skillApi.listPublicSkills(),
+      getUserDashboard(),
+    ])
     dashboard.value = dashboardData
     const merged = new Map<number, any>()
     ;[...userSkills, ...publicSkills].forEach((s: any) => merged.set(s.id, s))
     availableSkills.value = [...merged.values()]
   } catch (e: any) {
-    loadError.value = getErrorMessage(e, '加载助手列表失败')
-  } finally {
-    loading.value = false
+    console.warn('加载工作台扩展数据失败:', e)
   }
 }
 
@@ -1100,7 +1124,9 @@ const selectAgent = async (agent: AgentInfo) => {
       userStore.user.selected_agent_id = agent.id
       localStorage.setItem('user', JSON.stringify(userStore.user))
     }
+    agentSession.remember({ ...agent, is_selected: true })
     await reload()
+    toastSuccess(`已选择「${agent.name}」`)
   } catch (e: any) {
     toastError(getErrorMessage(e, '设置默认助手失败'))
   } finally {
@@ -1121,6 +1147,7 @@ const cloneAgent = async (agent: AgentInfo) => {
       userStore.user.selected_agent_id = result.agent_id
       localStorage.setItem('user', JSON.stringify(userStore.user))
     }
+    await agentSession.loadSelected(true)
     await reload()
   } catch (e: any) {
     toastError(getErrorMessage(e, '复制助手失败'))

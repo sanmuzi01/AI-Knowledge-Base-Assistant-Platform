@@ -1,4 +1,4 @@
-﻿"""
+"""
 ReAct 推理引擎 - 基于 LangGraph StateGraph
 职责：Agent思考 → 调用工具 → 观察结果 → 继续思考 → 生成最终回答
 1. 可控：每个节点都能插入轨迹记录(写入 AgentStep 表)

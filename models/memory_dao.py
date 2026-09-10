@@ -1,4 +1,4 @@
-﻿"""
+"""
 Memory 记忆表 DAO（数据访问层）
 Service层（memory_service.py）只调DAO，不直接碰ORM
 DAO层只管CRUD，不管业务逻辑

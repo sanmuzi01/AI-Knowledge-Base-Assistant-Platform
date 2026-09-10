@@ -8,7 +8,8 @@ def create_knowledge(
         db, user_id: int, agent_id, file_name: str,
         file_path: str, file_type: str, file_size: int,
         *, space_id: int = None, category: str = None, tags_json: str = None,
-        version: str = None, source_type: str = "upload", source_url: str = None) -> Knowledge:
+        version: str = None, source_type: str = "upload", source_url: str = None,
+        chunk_size: int = None) -> Knowledge:
 
     knowledge = Knowledge(
         user_id=user_id,
@@ -23,9 +24,18 @@ def create_knowledge(
         version=version,
         source_type=source_type or "upload",
         source_url=source_url,
+        chunk_size=chunk_size,
         updated_at=utcnow(),
     )
     db.add(knowledge)
+    db.flush()
+    return knowledge
+
+
+def set_knowledge_chunk_size(db, knowledge: Knowledge, chunk_size: int = None) -> Knowledge:
+    """重建索引前更新切块大小（None=恢复默认）。"""
+    knowledge.chunk_size = chunk_size
+    knowledge.updated_at = utcnow()
     db.flush()
     return knowledge
 

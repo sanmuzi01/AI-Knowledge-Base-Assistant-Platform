@@ -1,5 +1,19 @@
 from typing import List,Optional
+from sqlalchemy import func
 from models.init_db import KnowledgeChunk
+
+
+def sum_content_chars_by_knowledge_ids(db, knowledge_ids: List[int]) -> int:
+    """命中文档的切块内容总字数（≈ 原文字数），用于 RAG 上下文压缩统计。"""
+    ids = [int(k) for k in dict.fromkeys(knowledge_ids or [])]
+    if not ids:
+        return 0
+    total = (
+        db.query(func.coalesce(func.sum(func.char_length(KnowledgeChunk.content)), 0))
+        .filter(KnowledgeChunk.knowledge_id.in_(ids))
+        .scalar()
+    )
+    return int(total or 0)
 
 def create_chunks_batch(db,chunks:List[dict])->List[KnowledgeChunk]:
     """

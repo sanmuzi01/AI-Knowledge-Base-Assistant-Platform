@@ -39,6 +39,7 @@ CONNECTOR_KINDS: List[str] = [
     # --- P2：外部数据源，统一走出站安全校验（SSRF 防护）+ 超时/重试/熔断 ---
     "http",           # 用户自定义接口 URL（JSON / 文本）
     "web_page",       # 抓取一个网页正文，可做「有没有更新」的监控
+    "web_query",      # 联网检索：让用户已配置的联网模型去查（无现成数据源时）
     "knowledge_base", # 从「我的知识库」按问题检索
     "knowledge_space", # 某个知识库空间的健康分（文档/入库/检索质量）
 ]
@@ -95,6 +96,7 @@ CONNECTOR_LABELS: Dict[str, str] = {
     "agent_runs": "我的 AI 运行记录",
     "http": "外部接口地址",
     "web_page": "网页内容",
+    "web_query": "联网检索",
     "knowledge_base": "我的知识库",
     "knowledge_space": "知识库健康",
 }
@@ -167,6 +169,9 @@ def describe_spec(spec: Dict[str, Any]) -> Dict[str, str]:
         url = str(source_config.get("url") or "").strip()
         host = url.split("//", 1)[-1].split("/", 1)[0] if url else ""
         data_from = f"{CONNECTOR_LABELS[source_kind]}（{host}）" if host else CONNECTOR_LABELS[source_kind]
+    elif source_kind == "web_query":
+        q = str(source_config.get("query") or "").strip()
+        data_from = f"联网检索：{q}" if q else "联网检索"
     else:
         data_from = CONNECTOR_LABELS.get(source_kind, "数据服务")
 

@@ -1,5 +1,7 @@
 import request from '../utils/request'
-import type { Citation } from './chat'
+import type { Citation, RagSavings } from './chat'
+
+export type { RagSavings }
 
 export interface RagDebugHit {
   chunk_id: number | null
@@ -42,6 +44,7 @@ export interface RagDebugTrace {
   hits: RagDebugHit[]
   context: string
   citations: Citation[]
+  stats?: RagSavings | null
   answer: string | null
   answer_error?: string
   answer_model?: string

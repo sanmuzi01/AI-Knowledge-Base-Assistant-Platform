@@ -33,6 +33,16 @@ async def list_spaces_by_user_async(
     return list(res.scalars().all())
 
 
+async def list_spaces_by_ids_async(db: AsyncSession, space_ids: List[int]) -> List[KnowledgeSpace]:
+    """按 id 批量取空间（检索编排用，调用方需先做归属校验）。
+    `knowledge_space_dao.list_spaces_by_ids` 的 async 版。"""
+    ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    if not ids:
+        return []
+    res = await db.execute(select(KnowledgeSpace).where(KnowledgeSpace.id.in_(ids)))
+    return list(res.scalars().all())
+
+
 async def user_space_ids_async(db: AsyncSession, user_id: int) -> List[int]:
     """自己拥有的 space id（成员空间由 access_control.user_space_ids_async 合并进来）。"""
     res = await db.execute(

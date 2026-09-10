@@ -19,6 +19,14 @@ class LLMFactory:
         "deepseek-coder": OpenAICompatibleClient,
         "gpt-4o": OpenAICompatibleClient,
         "gpt-4o-mini": OpenAICompatibleClient,
+        "o3-mini": OpenAICompatibleClient,
+        "o4-mini": OpenAICompatibleClient,
+        "kimi-k2-0711-preview": OpenAICompatibleClient,
+        "kimi-latest": OpenAICompatibleClient,
+        "qwen-plus": OpenAICompatibleClient,
+        "qwen-turbo": OpenAICompatibleClient,
+        "qwen-max": OpenAICompatibleClient,
+        "qwen-long": OpenAICompatibleClient,
     }
 
     @classmethod

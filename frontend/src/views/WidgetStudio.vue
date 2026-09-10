@@ -6,7 +6,7 @@
           { label: '我的小窗口', path: '/widgets' },
           { label: '网页监控', path: '/web-monitor' },
         ]" />
-        <p class="truncate text-xs text-slate-500">用一句话描述你想看的内容，AI 帮你做成小窗口放在这里</p>
+        <p class="truncate text-xs text-slate-500">从模板挑一个，填几个字段就能把想盯的东西做成小窗口</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -47,7 +47,7 @@
           </div>
         </div>
         <div v-else-if="!widgets.length" class="rounded-lg border border-dashed border-sky-200 bg-white/60 p-10 text-center text-sm text-slate-500">
-          还没有小窗口。在左边描述一下你想看的内容，点"生成预览"试试。
+          还没有小窗口。左边选一个模板，填几个字段就能建。
         </div>
         <div v-else-if="!displayWidgets.length" class="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 p-10 text-center text-sm text-emerald-700">
           目前没有需要关注的小窗口 🎉

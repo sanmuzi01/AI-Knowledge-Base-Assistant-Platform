@@ -186,7 +186,7 @@ import type { LlmConfig, LlmConfigTestResult, SupportedModel } from '../api/llmC
 import { getErrorMessage } from '../utils/request'
 import { toastError, toastSuccess } from '../utils/toast'
 
-type ProviderKey = 'zhipu' | 'deepseek' | 'openai'
+type ProviderKey = 'zhipu' | 'deepseek' | 'openai' | 'moonshot' | 'qwen' | 'perplexity'
 type CapabilityKey = 'chat' | 'embedding'
 
 const configs = ref<LlmConfig[]>([])
@@ -227,6 +227,30 @@ const providerOptions = [
     chat: 'gpt-4o-mini',
     embedding: 'text-embedding-3-small',
   },
+  {
+    key: 'moonshot' as const,
+    label: 'Kimi',
+    description: '长文本和中文资料场景常用，适合阅读、总结和企业文档问答。',
+    tags: ['长文本', '中文资料', '总结'],
+    chat: 'kimi-latest',
+    embedding: '',
+  },
+  {
+    key: 'qwen' as const,
+    label: '通义千问',
+    description: '中文和企业场景覆盖面广，适合低成本、多用途助手。',
+    tags: ['中文', '企业', '多模型'],
+    chat: 'qwen-plus',
+    embedding: '',
+  },
+  {
+    key: 'perplexity' as const,
+    label: 'Perplexity',
+    description: '搜索式模型，回答自带实时联网和来源。用于工作台组件的「联网检索」数据源。',
+    tags: ['联网', '实时', '带来源'],
+    chat: 'sonar',
+    embedding: '',
+  },
 ]
 
 const modelNames: Record<string, string> = {
@@ -238,6 +262,18 @@ const modelNames: Record<string, string> = {
   'deepseek-coder': 'DeepSeek 编程',
   'gpt-4o': 'OpenAI 高能力助手',
   'gpt-4o-mini': 'OpenAI 轻量助手',
+  'o3-mini': 'OpenAI 推理助手',
+  'o4-mini': 'OpenAI 新一代轻量推理',
+  'kimi-k2-0711-preview': 'Kimi K2 预览',
+  'kimi-latest': 'Kimi 最新稳定入口',
+  'qwen-plus': '通义千问均衡助手',
+  'qwen-turbo': '通义千问快速助手',
+  'qwen-max': '通义千问高能力助手',
+  'qwen-long': '通义千问长文本助手',
+  'sonar': 'Perplexity 联网检索',
+  'sonar-pro': 'Perplexity 联网检索（增强）',
+  'gpt-4o-search-preview': 'OpenAI 联网检索',
+  'gpt-4o-mini-search-preview': 'OpenAI 轻量联网检索',
   'embedding-3': '中文资料读取',
   'embedding-2': '兼容资料读取',
   'text-embedding-3-small': 'OpenAI 轻量资料读取',
@@ -253,6 +289,11 @@ const fallbackModels: SupportedModel[] = [
   { model_name: 'deepseek-chat', provider: 'deepseek', kind: 'chat' },
   { model_name: 'deepseek-reasoner', provider: 'deepseek', kind: 'chat' },
   { model_name: 'gpt-4o-mini', provider: 'openai', kind: 'chat' },
+  { model_name: 'o3-mini', provider: 'openai', kind: 'chat' },
+  { model_name: 'o4-mini', provider: 'openai', kind: 'chat' },
+  { model_name: 'kimi-latest', provider: 'moonshot', kind: 'chat' },
+  { model_name: 'qwen-plus', provider: 'qwen', kind: 'chat' },
+  { model_name: 'sonar', provider: 'perplexity', kind: 'chat' },
   { model_name: 'embedding-3', provider: 'zhipu', kind: 'embedding' },
   { model_name: 'text-embedding-3-small', provider: 'openai', kind: 'embedding' },
   { model_name: 'text-embedding-3-large', provider: 'openai', kind: 'embedding' },
@@ -343,18 +384,41 @@ async function saveQuickConnect() {
   submitting.value = true
   errorMsg.value = ''
   const key = apiKey.value.trim()
-  const savedModels = [...selectedModels.value]
+  const meta = selectedProviderMeta.value
+  const caps = [...selectedCapabilities.value]
+  // 选的就是平台推荐默认 → 走后端「一次连接」原子端点（两条配置同一事务，中途失败不留半套）；
+  // 在「技术人员选项」里改过模型 → 退回逐条保存。
+  const usingDefaults =
+    (!caps.includes('chat') || selectedChatModel.value === meta.chat) &&
+    (!caps.includes('embedding') || selectedEmbeddingModel.value === meta.embedding)
   try {
-    for (const modelName of savedModels) {
-      await llmApi.saveConfig({ model_name: modelName, api_key: key })
-    }
-    await reload()
-    apiKey.value = ''
-    showKey.value = false
-    toastSuccess(`已保存 ${savedModels.length} 项能力`)
-    for (const modelName of savedModels) {
-      const cfg = configs.value.find((item) => item.model_name === modelName)
-      if (cfg) await testConfig(cfg, false)
+    if (usingDefaults) {
+      const res = await llmApi.quickConnect({
+        provider: selectedProvider.value,
+        api_key: key,
+        capabilities: caps as Array<'chat' | 'embedding'>,
+      })
+      await reload()
+      for (const [name, result] of Object.entries(res.results)) {
+        testResults.value[name] = result
+      }
+      apiKey.value = ''
+      showKey.value = false
+      const okCount = Object.values(res.results).filter((r) => r.ok).length
+      toastSuccess(`已连接 ${res.saved.length} 项能力（${okCount} 项测试通过）`)
+    } else {
+      const savedModels = [...selectedModels.value]
+      for (const modelName of savedModels) {
+        await llmApi.saveConfig({ model_name: modelName, api_key: key })
+      }
+      await reload()
+      apiKey.value = ''
+      showKey.value = false
+      toastSuccess(`已保存 ${savedModels.length} 项能力`)
+      for (const modelName of savedModels) {
+        const cfg = configs.value.find((item) => item.model_name === modelName)
+        if (cfg) await testConfig(cfg, false)
+      }
     }
   } catch (e: any) {
     errorMsg.value = getErrorMessage(e, 'AI 服务连接失败，请检查访问密钥后再试')

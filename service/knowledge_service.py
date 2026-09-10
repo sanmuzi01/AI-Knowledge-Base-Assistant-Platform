@@ -13,7 +13,10 @@ from typing import Dict, List
 
 from fastapi import BackgroundTasks
 
-from models.knowledge_dao import clone_knowledge_for_agent, update_knowledge_enabled
+from models.knowledge_dao import (
+    clone_knowledge_for_agent, get_knowledge_by_id,
+    set_knowledge_chunk_size, update_knowledge_enabled,
+)
 from service import background_task_service
 from service.rag import rag_service
 
@@ -22,11 +25,13 @@ def create_upload_task(
         db, background_tasks: BackgroundTasks, user_id: int, agent_id,
         file_name: str, content: bytes, file_type: str,
         *, space_id: int = None, category: str = None, tags_json: str = None, version: str = None,
+        chunk_size: int = None,
 ) -> Dict:
     """保存待入库资料并创建索引任务。"""
     item = _prepare_upload_task(
         db, user_id, agent_id, file_name, content, file_type,
         space_id=space_id, category=category, tags_json=tags_json, version=version,
+        chunk_size=chunk_size,
     )
     db.commit()
     background_task_service.schedule_task(item["task"], background_tasks)
@@ -35,13 +40,13 @@ def create_upload_task(
 
 def create_upload_tasks(
         db, background_tasks: BackgroundTasks, user_id: int, agent_id, files: List[Dict],
-        *, space_id: int = None,
+        *, space_id: int = None, chunk_size: int = None,
 ) -> List[Dict]:
     """批量保存待入库资料并创建索引任务，同一批次统一提交。"""
     items = [
         _prepare_upload_task(
             db, user_id, agent_id, item["file_name"], item["content"], item["file_type"],
-            space_id=space_id,
+            space_id=space_id, chunk_size=item.get("chunk_size", chunk_size),
             category=item.get("category"), tags_json=item.get("tags_json"), version=item.get("version"),
         )
         for item in files
@@ -101,8 +106,17 @@ def set_document_enabled(db, doc, is_enabled: int) -> Dict:
 
 def create_reindex_task(
         db, background_tasks: BackgroundTasks, user_id: int, agent_id, knowledge_id: int, file_name: str,
+        *, chunk_size: int = "__keep__",
 ) -> Dict:
-    """为指定文档创建重建索引任务。"""
+    """为指定文档创建重建索引任务。
+
+    chunk_size: 传具体值（含 None=恢复默认）则先落库到 knowledge.chunk_size，
+    重建时按新值切分；不传（"__keep__"）则沿用文档现有设置。
+    """
+    if chunk_size != "__keep__":
+        doc = get_knowledge_by_id(db, knowledge_id)
+        if doc is not None:
+            set_knowledge_chunk_size(db, doc, rag_service.clamp_chunk_size(chunk_size))
     task = background_task_service.create_background_task(
         db=db, user_id=user_id, agent_id=agent_id,
         task_type="knowledge_reindex", title=f"重建索引: {file_name}",
@@ -129,6 +143,7 @@ def _prepare_upload_task(
         db, user_id: int, agent_id, file_name: str, content: bytes, file_type: str,
         *, space_id: int = None, category: str = None, tags_json: str = None,
         version: str = None, source_type: str = "upload", source_url: str = None,
+        chunk_size: int = None,
 ) -> Dict:
     # 走空间路径时 knowledge / task 的 agent_id 记 NULL
     row_agent_id = None if space_id else agent_id
@@ -136,7 +151,7 @@ def _prepare_upload_task(
         db=db, user_id=user_id, agent_id=row_agent_id,
         file_name=file_name, file_content=content, file_type=file_type,
         space_id=space_id, category=category, tags_json=tags_json, version=version,
-        source_type=source_type, source_url=source_url,
+        source_type=source_type, source_url=source_url, chunk_size=chunk_size,
     )
     task = background_task_service.create_background_task(
         db=db, user_id=user_id, agent_id=row_agent_id,

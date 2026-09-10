@@ -82,6 +82,54 @@ export interface WidgetSeriesPoint {
   value: number | null
 }
 
+export interface TemplateField {
+  name: string
+  label: string
+  type: 'text' | 'textarea' | 'number' | 'url' | 'time' | 'select' | 'agent' | 'space'
+  required: boolean
+  placeholder?: string
+  help?: string
+  default?: any
+  options?: { value: string; label: string }[]
+  show_if?: { field: string; eq?: string; in?: string[] }
+  min?: number
+  max?: number
+}
+
+export interface WidgetTemplate {
+  key: string
+  name: string
+  icon: string
+  description: string
+  tags: string[]
+  experimental: boolean
+  fields: TemplateField[]
+}
+
+export interface TemplateCatalog {
+  templates: WidgetTemplate[]
+  options: {
+    agents: { value: number; label: string }[]
+    spaces: { value: number; label: string }[]
+  }
+}
+
+export async function listWidgetTemplates(): Promise<TemplateCatalog> {
+  const { data } = await request.get<TemplateCatalog>('/user/widgets/templates')
+  return data
+}
+
+export async function buildWidgetFromTemplate(
+  templateKey: string,
+  params: Record<string, any>,
+): Promise<{ draft: any; explain: WidgetFriendly }> {
+  const { data } = await request.post('/user/widgets/from-template', {
+    template_key: templateKey,
+    params,
+  })
+  return data
+}
+
 export async function designWidget(prompt: string): Promise<DesignResponse> {
   const { data } = await request.post<DesignResponse>('/user/widgets/design', { prompt })
   return data

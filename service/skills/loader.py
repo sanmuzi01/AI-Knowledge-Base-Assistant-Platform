@@ -1,4 +1,4 @@
-﻿"""
+"""
 Skill配置加载器
 职责：读取 skills/templates/ 下的 YML 文件 → 校验 → 转成结构化dict
 1.路径规范：

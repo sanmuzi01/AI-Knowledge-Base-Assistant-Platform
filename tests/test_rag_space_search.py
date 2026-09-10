@@ -70,10 +70,11 @@ class AssembleTest(unittest.TestCase):
         # 同一文档的两个 chunk 共用来源编号 1
         self.assertEqual([h["citation_index"] for h in hits], [1, 1, 2])
         self.assertEqual(len(citations), 2)
-        self.assertEqual(citations[0], {
-            "index": 1, "knowledge_id": 44, "file_name": "a.pdf",
-            "space_id": 1, "space_name": "制度库",
-        })
+        self.assertEqual(
+            {k: citations[0][k] for k in ("index", "knowledge_id", "file_name", "space_id", "space_name")},
+            {"index": 1, "knowledge_id": 44, "file_name": "a.pdf", "space_id": 1, "space_name": "制度库"},
+        )
+        self.assertEqual(citations[0]["snippet"], "内容44")   # 取该文档首个 chunk 的正文
         self.assertEqual(citations[1]["space_id"], 2)
 
 

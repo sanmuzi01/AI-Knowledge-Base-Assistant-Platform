@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.init_db import Agent, Knowledge, KnowledgeChunk
@@ -87,3 +87,36 @@ async def list_chunks_by_knowledge_async(
         .order_by(KnowledgeChunk.chunk_index.asc())
     )
     return list(result.scalars().all())
+
+
+async def get_knowledge_by_id_async(db: AsyncSession, knowledge_id: int) -> Optional[Knowledge]:
+    """按 id 取单篇文档（`knowledge_dao.get_knowledge_by_id` 的 async 版）。"""
+    result = await db.execute(select(Knowledge).where(Knowledge.id == knowledge_id))
+    return result.scalars().first()
+
+
+async def get_chunks_by_vector_ids_async(
+        db: AsyncSession, vector_ids: List[str],
+) -> List[KnowledgeChunk]:
+    """按向量库返回的 vector_id 批量反查 chunk（`knowledge_chunk_dao.get_chunks_by_vector_ids` 的 async 版）。"""
+    if not vector_ids:
+        return []
+    result = await db.execute(
+        select(KnowledgeChunk).where(KnowledgeChunk.vector_id.in_(vector_ids))
+    )
+    return list(result.scalars().all())
+
+
+async def sum_chunk_chars_by_knowledge_ids_async(
+        db: AsyncSession, knowledge_ids: List[int],
+) -> int:
+    """命中文档的切块内容总字数（≈ 原文字数）。
+    `knowledge_chunk_dao.sum_content_chars_by_knowledge_ids` 的 async 版。"""
+    ids = [int(k) for k in dict.fromkeys(knowledge_ids or [])]
+    if not ids:
+        return 0
+    result = await db.execute(
+        select(func.coalesce(func.sum(func.char_length(KnowledgeChunk.content)), 0))
+        .where(KnowledgeChunk.knowledge_id.in_(ids))
+    )
+    return int(result.scalar() or 0)

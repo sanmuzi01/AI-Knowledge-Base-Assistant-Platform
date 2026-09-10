@@ -15,6 +15,8 @@ class OpenAICompatibleClient(BaseLLM):
         "openai": "https://api.openai.com/v1",
         "zhipu": "https://open.bigmodel.cn/api/paas/v4",
         "moonshot": "https://api.moonshot.cn/v1",
+        "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "perplexity": "https://api.perplexity.ai",
     }
 
     def __init__(self, api_key: str, api_url: str = None, model_name: str = None):
@@ -29,6 +31,10 @@ class OpenAICompatibleClient(BaseLLM):
             return self.DEFAULT_BASE_URLS["openai"]
         if model.startswith("kimi"):
             return self.DEFAULT_BASE_URLS["moonshot"]
+        if model.startswith("qwen"):
+            return self.DEFAULT_BASE_URLS["qwen"]
+        if model.startswith("sonar"):
+            return self.DEFAULT_BASE_URLS["perplexity"]
         return self.DEFAULT_BASE_URLS["zhipu"]
 
     def _normalize_chat_url(self, api_url: str) -> str:
@@ -69,7 +75,8 @@ class OpenAICompatibleClient(BaseLLM):
             logger.error(f"[OpenAI-compatible] 响应解析失败: {e}")
             raise Exception("大模型响应解析失败")
 
-    async def achat(self, messages: List[Dict[str, str]], temperature: float = 0.5) -> str:
+    async def achat(self, messages: List[Dict[str, str]], temperature: float = 0.5,
+                    web_search: bool = False) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -80,8 +87,11 @@ class OpenAICompatibleClient(BaseLLM):
             "temperature": temperature,
             "stream": False,
         }
+        if web_search:
+            from service.llm.web_search import search_payload_extras
+            payload.update(search_payload_extras(self.model_name))
         try:
-            logger.info(f"[OpenAI-compatible] 请求: model={self.model_name}, url={self.api_url}")
+            logger.info(f"[OpenAI-compatible] 请求: model={self.model_name}, url={self.api_url}, web_search={web_search}")
             response = await async_request_with_retry(
                 service_name=f"llm:{self.model_name}",
                 sender=lambda client: client.post(self.api_url, headers=headers, json=payload),

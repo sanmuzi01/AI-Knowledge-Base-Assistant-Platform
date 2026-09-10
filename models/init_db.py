@@ -220,6 +220,7 @@ class Knowledge(Base):
     source_type = Column(String(20), nullable=False, default="upload")  # upload / web / import
     source_url = Column(String(1000), nullable=True)        # web 抓取来源
     updated_at = Column(DateTime, nullable=True)
+    chunk_size = Column(Integer, nullable=True)             # 用户自选切块大小（字符），NULL=用默认 RAG_CHUNK_SIZE
 
 
 class KnowledgeSpace(Base):
@@ -682,6 +683,8 @@ def _run_migrations():
          "ALTER TABLE agent ADD COLUMN kb_force_citation INT NOT NULL DEFAULT 1 COMMENT '回答强制带来源'"),
         ("agent", "kb_refuse_when_empty",
          "ALTER TABLE agent ADD COLUMN kb_refuse_when_empty INT NOT NULL DEFAULT 1 COMMENT '无命中时拒答'"),
+        ("knowledge", "chunk_size",
+         "ALTER TABLE knowledge ADD COLUMN chunk_size INT NULL COMMENT '用户自选切块大小(字符)，NULL=用默认'"),
     ]
     with engine.connect() as conn:
         for table, col, ddl in migrations:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Memory 记忆服务：长期记忆管理
 核心功能：
   1. load_memory()   - 加载已有的长期记忆（给Runtime拼prompt用）
@@ -94,29 +94,52 @@ def _normalize_memory_type(memory_type: str) -> str:
         raise ValueError("记忆类型不支持")
     return value
 
+_MEMORY_LABELS = {
+    "summary": "对话摘要",
+    "fact": "关键事实",
+    "preference": "用户偏好",
+    "note": "备注",
+}
+
+
+def render_memory_text(memories) -> str:
+    """把记忆列表拼成注入 system_prompt 的文本（同步 / 异步共用，保证输出一致）。
+
+    memories: 已按 created_at desc 排序的 Memory 列表；此函数负责过滤空内容 + 拼装。
+    """
+    memories = [m for m in memories if m.content and m.content.strip()]
+    if not memories:
+        return ""
+    lines = [
+        f"- [{_MEMORY_LABELS.get(m.memory_type, m.memory_type)}] {m.content.strip()}"
+        for m in memories
+    ]
+    memory_text = (
+        "\n=== 以下是你和用户的长期对话记忆，请结合这些内容理解用户 ==="
+        "\n" + "\n".join(lines) + "\n"
+        "=== 长期记忆结束 ===\n"
+    )
+    logger.debug(f"加载长期记忆: {len(memories)} 条, {len(memory_text)} 字")
+    return memory_text
+
+
+def summary_due(total_count: int, last_summary_count: int) -> bool:
+    """当前总对话轮数 - 上次总结时的轮数 >= SUMMARY_EVERY_N_ROUNDS（同步 / 异步共用）。"""
+    diff = total_count - last_summary_count
+    result = diff >= SUMMARY_EVERY_N_ROUNDS
+    if result:
+        logger.info(
+            f"触发记忆总结: 总对话{total_count}轮, "
+            f"上次总结于{last_summary_count}轮, 差值={diff} >= {SUMMARY_EVERY_N_ROUNDS}"
+        )
+    return result
+
+
 def load_memory(db,user_id:int,agent_id:int)->str:
     """加载长期记忆，拼成文本（给Runtime拼到system_prompt里）
     如果没有记忆，返回空字符串（Runtime不会额外拼接东西）"""
     memories = list_memories_by_agent(db, user_id, agent_id)
-    memories = [memory for memory in memories if memory.content and memory.content.strip()]
-    if not memories:
-        return ""
-    lines = []
-    for memory in memories:
-        label = {
-            "summary": "对话摘要",
-            "fact": "关键事实",
-            "preference": "用户偏好",
-            "note": "备注",
-        }.get(memory.memory_type, memory.memory_type)
-        lines.append(f"- [{label}] {memory.content.strip()}")
-    memory_text = (
-        f"\n=== 以下是你和用户的长期对话记忆，请结合这些内容理解用户 ==="
-        f"\n" + "\n".join(lines) + "\n"
-        f"=== 长期记忆结束 ===\n"
-    )
-    logger.debug(f"加载长期记忆: {len(memories)} 条, {len(memory_text)} 字")
-    return memory_text
+    return render_memory_text(memories)
 
 def should_summarize(db,user_id:int,agent_id:int)->bool:
     """判断是否该总结新对话了
@@ -124,18 +147,9 @@ def should_summarize(db,user_id:int,agent_id:int)->bool:
         """
     # 以 AgentRun 为准，兼容旧聊天入口和新版会话入口。
     total_count = count_finished_runs_by_agent(db, user_id, agent_id)
-    # 2.查上次总结时的chat_count
     summary = get_latest_summary(db,user_id,agent_id)
-    last_summary_count=summary.chat_count if summary else 0
-    # 3.差值 >=5 就该总结了（第一次：total_count>=5 且 summary=None）
-    diff  = total_count-last_summary_count
-    result = diff >=SUMMARY_EVERY_N_ROUNDS
-    if result:
-        logger.info(
-            f"触发记忆总结: 总对话{total_count}轮, "
-            f"上次总结于{last_summary_count}轮, 差值={diff} >= {SUMMARY_EVERY_N_ROUNDS}"
-        )
-    return result
+    last_summary_count = summary.chat_count if summary else 0
+    return summary_due(total_count, last_summary_count)
 
 def summarize_and_save(
         db,user_id:int,agent_id:int,llm_model_name:str = "glm-4"

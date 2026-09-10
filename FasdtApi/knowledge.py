@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -8,7 +8,7 @@ from models.init_db import get_db, User
 from models.async_db import get_async_db
 from service.dependencies import get_current_user_async
 from service.exceptions import InvalidInput, NotFound
-from service.rag.search_entry import search_scoped
+from service.rag.search_entry import search_scoped_async
 from service.knowledge_space.space_service import ensure_default_space_for_agent
 from service import knowledge_async_service, knowledge_diagnostics_async_service, knowledge_service
 from service.access_control import get_owned_agent, get_owned_knowledge
@@ -19,7 +19,7 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
 
 # 迁移边界：列表 / 文档详情 / 片段等纯读接口已全量 AsyncSession（get_async_db + *_async_service）；
-# 检索为 async def + asyncio.to_thread(search_entry.search_scoped)，处理器不持有同步 Session。
+# 检索走 search_entry.search_scoped_async（彻底 async 链路，自带 AsyncSessionLocal），处理器不持有任何 Session。
 # 上传 / 入库 / 重建索引 / 诊断仍用同步 get_db —— 背后是向量库操作 + 同步 ORM 的 RAG 管线
 #（切分 / embedding 落库 / ChromaDB），FastAPI 会把这些环节放线程池。
 # 领域异常：本文件的 404/400 已统一为 service.exceptions（500 兜底与 429 限流保留 HTTPException）。
@@ -96,6 +96,7 @@ async def upload_document(
         agent_id: int,
         background_tasks: BackgroundTasks,
         file: UploadFile = File(...),
+        chunk_size: Optional[int] = Form(None),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user_async),
 ):
@@ -123,7 +124,8 @@ async def upload_document(
     try:
         _sid = ensure_default_space_for_agent(db, current_user.id, agent_id)
         item = knowledge_service.create_upload_task(
-            db, background_tasks, current_user.id, agent_id, file_name, content, file_type, space_id=_sid
+            db, background_tasks, current_user.id, agent_id, file_name, content, file_type,
+            space_id=_sid, chunk_size=chunk_size,
         )
         return {
             "message": "已创建后台入库任务",
@@ -144,6 +146,7 @@ async def upload_documents(
         agent_id: int,
         background_tasks: BackgroundTasks,
         files: List[UploadFile] = File(...),
+        chunk_size: Optional[int] = Form(None),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user_async),
 ):
@@ -174,7 +177,8 @@ async def upload_documents(
             prepared_files.append({"file_name": file_name, "file_type": file_type, "content": content})
         _sid = ensure_default_space_for_agent(db, current_user.id, agent_id)
         created = knowledge_service.create_upload_tasks(
-            db, background_tasks, current_user.id, agent_id, prepared_files, space_id=_sid
+            db, background_tasks, current_user.id, agent_id, prepared_files,
+            space_id=_sid, chunk_size=chunk_size,
         )
         return {
             "message": f"已创建{len(created)}个后台入库任务",
@@ -338,8 +342,8 @@ async def search_knowledge(
         data: KnowledgeSearchRequest,
         current_user: User = Depends(get_current_user_async),
 ):
-    # 归属校验 + 文档启用检查 + 检索本体都在 search_entry.search_scoped 里（同步 RAG 子系统），
-    # 通过 asyncio.to_thread 调用，本处理器不再持有同步 Session。
+    # 归属校验 + 文档启用检查 + 检索本体都在 search_entry.search_scoped_async 里（彻底 async RAG 链路：
+    # 向量化 async + chunk 反查 async DAO，ChromaDB / rerank 封 to_thread）。本处理器不持有任何 Session。
     query = data.query.strip()
     if not query:
         raise InvalidInput("检索关键词不能为空")
@@ -363,8 +367,9 @@ async def search_knowledge(
             default_ttl=120,
             label="知识库检索",
         ):
-            results = await asyncio.to_thread(
-                search_scoped, current_user.id, agent_id, query, data.top_k, data.knowledge_id
+            results = await search_scoped_async(
+                current_user.id, agent_id, query,
+                top_k=data.top_k, knowledge_id=data.knowledge_id,
             )
         return {"query": query, "count": len(results), "top_k": data.top_k, "results": results}
     except LimitExceeded as e:
@@ -392,11 +397,17 @@ async def update_document_enabled(
     return knowledge_service.set_document_enabled(db, doc, data.is_enabled)
 
 
+class ReindexOptions(BaseModel):
+    # 传了（含 null）就更新文档的切块大小再重建；整个 body 省略则沿用现有设置
+    chunk_size: Optional[int] = Field(default=None, ge=0, le=4000)
+
+
 @router.post("/{agent_id}/{knowledge_id}/reindex", summary="重新入库/重建索引")
 async def reindex_document(
         agent_id: int,
         knowledge_id: int,
         background_tasks: BackgroundTasks,
+        options: Optional[ReindexOptions] = None,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user_async),
 ):
@@ -412,6 +423,7 @@ async def reindex_document(
             agent_id,
             knowledge_id,
             doc.file_name,
+            chunk_size=(options.chunk_size if options is not None else "__keep__"),
         )
     except ValueError as e:
         db.rollback()

@@ -158,6 +158,13 @@ def validate_and_normalize(data: Any) -> ValidationResult:
     view = _norm_view(_as_dict(data.get("view")), widget_type, errors)
     processor = _norm_processor(_as_dict(data.get("processor")), view["kind"], errors)
 
+    # web_query 联网检索：结果是「当前值 + 来源」，固定用 markdown 展示（连接器输出带 summary），
+    # 即便 LLM 选了 chart/metric 也纠正——否则没抠出数字时只会显示「还没有数据」。走势靠每天攒。
+    if data_source["kind"] == "web_query" and view["kind"] not in ("markdown", "table"):
+        widget_type = "markdown"
+        view = {"kind": "markdown", "config": {}}
+        processor = {"kind": "passthrough", "config": {}}
+
     actions = [a for a in (data.get("actions") or []) if a in schema.ACTIONS]
     if not actions:
         actions = list(schema.DEFAULT_ACTIONS)

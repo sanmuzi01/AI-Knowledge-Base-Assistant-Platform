@@ -217,9 +217,15 @@
                   ? 'bg-blue-600 text-white rounded-br-md'
                   : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
               ]"
-              v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content"
+              v-html="msg.role === 'assistant' ? renderAnswer(msg.content) : msg.content"
+              @click="msg.role === 'assistant' && onAnswerClick($event, msg)"
             ></div>
-            <CitationList v-if="msg.role === 'assistant'" :citations="msg.citations" />
+            <CitationList
+              v-if="msg.role === 'assistant'"
+              :citations="msg.citations"
+              :open-index="msg.citeOpen ?? null"
+            />
+            <RagSavingsBar v-if="msg.role === 'assistant' && msg.ragStats" :stats="msg.ragStats" compact class="mt-1.5 max-w-md" />
           </div>
         </div>
 
@@ -240,6 +246,12 @@
             </div>
             <div v-else-if="evt.type === 'retrieval'">
               <span class="text-amber-500 font-semibold">资料检索</span> 命中 {{ evt.hit_count }} 条
+              <span v-if="evt.stats && evt.stats.source_doc_chars" class="ml-1 text-emerald-600">
+                · 上下文压缩 {{ Math.round((evt.stats.saved_ratio || 0) * 100) }}%（省 ≈{{ evt.stats.est_tokens_saved }} token）
+              </span>
+              <div v-if="evt.hit_count === 0" class="mt-1 text-gray-400">
+                知识库没匹配到内容 —— 换个说法、用文档里的术语再问，或到「知识库 → 调试台」排查检索效果。
+              </div>
             </div>
           </div>
         </div>
@@ -497,6 +509,7 @@ import type { LlmConfig } from '../api/llmConfig'
 import type { AgentRun, RunDetail } from '../api/run'
 import type { Citation } from '../api/chat'
 import CitationList from '../components/knowledge/CitationList.vue'
+import RagSavingsBar from '../components/knowledge/RagSavingsBar.vue'
 import AgentSubnav from '../components/agent/AgentSubnav.vue'
 import {
   BookOpen, PlusCircle, MoreHorizontal, Pencil, Trash2, Pin, Archive,
@@ -629,7 +642,19 @@ const filteredConversations = computed(() => {
   })
 })
 
-const renderMarkdown = (text: string) => marked.parse(text || '') as string
+// 把回答正文里的 【来源N】 变成可点标记，点了就展开对应的来源片段
+const renderAnswer = (text: string) =>
+  (marked.parse(text || '') as string).replace(
+    /【来源(\d+)】/g,
+    '<span class="cite-ref" data-cite="$1">【来源$1】</span>',
+  )
+
+function onAnswerClick(e: MouseEvent, msg: any) {
+  const el = (e.target as HTMLElement)?.closest?.('.cite-ref') as HTMLElement | null
+  if (!el) return
+  const idx = Number(el.dataset.cite)
+  if (Number.isFinite(idx)) msg.citeOpen = idx
+}
 const short = (s: string, n: number) => {
   const s2 = s || ''
   return s2.length > n ? s2.slice(0, n) + '...' : s2
@@ -849,7 +874,8 @@ const sendMessage = async () => {
                 if (evt.type === 'ready' && evt.run_id) {
           // 可选：记 run_id 供轨迹
         } else if (evt.type === 'retrieval') {
-          eventTraces.value.push({ type: 'retrieval', hit_count: evt.hit_count })
+          eventTraces.value.push({ type: 'retrieval', hit_count: evt.hit_count, stats: evt.stats })
+          if (evt.stats) messages.value[placeholderIdx].ragStats = evt.stats
         } else if (evt.type === 'citations') {
           messages.value[placeholderIdx].citations = (evt.citations || []) as Citation[]
         } else if (evt.type === 'thinking') {
@@ -929,4 +955,12 @@ watch(agentId, async () => {
 .fade-enter-active, .fade-leave-active { transition: opacity .18s ease; }
 .slide-enter-from, .slide-leave-to { transform: translateX(100%); }
 .slide-enter-active, .slide-leave-active { transition: transform .24s ease; }
+/* 回答正文里的 【来源N】 标记（v-html 注入，用 :deep 命中） */
+:deep(.cite-ref) {
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+:deep(.cite-ref:hover) { text-decoration: underline; }
 </style>

@@ -94,9 +94,10 @@ export interface CrawlCheckResult {
 }
 
 /** 上传文档（multipart/form-data） */
-export async function uploadDocument(agentId: number, file: File): Promise<any> {
+export async function uploadDocument(agentId: number, file: File, chunkSize?: number | null): Promise<any> {
   const formData = new FormData()
   formData.append('file', file)
+  if (chunkSize != null) formData.append('chunk_size', String(chunkSize))
   const { data } = await request.post(`/knowledge/${agentId}/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
@@ -104,7 +105,7 @@ export async function uploadDocument(agentId: number, file: File): Promise<any> 
 }
 
 /** 批量上传文档（multipart/form-data） */
-export async function uploadDocuments(agentId: number, files: File[]): Promise<{
+export async function uploadDocuments(agentId: number, files: File[], chunkSize?: number | null): Promise<{
   message: string
   count: number
   items: Array<{
@@ -116,6 +117,7 @@ export async function uploadDocuments(agentId: number, files: File[]): Promise<{
 }> {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file))
+  if (chunkSize != null) formData.append('chunk_size', String(chunkSize))
   const { data } = await request.post(`/knowledge/${agentId}/upload-batch`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
@@ -189,8 +191,13 @@ export async function listChunks(agentId: number, knowledgeId: number): Promise<
   return data.chunks as KnowledgeChunk[]
 }
 
-export async function reindexDocument(agentId: number, knowledgeId: number): Promise<any> {
-  const { data } = await request.post(`/knowledge/${agentId}/${knowledgeId}/reindex`)
+export async function reindexDocument(
+  agentId: number,
+  knowledgeId: number,
+  chunkSize?: number | null,
+): Promise<any> {
+  const body = chunkSize === undefined ? undefined : { chunk_size: chunkSize }
+  const { data } = await request.post(`/knowledge/${agentId}/${knowledgeId}/reindex`, body)
   return data
 }
 

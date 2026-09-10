@@ -1,4 +1,4 @@
-﻿"""
+"""
 BGE 本地 Rerank 实现
 对应模型：BAAI/bge-reranker-base / BAAI/bge-reranker-large / BAAI/bge-reranker-v2-m3
 1. 本地跑模型（用 sentence-transformers 库），不需要API Key

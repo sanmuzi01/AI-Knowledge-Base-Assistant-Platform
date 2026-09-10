@@ -1,4 +1,4 @@
-﻿import httpx
+import httpx
 import requests
 import json
 from typing import Dict,List,Generator
@@ -12,7 +12,7 @@ class GLMClient(BaseLLM):
     def __init__(self,api_key,api_url=None,model_name="glm-4"):
         super().__init__(api_key, api_url, model_name)
         self.api_url = api_url or self.DEFAULT_API_URL
-    async def achat(self,messages,temperature = 0.5)->str:
+    async def achat(self, messages, temperature=0.5, web_search: bool = False) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",  # API Key 认证
             "Content-Type": "application/json"
@@ -23,6 +23,9 @@ class GLMClient(BaseLLM):
             "temperature": temperature,  # 创造性：0=保守, 1=天马行空
             "stream": False  # False = 一次性返回
         }
+        if web_search:
+            from service.llm.web_search import search_payload_extras
+            payload.update(search_payload_extras(self.model_name))
         try:
             response = await async_request_with_retry(
                 service_name=f"llm:{self.model_name}",

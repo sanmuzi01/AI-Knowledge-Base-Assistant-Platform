@@ -9,6 +9,9 @@
       <span v-if="trace.refused" class="rounded bg-amber-50 px-2 py-0.5 text-amber-700">按「查不到」处理</span>
     </div>
 
+    <!-- 上下文压缩 / Token 节省 -->
+    <RagSavingsBar :stats="trace.stats" />
+
     <!-- 命中片段 -->
     <section>
       <h4 class="mb-1 text-xs font-semibold text-slate-700">命中片段</h4>
@@ -68,6 +71,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { RagDebugTrace } from '../../api/ragDebug'
+import RagSavingsBar from './RagSavingsBar.vue'
 
 const props = defineProps<{ trace: RagDebugTrace | null }>()
 const showContext = ref(false)

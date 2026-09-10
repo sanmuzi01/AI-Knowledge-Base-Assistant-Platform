@@ -1,4 +1,4 @@
-﻿"""
+"""
 RAG编排服务：把文档解析→切分→嵌入→向量存储→DB存储 全部串起来
 对外提供3个高级接口：
   upload_and_index()              上传文档并入库
@@ -25,7 +25,7 @@ from utils.logger_handler import get_logger
 from utils.path_tool import get_abs_path
 # 导入 RAG 底层两层能力
 from service.rag.embedding_service import embed_texts,embed_query
-from service.rag.embedding_service import aembed_query
+from service.rag.embedding_service import aembed_query, aembed_query_async
 from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge,space_collection_key)
 # 导入 DAO（4层架构：Service层只调DAO，不直接碰 ORM）
 from models.knowledge_dao import (
@@ -37,8 +37,30 @@ load_dotenv()
 # 上传的原始文档保存在哪（磁盘）
 KNOWLEDGE_FILE_PATH = os.getenv("KNOWLEDGE_FILE_PATH","./knowledge_files")
 # 切块参数
-CHUNK_SIZE = 500        # 每块约500字符
+CHUNK_SIZE = 500        # 每块约500字符（用户没自选时的默认）
 CHUNK_OVERLAP = 50      # 相邻块重叠50字符（防止一句话被切断）
+CHUNK_SIZE_MIN = 120    # 用户可选切块大小下限
+CHUNK_SIZE_MAX = 2000   # 上限
+
+
+def _effective_chunk_params(knowledge) -> tuple:
+    """按文档的 chunk_size（用户自选）解析出 (chunk_size, overlap)，越界夹紧，None 用默认。
+
+    overlap 固定 CHUNK_OVERLAP，仅在 chunk 很小时按 size//4 缩小（保证 overlap < size）。
+    """
+    raw = getattr(knowledge, "chunk_size", None)
+    size = CHUNK_SIZE if not raw else max(CHUNK_SIZE_MIN, min(int(raw), CHUNK_SIZE_MAX))
+    overlap = min(CHUNK_OVERLAP, size // 4)
+    return size, overlap
+
+
+def clamp_chunk_size(value) -> "int | None":
+    """路由层入口校验：把用户传的 chunk_size 夹到合法区间；空/非法 → None（用默认）。"""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(CHUNK_SIZE_MIN, min(n, CHUNK_SIZE_MAX))
 RAG_RERANK_ENABLED = os.getenv("RAG_RERANK_ENABLED", "0").lower() in {"1", "true", "yes", "on"}
 RAG_RERANK_MODEL = os.getenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 logger = get_logger("rag_service")
@@ -137,7 +159,8 @@ def upload_and_index(
 def prepare_upload(db, user_id: int, agent_id, file_name: str,
                    file_content: bytes, file_type: str, *, space_id: int = None,
                    category: str = None, tags_json: str = None, version: str = None,
-                   source_type: str = "upload", source_url: str = None):
+                   source_type: str = "upload", source_url: str = None,
+                   chunk_size: int = None):
     """保存原文件并创建 pending 文档记录，不执行耗时入库。"""
     file_dir = get_abs_path(KNOWLEDGE_FILE_PATH)
     os.makedirs(file_dir,exist_ok=True)#创建文件目录，如果文件夹存在则不报错
@@ -152,6 +175,7 @@ def prepare_upload(db, user_id: int, agent_id, file_name: str,
         file_path=file_path, file_type=file_type, file_size=file_size,
         space_id=space_id, category=category, tags_json=tags_json, version=version,
         source_type=source_type, source_url=source_url,
+        chunk_size=clamp_chunk_size(chunk_size),
     )
     logger.info(f"创建待入库文档: knowledge_id={knowledge.id}, file={file_name}")
     return knowledge
@@ -163,8 +187,8 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
     if not knowledge or knowledge.user_id != user_id or (agent_id is not None and knowledge.agent_id != agent_id):
         raise ValueError("文档不存在或无权限")
     if not os.path.exists(knowledge.file_path):
-        update_knowledge_status(db, knowledge, "failed", error_msg="原始文件不存在，无法入库")
-        raise ValueError("原始文件不存在，无法入库")
+        update_knowledge_status(db, knowledge, "failed", error_msg="原始文件已丢失，请重新上传这份资料。")
+        raise ValueError("原始文件已丢失，请重新上传这份资料。")
     try:
         # ---------- 第3步：更新状态 processing ----------
         update_knowledge_status(db,knowledge,"processing")#数据库，知识库文件记录，状态
@@ -172,11 +196,12 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
         # ---------- 第4步：解析文档 ----------
         text = parse_document(knowledge.file_path, knowledge.file_type)#文件路径和文件类型
         if not text.strip():
-            raise ValueError("文档内容为空（可能是扫描版PDF，需OCR）")
-        # ---------- 第5步：切分 ----------
-        chunks_text = split_text(text)
+            raise ValueError("没读到文字内容。若是扫描件 / 图片版 PDF，请先用 OCR 转成可复制的文字再上传。")
+        # ---------- 第5步：切分（按文档自选 chunk_size，没选用默认） ----------
+        _cs, _ov = _effective_chunk_params(knowledge)
+        chunks_text = split_text(text, chunk_size=_cs, overlap=_ov)
         if not chunks_text:
-            raise ValueError("切分后无有效内容（文档太短或全是空白）")
+            raise ValueError("文档里几乎没有有效文字（可能太短，或全是空白 / 表格图片）。")
         # ---------- 第6步：批量嵌入（调智谱API，可能耗时） ----------
         vectors = embed_texts(db,user_id,chunks_text)
         # ---------- 第7步：存向量到 ChromaDB ----------
@@ -225,8 +250,8 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
     if not knowledge or knowledge.user_id != user_id or (agent_id is not None and knowledge.agent_id != agent_id):
         raise ValueError("文档不存在或无权限")
     if not os.path.exists(knowledge.file_path):
-        update_knowledge_status(db, knowledge, "failed", error_msg="原始文件不存在，无法重新入库")
-        raise ValueError("原始文件不存在，无法重新入库")
+        update_knowledge_status(db, knowledge, "failed", error_msg="原始文件已丢失，请重新上传这份资料。")
+        raise ValueError("原始文件已丢失，请重新上传这份资料。")
 
     try:
         update_knowledge_status(db, knowledge, "processing", chunk_count=0)
@@ -239,10 +264,11 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
 
         text = parse_document(knowledge.file_path, knowledge.file_type)
         if not text.strip():
-            raise ValueError("文档内容为空（可能是扫描版PDF，需OCR）")
-        chunks_text = split_text(text)
+            raise ValueError("没读到文字内容。若是扫描件 / 图片版 PDF，请先用 OCR 转成可复制的文字再上传。")
+        _cs, _ov = _effective_chunk_params(knowledge)
+        chunks_text = split_text(text, chunk_size=_cs, overlap=_ov)
         if not chunks_text:
-            raise ValueError("切分后无有效内容（文档太短或全是空白）")
+            raise ValueError("文档里几乎没有有效文字（可能太短，或全是空白 / 表格图片）。")
 
         vectors = embed_texts(db, user_id, chunks_text)
         vector_ids = [f"k{knowledge.id}_c{i}" for i in range(len(chunks_text))]
@@ -375,6 +401,92 @@ async def async_search(
         raise ValueError("检索关键词不能为空")
     query_vector = await aembed_query(db, user_id, query)
     return _build_search_results(db, agent_id, query, top_k, query_vector, knowledge_id)
+
+
+async def search_async(
+        db, user_id: int, agent_id: int, query: str,
+        top_k: int = 5, knowledge_id: int = None,
+) -> List[Dict[str, Any]]:
+    """彻底 async 版检索：`db` 为 AsyncSession。
+
+    向量化走 async 客户端 + async 配置查询；chunk / knowledge 反查走 async DAO；
+    ChromaDB 相似度检索与 rerank 仍同步，统一封 `asyncio.to_thread`。
+    行为与同步 `search` 逐条对齐。
+    """
+    if not query or not query.strip():
+        raise ValueError("检索关键词不能为空")
+    query_vector = await aembed_query_async(db, user_id, query)
+    return await _build_search_results_async(db, agent_id, query, top_k, query_vector, knowledge_id)
+
+
+async def _build_search_results_async(
+        db, agent_id: int, query: str, top_k: int,
+        query_vector: List[float], knowledge_id: int = None,
+) -> List[Dict[str, Any]]:
+    """`_build_search_results` 的 AsyncSession 版。"""
+    import asyncio
+
+    from models.knowledge_async_dao import (
+        get_chunks_by_vector_ids_async, get_knowledge_by_id_async,
+    )
+
+    if not query_vector:
+        return []
+    logger.info(f"开始检索(async): agent={agent_id}, query='{query[:50]}...', top_k={top_k}")
+    retrieve_count = max(10, top_k * 2) if RAG_RERANK_ENABLED else top_k
+    where = {"knowledge_id": knowledge_id} if knowledge_id is not None else None
+    results = await asyncio.to_thread(
+        search_similar, agent_id, query_vector, retrieve_count, where,
+    )
+    if not results:
+        logger.info(f"向量检索无命中(async): agent={agent_id}, query='{query[:50]}...'")
+        return []
+    logger.info(f"向量检索完成(async): agent={agent_id}, 命中{len(results)}条")
+
+    vector_ids = [r["id"] for r in results]
+    chunks = await get_chunks_by_vector_ids_async(db, vector_ids)
+    knowledge_ids = {chunk.knowledge_id for chunk in chunks}
+    knowledge_map = {kid: await get_knowledge_by_id_async(db, kid) for kid in knowledge_ids}
+    chunk_map = {c.vector_id: c for c in chunks}
+    final = []
+    for r in results:
+        chunk = chunk_map.get(r["id"])
+        knowledge = knowledge_map.get(chunk.knowledge_id) if chunk else None
+        if chunk and knowledge and knowledge.is_enabled != 0:
+            final.append({
+                "chunk_id": chunk.id,
+                "content": chunk.content,
+                "score": max(0.0, 1.0 - float(r["distance"])),
+                "distance": r["distance"],
+                "knowledge_id": chunk.knowledge_id,
+                "chunk_index": chunk.chunk_index,
+            })
+    if not final:
+        logger.info(f"向量命中但未在MySQL找到chunk(async): agent={agent_id}, vector_ids={vector_ids[:5]}")
+        return []
+
+    reranker = _get_rerank_client()
+    if reranker and len(final) > 1:
+        doc_contents = [item["content"] for item in final]
+        reranked = await asyncio.to_thread(reranker.rerank, query, doc_contents, len(final))
+        new_final = []
+        for original_idx, rerank_score in reranked:
+            if original_idx < len(final):
+                item = final[original_idx].copy()
+                item["score"] = rerank_score
+                new_final.append(item)
+        final = new_final[:top_k]
+        logger.info(
+            f"Rerank重排完成(async): {len(doc_contents)}条 → {len(final)}条, "
+            f"Rerank最高分数={final[0]['score']:.4f}"
+        )
+
+    logger.info(f"检索完成(async): agent={agent_id}, query='{query[:20]}...', 命中{len(final)}条")
+    for item in final:
+        knowledge = knowledge_map.get(item["knowledge_id"])
+        item["file_name"] = knowledge.file_name if knowledge else ""
+        item["file_type"] = knowledge.file_type if knowledge else ""
+    return final
 # ========== 彻底删除文档 ==========
 def delete_knowledge_completely(
         db,agent_id:int,knowledge_id:int

@@ -113,6 +113,33 @@ async def design(db, user, prompt: str) -> Dict[str, Any]:
     return await design_widget(db, user.id, prompt)
 
 
+async def list_templates(db, user) -> Dict[str, Any]:
+    """模板目录 + 建组件时表单要用的下拉数据（我的助手 / 我的知识库空间）。"""
+    from service.widgets.templates import list_templates as _tpls
+    from models.agent_async_dao import list_agents_by_user_async
+    from models.knowledge_space_async_dao import list_accessible_spaces_async
+
+    agents = await list_agents_by_user_async(db, user.id)
+    spaces = await list_accessible_spaces_async(db, user.id, include_archived=False)
+    return {
+        "templates": _tpls(),
+        "options": {
+            "agents": [{"value": a.id, "label": a.name} for a in agents],
+            "spaces": [{"value": s.id, "label": s.name} for s in spaces],
+        },
+    }
+
+
+async def build_from_template(db, user, template_key: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """按模板 + 表单参数产出一份已校验的 spec + 中文说明，前端拿去走 preview / create。"""
+    from service.widgets.templates import build_spec, TemplateError
+    try:
+        spec = build_spec(template_key, params or {})
+    except TemplateError as exc:
+        raise InvalidInput(str(exc))
+    return {"draft": spec, "explain": schema.describe_spec(spec)}
+
+
 async def preview_widget(db, user, draft: Dict[str, Any]) -> Dict[str, Any]:
     """按草稿真实跑一次取数/处理流程，但不落库。用于「创建前先看看效果」。"""
     result = validate_and_normalize(draft)

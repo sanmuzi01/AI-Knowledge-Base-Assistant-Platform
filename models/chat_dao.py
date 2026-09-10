@@ -1,4 +1,4 @@
-﻿from typing import List,Optional
+from typing import List,Optional
 from datetime import datetime
 from models.init_db import Chat
 

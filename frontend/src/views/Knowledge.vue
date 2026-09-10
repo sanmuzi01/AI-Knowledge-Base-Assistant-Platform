@@ -151,6 +151,19 @@
                   <p class="mt-1 text-xs text-slate-500">{{ uploading ? uploadProgress : uploadHint }}</p>
                 </div>
                 <p v-if="uploadError" class="mt-2 text-sm text-red-600">{{ uploadError }}</p>
+
+                <details class="mt-2 rounded border border-slate-200 bg-slate-50">
+                  <summary class="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600">切块设置（高级）</summary>
+                  <div class="flex flex-wrap items-center gap-3 border-t border-slate-200 px-3 py-3">
+                    <label class="text-xs text-slate-600">每块字符数</label>
+                    <input
+                      v-model.number="chunkSize"
+                      type="number" min="120" max="2000" step="20" placeholder="默认 500"
+                      class="h-8 w-28 rounded border border-slate-300 bg-white px-2 text-sm outline-none focus:border-blue-500"
+                    />
+                    <span class="text-[11px] text-slate-400">留空用默认；较小=更精准命中，较大=上下文更完整。范围 120~2000</span>
+                  </div>
+                </details>
               </div>
 
               <div v-else>
@@ -500,6 +513,7 @@ const activeInputMode = ref<'file' | 'web'>('file')
 const uploading = ref(false)
 const uploadProgress = ref('')
 const uploadError = ref('')
+const chunkSize = ref<number | null>(null)   // 切块大小（字符），null=用默认；后端夹到 120~2000
 const crawling = ref(false)
 const crawlUrlsText = ref('')
 const crawlError = ref('')
@@ -676,14 +690,15 @@ const uploadFiles = async (files: File[]) => {
   uploadError.value = ''
   uploadProgress.value = uploadList.length === 1 ? uploadList[0].name : `${uploadList.length} 个文件`
   try {
+    const cs = chunkSize.value && chunkSize.value > 0 ? chunkSize.value : null
     const result = uploadList.length === 1
       ? {
           items: [{
             file_name: uploadList[0].name,
-            ...(await knowledgeApi.uploadDocument(agentId.value, uploadList[0])),
+            ...(await knowledgeApi.uploadDocument(agentId.value, uploadList[0], cs)),
           }],
         }
-      : await knowledgeApi.uploadDocuments(agentId.value, uploadList)
+      : await knowledgeApi.uploadDocuments(agentId.value, uploadList, cs)
     const newTasks = (result.items || []).map((item: any) => ({
         id: item.task_id,
         user_id: 0,

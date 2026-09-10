@@ -179,6 +179,177 @@ def search_spaces(
         db.close()
 
 
+async def search_spaces_async(
+    user_id: int,
+    space_ids: List[int],
+    query: str,
+    top_k: int = 5,
+    rerank: Optional[bool] = None,
+    refuse_when_empty: bool = True,
+    min_score: Optional[float] = None,
+    db=None,
+) -> Dict[str, Any]:
+    """`search_spaces` 的彻底 async 版。
+
+    `db` 为 AsyncSession；不传则自开一个 `AsyncSessionLocal()`（RAG 检索是叶子子系统，
+    自带事务，和同步版一致）。归属校验 / 空间元数据 / chunk 反查走 async DAO，
+    向量化走 async 客户端，ChromaDB 检索与 rerank 封 `asyncio.to_thread`。
+    """
+    import asyncio
+
+    from models.knowledge_async_dao import (
+        get_chunks_by_vector_ids_async, get_knowledge_by_id_async,
+    )
+    from models.knowledge_space_async_dao import list_spaces_by_ids_async
+    from service.access_control import user_space_ids_async
+    from service.rag import rag_service
+    from service.rag.embedding_service import aembed_query_async
+    from service.rag.vector_store_service import (
+        legacy_agent_key, search_similar, space_collection_key,
+    )
+
+    if not query or not query.strip():
+        raise ValueError("检索关键词不能为空")
+
+    want_ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    if not want_ids:
+        return _empty_result(query, want_ids, top_k, bool(rerank))
+
+    top_k = max(1, min(int(top_k or 5), 20))
+    use_rerank = rag_service.RAG_RERANK_ENABLED if rerank is None else bool(rerank)
+    threshold = _min_score() if min_score is None else float(min_score)
+
+    async def _run(session):
+        allowed = await user_space_ids_async(session, user_id)
+        bad = [s for s in want_ids if s not in allowed]
+        if bad:
+            raise PermissionError(f"包含无权访问的知识库空间：{bad}")
+
+        spaces = {s.id: s for s in await list_spaces_by_ids_async(session, want_ids)}
+        missing = [s for s in want_ids if s not in spaces]
+        if missing:
+            raise PermissionError(f"知识库空间不存在：{missing}")
+
+        query_vector = await aembed_query_async(session, user_id, query)
+        if not query_vector:
+            return _empty_result(query, want_ids, top_k, use_rerank)
+
+        per_space = _candidate_count(top_k, use_rerank)
+        raw: List[Dict[str, Any]] = []
+        seen_vids = set()
+        for sid in want_ids:
+            space = spaces[sid]
+            keys = [space_collection_key(sid)]
+            if not space.vector_migrated and space.legacy_agent_id:
+                keys.append(legacy_agent_key(space.legacy_agent_id))
+            for key in keys:
+                try:
+                    hits = await asyncio.to_thread(search_similar, key, query_vector, per_space)
+                except Exception as e:  # 单集合失败不影响其它空间
+                    logger.warning(f"空间 {sid} 集合 {key} 检索失败，跳过: {e}")
+                    continue
+                for h in hits:
+                    vid = h.get("id")
+                    if not vid or vid in seen_vids:
+                        continue
+                    seen_vids.add(vid)
+                    h["_space_id"] = sid
+                    raw.append(h)
+
+        if not raw:
+            return _empty_result(query, want_ids, top_k, use_rerank)
+
+        raw.sort(key=lambda r: r.get("distance", 1.0))
+
+        chunks = await get_chunks_by_vector_ids_async(session, [r["id"] for r in raw])
+        chunk_map = {c.vector_id: c for c in chunks}
+        knowledge_map: Dict[int, Any] = {}
+
+        merged: List[Dict[str, Any]] = []
+        for r in raw:
+            chunk = chunk_map.get(r["id"])
+            if not chunk:
+                continue
+            kid = chunk.knowledge_id
+            if kid not in knowledge_map:
+                knowledge_map[kid] = await get_knowledge_by_id_async(session, kid)
+            knowledge = knowledge_map[kid]
+            if not knowledge or knowledge.is_enabled == 0:
+                continue
+            space = spaces.get(r["_space_id"])
+            merged.append({
+                "chunk_id": chunk.id,
+                "content": chunk.content,
+                "score": max(0.0, 1.0 - float(r.get("distance", 1.0))),
+                "rerank_score": None,
+                "distance": r.get("distance"),
+                "knowledge_id": kid,
+                "chunk_index": chunk.chunk_index,
+                "source": {
+                    "space_id": r["_space_id"],
+                    "space_name": space.name if space else "",
+                    "file_name": knowledge.file_name,
+                    "file_type": knowledge.file_type,
+                    "category": knowledge.category,
+                    "version": knowledge.version,
+                    "source_url": knowledge.source_url,
+                },
+            })
+
+        if not merged:
+            return _empty_result(query, want_ids, top_k, use_rerank)
+
+        merged = await _maybe_rerank_async(query, merged, top_k, use_rerank, rag_service)
+        merged = merged[:top_k]
+
+        if _should_refuse(merged, threshold, refuse_when_empty):
+            best = max((h["score"] for h in merged), default=0.0)
+            logger.info(f"多空间检索最高分 {best:.4f} < 阈值 {threshold}，按拒答处理")
+            return _empty_result(query, want_ids, top_k, use_rerank, refused=True)
+
+        context, citations = _assemble(merged)
+        return {
+            "query": query,
+            "space_ids": want_ids,
+            "top_k": top_k,
+            "rerank": use_rerank,
+            "refused": False,
+            "hits": merged,
+            "context": context,
+            "citations": citations,
+        }
+
+    if db is not None:
+        return await _run(db)
+    from models.async_db import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        return await _run(session)
+
+
+async def _maybe_rerank_async(query, merged, top_k, use_rerank, rag_service):
+    import asyncio
+    if not use_rerank or len(merged) <= 1:
+        return merged
+    reranker = rag_service._get_rerank_client()
+    if not reranker:
+        return merged
+    try:
+        reranked = await asyncio.to_thread(
+            reranker.rerank, query, [m["content"] for m in merged], len(merged),
+        )
+    except Exception as e:
+        logger.warning(f"rerank 失败，用向量分数: {e}")
+        return merged
+    out = []
+    for original_idx, rerank_score in reranked:
+        if original_idx < len(merged):
+            item = dict(merged[original_idx])
+            item["rerank_score"] = rerank_score
+            item["score"] = rerank_score
+            out.append(item)
+    return out or merged
+
+
 def _maybe_rerank(query, merged, top_k, use_rerank, rag_service):
     if not use_rerank or len(merged) <= 1:
         return merged
@@ -229,6 +400,7 @@ def _assemble(hits: List[Dict[str, Any]]):
             "file_name": src["file_name"],
             "space_id": src["space_id"],
             "space_name": src["space_name"],
+            "snippet": (sample.get("content") or "")[:300],
         })
     return "\n\n".join(blocks), citations
 

@@ -80,12 +80,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { Bot, ChevronRight, Layers3, LayoutGrid, Library, ListChecks, LogOut, MessageSquare, Settings, Zap } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
-import * as agentApi from '../api/agent'
-import type { AgentInfo } from '../api/agent'
+import { useAgentSessionStore } from '../stores/agentSession'
 
 const route = useRoute()
 const userStore = useUserStore()
-const selectedAgent = ref<AgentInfo | null>(null)
+const agentSession = useAgentSessionStore()
 
 const routeAgentId = computed(() => {
   const value = route.params.agentId
@@ -94,7 +93,7 @@ const routeAgentId = computed(() => {
 })
 
 const activeAgentId = computed(() => {
-  return routeAgentId.value || selectedAgent.value?.id || userStore.user?.selected_agent_id || null
+  return routeAgentId.value || agentSession.selectedAgent?.id || userStore.user?.selected_agent_id || null
 })
 
 const primaryItems = computed(() => [
@@ -127,7 +126,7 @@ const agentSpace = computed(() => {
   const inSpace = agentId != null && route.path.startsWith(`/agents/${agentId}/`)
   return {
     label: inSpace || agentId != null
-      ? `助手空间${selectedAgent.value?.name ? ' · ' + selectedAgent.value.name : ''}`
+      ? `助手空间${agentSession.selectedAgent?.name ? ' · ' + agentSession.selectedAgent.name : ''}`
       : '助手空间',
     path: agentId != null ? `/agents/${agentId}/chat` : route.fullPath,
     active: inSpace,
@@ -143,17 +142,16 @@ const navClass = (active: boolean, disabled = false) => [
 
 const loadSelectedAgent = async () => {
   try {
-    await userStore.refreshMe()
     if (userStore.user?.is_admin || route.path.startsWith('/admin')) {
-      selectedAgent.value = null
+      agentSession.remember(null)
       return
     }
-    selectedAgent.value = await agentApi.getSelectedAgent()
+    await agentSession.loadSelected()
   } catch {
-    selectedAgent.value = null
+    agentSession.remember(null)
   }
 }
 
 onMounted(loadSelectedAgent)
-watch(() => route.fullPath, loadSelectedAgent)
+watch(() => userStore.user?.selected_agent_id, () => loadSelectedAgent())
 </script>

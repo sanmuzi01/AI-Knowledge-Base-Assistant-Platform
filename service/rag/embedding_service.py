@@ -18,7 +18,10 @@ from typing import List
 from dotenv import load_dotenv
 from service.rag.embedding.factory import EmbeddingFactory
 from service.rag.embedding.base import BaseEmbedding
-from service.llm.llm_config_service import get_api_key, get_api_config, get_first_embedding_config
+from service.llm.llm_config_service import (
+    get_api_key, get_api_config, get_first_embedding_config,
+    async_get_api_key, async_get_api_config, async_get_first_embedding_config,
+)
 from utils.logger_handler import get_logger
 
 load_dotenv()
@@ -90,6 +93,47 @@ def _get_client(db,user_id: int, model_name: str = None) -> BaseEmbedding:
         api_url=api_url,
     )
     return client
+
+
+async def _get_embedding_api_config_async(db, user_id: int, model_name: str):
+    """`_get_embedding_api_config` 的 AsyncSession 版（三级降级逻辑一致）。"""
+    if not model_name:
+        config = await async_get_first_embedding_config(db, user_id)
+        if config:
+            logger.info(f"自动选择用户可用向量模型: {config['model_name']}")
+            return config
+        model_name = EMBEDDING_MODEL
+    config = await async_get_api_config(db, user_id, model_name)
+    if config:
+        logger.info(f"使用用户配置的 {model_name} API Key 调用RAG向量模型")
+        return config
+    api_key = await async_get_api_key(db, user_id, "glm-4")
+    if api_key:
+        logger.info(f"未单独配置 {model_name}，复用用户 glm-4 API Key 调用RAG向量模型")
+        return {"model_name": model_name, "api_key": api_key, "api_url": None}
+    return None
+
+
+async def _get_client_async(db, user_id: int, model_name: str = None) -> BaseEmbedding:
+    """`_get_client` 的 AsyncSession 版：配置查询走 async DAO，工厂建客户端仍同步。"""
+    actual_model = model_name or None
+    api_config = await _get_embedding_api_config_async(db, user_id, actual_model)
+    actual_model = api_config["model_name"] if api_config else EMBEDDING_MODEL
+    api_key = api_config["api_key"] if api_config else None
+    api_url = api_config.get("api_url") if api_config else None
+    if not api_key and not actual_model.startswith("BAAI/"):
+        logger.error(f"用户{user_id}未配置API Key，无法调用 {actual_model}")
+        raise ValueError(f"请先在【模型配置】中配置 {actual_model} 或 glm-4 的 API Key")
+    return EmbeddingFactory.create(model_name=actual_model, api_key=api_key, api_url=api_url)
+
+
+async def aembed_query_async(db, user_id: int, query: str, model_name: str = None) -> List[float]:
+    """异步嵌入单条查询，配置查询也走 AsyncSession（`aembed_query` 的彻底 async 版）。"""
+    client = await _get_client_async(db, user_id, model_name)
+    logger.info(f"异步(async db)调用 {client.model_name} 嵌入查询: {query[:30]}...")
+    return await client.aembed_query(query)
+
+
 def embed_texts(
         db,user_id:int,texts:List[str],model_name:str = None
 )->List[List[float]]:

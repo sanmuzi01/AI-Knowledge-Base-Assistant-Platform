@@ -5,18 +5,20 @@
   POST /chat/{agent_id}/stream           SSE 流式对话（兼容旧版 + conversation_id 可选）
   GET  /chat/{agent_id}/history          旧版（查询Chat表），保留向后兼容
 
-迁移边界：history 等纯读接口走 AsyncSession + chat_async_service。
-同步/流式对话仍用 get_db —— 对话链路走 agent_runtime（同步 ORM + 生成器流式），
-不是换 AsyncSession 就能迁的；待 runtime 层 async 化后再收口。
+迁移边界：整个 chat 路由已收口到 AsyncSession（阶段 2/3）——
+  - history 纯读            → get_async_db + chat_async_service
+  - POST /chat/{id}         → get_async_db → chat_service.chat_with_agent → run_with_history_async
+  - POST /chat/{id}/stream  → get_async_db → chat_service.chat_with_agent_stream_async
+                              → run_stream_with_history_async（LangGraph 同步流经 worker 线程 + Queue 桥回）
+ReAct 引擎（含 ToolExecutor 装配）整段跑在 asyncio.to_thread + 自带同步 Session。
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from service.exceptions import InvalidInput, PermissionDenied
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 from typing import Optional
 from models.async_db import get_async_db
-from models.init_db import get_db, User
-from service.dependencies import get_current_user, get_current_user_async
+from models.init_db import User
+from service.dependencies import get_current_user_async
 from service import chat_async_service, chat_service
 from fastapi.responses import StreamingResponse
 from service.runtime.sse_events import SSE_HEADERS
@@ -47,7 +49,7 @@ def _limit_error(exc: LimitExceeded) -> HTTPException:
 async def chat(
         agent_id: int,
         request: ChatRequest,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     """同步对话。conversation_id=None 时自动新建会话并返回 conversation_id。"""
@@ -87,15 +89,15 @@ async def chat(
     return result
 
 @router.post("/{agent_id}/stream", summary="发送对话（SSE流式）")
-def chat_stream(
+async def chat_stream(
         agent_id: int,
         request: ChatRequest,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+        db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
 ):
-    """SSE 流式对话。conversation_id=None 时自动新建会话。
-    事务：流式无法像同步那样在路由层统一 commit，所以 chat_service 内部每步 flush，
-    保存AI消息后会 commit 一次。
+    """SSE 流式对话（阶段 3：AsyncSession + 异步生成器）。conversation_id=None 时自动新建会话。
+    事务：路由层不统一 commit，chat_service 内部每步 flush、存 AI 消息后 commit 一次；
+    LangGraph 同步流经 worker 线程 + asyncio.Queue 桥回。
     """
     try:
         require_limit(
@@ -118,7 +120,7 @@ def chat_stream(
     except LimitExceeded as e:
         raise _limit_error(e)
 
-    generator = chat_service.chat_with_agent_stream(
+    generator = chat_service.chat_with_agent_stream_async(
         db=db,
         user=current_user,
         agent_id=agent_id,
@@ -126,9 +128,10 @@ def chat_stream(
         conversation_id=request.conversation_id,
     )
 
-    def limited_generator():
+    async def limited_generator():
         try:
-            yield from generator
+            async for event in generator:
+                yield event
         finally:
             lease_guard.__exit__(None, None, None)
 

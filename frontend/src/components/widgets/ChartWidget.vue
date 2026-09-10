@@ -8,19 +8,32 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts/core'
-import { BarChart, LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import type { WidgetItem } from '../../api/widget'
 
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+// echarts 按需懒加载：只有页面上真的出现图表组件时才拉这个 chunk（约 300KB）
+let echarts: typeof import('echarts/core') | null = null
+async function loadECharts() {
+  if (echarts) return echarts
+  const [core, charts, comps, renderers] = await Promise.all([
+    import('echarts/core'),
+    import('echarts/charts'),
+    import('echarts/components'),
+    import('echarts/renderers'),
+  ])
+  core.use([
+    charts.LineChart, charts.BarChart, charts.PieChart,
+    comps.GridComponent, comps.TooltipComponent, comps.LegendComponent,
+    renderers.CanvasRenderer,
+  ])
+  echarts = core
+  return core
+}
 
 const props = defineProps<{ widget: WidgetItem; result: any; error?: string }>()
 
 const chartEl = ref<HTMLDivElement | null>(null)
-let chart: ReturnType<typeof echarts.init> | null = null
+let chart: any = null
 
 // 把各种 result 结构收敛成 [{ name, value }]
 const series = computed<{ name: string; value: number }[]>(() => {
@@ -68,9 +81,11 @@ function buildOption(): EChartsOption {
   }
 }
 
-function render() {
+async function render() {
+  if (!chartEl.value || !hasData.value) return
+  const ec = await loadECharts()
   if (!chartEl.value) return
-  if (!chart) chart = echarts.init(chartEl.value)
+  if (!chart) chart = ec.init(chartEl.value)
   chart.setOption(buildOption(), true)
   chart.resize()
 }

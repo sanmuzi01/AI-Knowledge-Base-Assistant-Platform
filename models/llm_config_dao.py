@@ -1,4 +1,4 @@
-﻿from typing import Optional,List
+from typing import Optional,List
 from models.init_db import LLMConfig
 
 def get_config_by_user_and_model(db,user_id:int,model_name:str)-> Optional[LLMConfig]:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tool 工具系统基础
 和 Embedding/Rerank 一样的插件模式：
   - BaseTool：抽象基类，所有工具必须实现

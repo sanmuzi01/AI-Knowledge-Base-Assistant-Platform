@@ -46,7 +46,24 @@
         <div class="rounded-lg border border-sky-200 bg-white/80 p-4">
           <h2 class="text-sm font-semibold text-slate-900">上传文档</h2>
           <p class="mt-1 text-xs text-slate-500">支持 PDF / Word / TXT / Markdown，可多选。</p>
-          <input type="file" multiple accept=".pdf,.docx,.txt,.md" class="mt-3 block w-full text-xs" @change="onFiles" />
+          <div
+            @click="!uploading && fileInput?.click()"
+            @dragover.prevent="dragOver = true"
+            @dragleave.prevent="dragOver = false"
+            @drop.prevent="onDrop"
+            :class="[
+              dragOver ? 'border-sky-500 bg-sky-50' : 'border-slate-300 hover:border-sky-400 hover:bg-slate-50',
+              uploading ? 'cursor-wait opacity-70' : 'cursor-pointer',
+            ]"
+            class="mt-3 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors"
+          >
+            <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.txt,.md" class="hidden" @change="onPick" />
+            <UploadCloud :size="24" class="mx-auto mb-2 text-slate-400" />
+            <p class="text-xs font-medium text-slate-600">
+              {{ uploading ? '上传中…' : '把文件拖到这里，或点击选择' }}
+            </p>
+            <p class="mt-0.5 text-[11px] text-slate-400">PDF / Word / TXT / Markdown，可多选</p>
+          </div>
           <p v-if="uploadMsg" class="mt-2 text-xs" :class="uploadMsg.err ? 'text-red-600' : 'text-emerald-600'">{{ uploadMsg.text }}</p>
         </div>
         <div class="rounded-lg border border-sky-200 bg-white/80 p-4">
@@ -139,12 +156,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft } from 'lucide-vue-next'
+import { ArrowLeft, UploadCloud } from 'lucide-vue-next'
 import {
   crawlSpaceDocs, deleteSpaceDoc, getSpace, listSpaceDocs, reindexSpaceDoc,
-  updateSpaceDoc, uploadSpaceDoc,
+  updateSpaceDoc, uploadSpaceDocsBatch,
   type KnowledgeSpace, type SpaceDoc,
 } from '../../api/knowledgeSpace'
 import SpaceMembersPanel from '../../components/knowledge/SpaceMembersPanel.vue'
@@ -171,6 +188,10 @@ const urlText = ref('')
 const crawling = ref(false)
 const uploadMsg = ref<{ text: string; err: boolean } | null>(null)
 const crawlMsg = ref<{ text: string; err: boolean } | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
+const uploading = ref(false)
+const ACCEPT_EXT = ['.pdf', '.docx', '.txt', '.md']
 
 async function reloadSpace() {
   try {
@@ -197,22 +218,60 @@ async function reloadDocs() {
   }
 }
 
-async function onFiles(e: Event) {
-  const files = Array.from((e.target as HTMLInputElement).files || [])
-  if (!files.length) return
-  uploadMsg.value = null
-  let ok = 0
-  for (const f of files) {
-    try {
-      await uploadSpaceDoc(spaceId, f)
-      ok++
-    } catch (err: any) {
-      uploadMsg.value = { text: getErrorMessage(err, `上传 ${f.name} 失败`), err: true }
-    }
+// 有文档在 pending / processing 时轮询刷新，全部落定或超时后停
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollUntil = 0
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+function startPolling() {
+  pollUntil = Date.now() + 3 * 60 * 1000
+  if (pollTimer) return
+  pollTimer = setInterval(async () => {
+    if (Date.now() > pollUntil) return stopPolling()
+    await reloadDocs()
+    if (!docs.value.some((d) => d.status === 'pending' || d.status === 'processing')) stopPolling()
+  }, 3000)
+}
+
+onBeforeUnmount(stopPolling)
+
+function onPick(e: Event) {
+  const el = e.target as HTMLInputElement
+  handleFiles(Array.from(el.files || []))
+  el.value = ''
+}
+
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  if (uploading.value) return
+  handleFiles(Array.from(e.dataTransfer?.files || []))
+}
+
+async function handleFiles(all: File[]) {
+  const files = all.filter((f) => ACCEPT_EXT.some((ext) => f.name.toLowerCase().endsWith(ext)))
+  const rejected = all.length - files.length
+  if (!files.length) {
+    uploadMsg.value = { text: rejected ? '只支持 PDF / Word / TXT / Markdown' : '没有可上传的文件', err: true }
+    return
   }
-  ;(e.target as HTMLInputElement).value = ''
-  if (ok) uploadMsg.value = { text: `已创建 ${ok} 个入库任务，稍后刷新查看`, err: false }
-  await Promise.all([reloadSpace(), reloadDocs()])
+  uploading.value = true
+  uploadMsg.value = null
+  try {
+    const res = await uploadSpaceDocsBatch(spaceId, files)
+    uploadMsg.value = {
+      text: `已创建 ${res.count} 个入库任务${rejected ? `（忽略 ${rejected} 个不支持的文件）` : ''}，正在处理…`,
+      err: false,
+    }
+    await Promise.all([reloadSpace(), reloadDocs()])
+    startPolling()
+  } catch (err: any) {
+    uploadMsg.value = { text: getErrorMessage(err, '上传失败'), err: true }
+  } finally {
+    uploading.value = false
+  }
 }
 
 async function onCrawl() {
@@ -225,6 +284,7 @@ async function onCrawl() {
     crawlMsg.value = { text: `已入库任务 ${res.count} 个${res.failed_count ? `，失败 ${res.failed_count}` : ''}`, err: false }
     urlText.value = ''
     await Promise.all([reloadSpace(), reloadDocs()])
+    startPolling()
   } catch (e: any) {
     crawlMsg.value = { text: getErrorMessage(e, '抓取失败'), err: true }
   } finally {
@@ -274,5 +334,6 @@ async function removeDoc(d: SpaceDoc) {
 
 onMounted(async () => {
   await Promise.all([reloadSpace(), reloadDocs()])
+  if (docs.value.some((d) => d.status === 'pending' || d.status === 'processing')) startPolling()
 })
 </script>

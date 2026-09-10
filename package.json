@@ -1,5 +1,5 @@
 {
-  "name": "pythonproject1",
+  "name": "knowledge-assistant",
   "private": true,
   "scripts": {
     "dev": "npm --prefix frontend run dev",

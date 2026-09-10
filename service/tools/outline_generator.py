@@ -1,4 +1,4 @@
-﻿#生成大纲工具
+#生成大纲工具
 import json
 from service.tools.base import BaseTool,ToolRegistry
 @ToolRegistry.register

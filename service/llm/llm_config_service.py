@@ -1,4 +1,4 @@
-﻿from typing import Dict,Any
+from typing import Dict,Any,List,Optional
 from models.llm_config_dao import get_config_by_user_and_model, list_configs_by_user, create_config, update_config, delete_config
 from models.llm_config_async_dao import (
     create_config_async,
@@ -9,7 +9,9 @@ from models.llm_config_async_dao import (
 )
 from utils.crypto import encrypt, decrypt
 from utils.cache import config_cache
-from service.llm.model_catalog import default_api_url, model_type, normalize_model_name, provider
+from service.llm.model_catalog import (
+    default_api_url, model_type, normalize_model_name, provider, quick_defaults,
+)
 
 
 def invalidate_user_config_cache(user_id: int, model_name: str = None):
@@ -97,6 +99,54 @@ async def async_save_config(db, user, model_name: str, api_key: str, api_url: st
     return {"message": "配置成功", "model_name": model_name}
 
 
+async def async_quick_connect(
+    db, user, provider_key: str, api_key: str,
+    capabilities: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """「一次连接，多项能力」：选平台 + 粘一次 Key，自动配好聊天 + 资料读取两条配置。
+
+    - capabilities 缺省 = 平台支持的全部；只传 ["chat"] 则不配资料读取。
+    - 两条配置在一个事务里落库（要么都成、要么都不动），再逐条连通性测试。
+    - 返回 {provider, saved:[model_name...], skipped:[...], results:{model_name: 测试结果}}。
+    """
+    defaults = quick_defaults(provider_key)
+    want = set(capabilities or ["chat", "embedding"])
+    targets: List[str] = []
+    skipped: List[Dict[str, str]] = []
+    for kind in ("chat", "embedding"):
+        if kind not in want:
+            continue
+        model_name = defaults.get(kind)
+        if model_name:
+            targets.append(normalize_model_name(model_name))
+        else:
+            skipped.append({"capability": kind, "reason": "该平台暂不支持"})
+
+    if not targets:
+        return {"provider": provider_key, "saved": [], "skipped": skipped, "results": {}}
+
+    encrypted_key = encrypt(api_key)
+    for model_name in targets:
+        api_url = default_api_url(model_name)
+        existing = await get_config_by_user_and_model_async(db, user.id, model_name)
+        if existing:
+            await update_config_async(db, existing, api_key=encrypted_key, api_url=api_url)
+        else:
+            await create_config_async(db, user.id, model_name, encrypted_key, api_url)
+    await db.commit()
+    for model_name in targets:
+        invalidate_user_config_cache(user.id, model_name)
+
+    results: Dict[str, Any] = {}
+    for model_name in targets:
+        try:
+            results[model_name] = await async_test_config(db, user, model_name)
+        except Exception as e:  # noqa: BLE001 —— 测试失败不回滚已保存的配置
+            results[model_name] = {"ok": False, "model_name": model_name,
+                                   "message": "连接测试失败", "error": str(e)[:300]}
+    return {"provider": provider_key, "saved": targets, "skipped": skipped, "results": results}
+
+
 def delete_config_by_model(db,user,model_name:str)->Dict[str, Any]:
     """删除模型配置"""
     config = get_config_by_user_and_model(db, user.id, model_name)
@@ -160,6 +210,51 @@ async def async_get_api_config(db, user_id: int, model_name: str):
         "api_url": default_api_url(config.model_name),
     }
     config_cache.set(("llm_api_config", user_id, model_name), payload)
+    return payload
+
+
+async def async_get_api_key(db, user_id: int, model_name: str) -> str:
+    """`get_api_key` 的 async 版：命中缓存直接返回，否则走 async DAO 再回填。"""
+    model_name = normalize_model_name(model_name)
+    cached = config_cache.get(("llm_api_key", user_id, model_name))
+    if cached is not None:
+        return cached
+    config = await get_config_by_user_and_model_async(db, user_id, model_name)
+    value = decrypt(config.api_key) if (config and config.is_active) else None
+    config_cache.set(("llm_api_key", user_id, model_name), value)
+    return value
+
+
+async def async_get_first_embedding_config(db, user_id: int):
+    """`get_first_embedding_config` 的 async 版（缓存键一致）。"""
+    cached = config_cache.get(("embedding_api_config", user_id))
+    if cached is not None:
+        return cached
+    priority = [
+        "embedding-3", "embedding-2",
+        "text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002",
+    ]
+    configs = await list_configs_by_user_async(db, user_id)
+    active = {c.model_name: c for c in configs if c.is_active}
+    payload = None
+    for model_name in priority:
+        config = active.get(model_name)
+        if config:
+            payload = {
+                "model_name": config.model_name,
+                "api_key": decrypt(config.api_key),
+                "api_url": default_api_url(config.model_name),
+            }
+            break
+    if payload is None:
+        glm_config = active.get("glm-4")
+        if glm_config:
+            payload = {
+                "model_name": "embedding-3",
+                "api_key": decrypt(glm_config.api_key),
+                "api_url": default_api_url("embedding-3"),
+            }
+    config_cache.set(("embedding_api_config", user_id), payload)
     return payload
 
 

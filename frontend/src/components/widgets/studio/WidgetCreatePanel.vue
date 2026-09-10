@@ -1,12 +1,22 @@
 <template>
   <section class="sci-panel h-fit rounded-lg p-5">
     <div class="flex items-center gap-2">
-      <Sparkles :size="16" class="text-sky-500" />
-      <h2 class="text-sm font-semibold text-slate-800">AI 创建组件</h2>
+      <LayoutGrid :size="16" class="text-sky-500" />
+      <h2 class="text-sm font-semibold text-slate-800">添加小窗口</h2>
     </div>
-    <p class="mt-1 text-xs text-slate-500">
-      例如：每天早上看一次黄金价格走势折线图 / 用表格看美元汇率 / 监控某个网页有没有更新 /
-      调用我自己的接口地址取数据 / 每天用 AI 把我的运行情况总结成一段话
+    <p class="mt-1 text-xs text-slate-500">选一个模板，填几个字段就能建。</p>
+
+    <div class="mt-3">
+      <WidgetTemplateGallery @created="emit('created')" />
+    </div>
+
+    <details class="mt-4 rounded border border-slate-200 bg-slate-50/70">
+      <summary class="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-600">
+        高级：用一句话描述（实验性）
+      </summary>
+      <div class="border-t border-slate-200 p-3">
+    <p class="text-[11px] leading-5 text-slate-400">
+      描述数据来源、展示形式、更新频率。模板覆盖不到的需求可以试试；识别不准时会追问。
     </p>
 
     <textarea
@@ -70,16 +80,19 @@
         </button>
       </div>
     </div>
+      </div>
+    </details>
   </section>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Check, Play, Sparkles, Wand2 } from 'lucide-vue-next'
+import { Check, LayoutGrid, Play, Wand2 } from 'lucide-vue-next'
 import { createWidget, designWidget, previewWidget, runWidget, type WidgetFriendly, type WidgetItem } from '../../../api/widget'
 import { getErrorMessage } from '../../../utils/request'
 import { toastError, toastSuccess } from '../../../utils/toast'
 import WidgetRenderer from '../WidgetRenderer.vue'
+import WidgetTemplateGallery from './WidgetTemplateGallery.vue'
 
 const emit = defineEmits<{ (e: 'created'): void }>()
 

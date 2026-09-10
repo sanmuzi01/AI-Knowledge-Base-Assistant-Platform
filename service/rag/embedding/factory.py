@@ -1,4 +1,4 @@
-﻿"""
+"""
 Embedding 工厂：根据模型名创建对应的嵌入客户端
 和 LLMFactory 完全对称的设计
 上层代码只调 EmbeddingFactory.create(model_name, api_key)，

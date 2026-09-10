@@ -1,13 +1,21 @@
-# 自然语言驱动的自定义工作台组件平台
+# 自定义工作台组件平台
 
-用户用一句话描述想看的内容，AI 把需求解析成**结构化组件配置**（不是前端代码），
-统一的运行引擎按配置取数、处理、存快照，前端统一渲染器按 `view.kind` 画成小窗口。
+**创建方式（前端两条路）：**
+1. **模板**（默认，`service/widgets/templates.py`）—— 选一个模板、填几个字段，前端把参数发
+   `POST /user/widgets/from-template` → 后端拼 raw spec → 过 validator → 返回草稿 + 中文说明，
+   再走 preview / create。**不调大模型**。模板都用可靠连接器（知识库健康 / 检索抽查 / 我的用量 /
+   使用概览 / 内部接口表格 / 接口数值告警 / 网页监控 / 网页快照 / 每日 AI 简报 / 联网查指标[实验]）。
+2. **自然语言**（`WidgetCreatePanel` 里折叠的「高级」）—— 一句话 → `designer.py` 调用户模型解析成
+   结构化配置。模板覆盖不到时用；识别不准会追问。
+
+运行引擎按配置取数、处理、存快照，前端统一渲染器按 `view.kind` 画成小窗口。
+示例 / 合成数据源（`sample` / `catalog`）不进模板，只留作测试脚手架。
 
 ## 组件配置（五段式，spec_version=1）
 
 | 段 | 作用 | 白名单 |
 | --- | --- | --- |
-| `data_source` | 数据从哪来 | `sample` / `catalog`(gold_price,usd_cny,weather) / `system_stats` / `agent_runs` / **`http`** / **`web_page`** / **`knowledge_base`** / **`knowledge_space`** |
+| `data_source` | 数据从哪来 | `sample` / `catalog`(gold_price,usd_cny,weather) / `system_stats` / `agent_runs` / **`http`** / **`web_page`** / **`web_query`** / **`knowledge_base`** / **`knowledge_space`** |
 | `processor` | 系统怎么处理 | `passthrough` / `normalize_timeseries` / `pick_fields` / `aggregate` / `json_extract` / **`llm_summarize`** |
 | `view` | 怎么展示 | `chart`(line/bar/pie) / `metric` / `markdown` / `table` / `web_monitor` / `task_list` / `system_stats` |
 | `trigger` | 多久更新 | `manual` / `hourly` / `daily`(run_at + timezone) |
@@ -19,6 +27,7 @@
 | --- | --- | --- |
 | `http` | `url`(http/https) | `method`(GET/POST) `headers` `body` `as`(json/text) `json_path` |
 | `web_page` | `url` | `mode`(text / monitor) `max_chars` |
+| `web_query` | `query`（要联网查什么） | `model`（指定用哪个已配置模型）—— 无现成数据源时用：调用户已配置的**联网模型**（智谱 `tools:web_search` / 通义 `enable_search` / Kimi `$web_search` / OpenAI `*-search-preview` / Perplexity `sonar`，都用同一把 key；DeepSeek 不支持）。输出**始终带 `summary`**（一段 markdown：查到=值+日期+来源+模型；查不到=原因+替代做法），另给 `value/number/rows` 供 metric/chart。**验证器把 web_query 固定成 markdown 视图 + passthrough**（没抠出数字也有东西看，不会只显示「还没有数据」）。「走势」靠每次运行攒一个数据点。适配层 `service/llm/web_search.py`，模型解析 `resolve_search_model_async` |
 | `knowledge_base` | `agent_id` `query` | `top_k`(1~10) |
 | `knowledge_space` | `space_id` | —（输出某知识库空间的健康分 + 文档/检索质量指标，经 `to_thread` 调 `health_service.health_snapshot`，按 `ctx.user_id` 校验空间归属） |
 | `llm_summarize` | - | `instruction` `style`(brief/report/one_line) `max_chars`（配合 `view.kind=markdown`；输出有结构的中文 Markdown：结论加粗 + 带数字的要点 + `> 提醒`；剥掉寒暄/代码围栏；无可用模型时优雅降级不报错） |
@@ -72,7 +81,11 @@ service/widgets/
                    （P2：http / web_page / knowledge_base，外呼统一过 SSRF 校验 + 重试/熔断）
   processors.py    处理器注册表        process(ctx, raw, config) -> processed（P2：llm_summarize / threshold_alert）
   validator.py     原始 JSON -> 合法 spec / needs_clarification
-  designer.py      /design：调用用户模型 + 过 validator
+  designer.py      /design：调用用户模型 + 过 validator。硬规则：没有匹配数据源时——
+                   用户配了联网模型 -> data_source.kind=web_query（system prompt 按
+                   `_web_search_available_async` 分支）；没配 -> needs_clarification 提示配联网模型或给接口地址。
+                   兜底 `_catalog_subject_mismatch`：LLM 仍把无源主题塞成 catalog 时，有联网模型就改写成
+                   web_query 草稿，否则打回
   runner.py        run_widget(widget_id) —— 唯一运行入口（含失败退避 + 数据点保留 + auto_view）
                    run_spec_preview(spec) —— 创建前试运行，不落库
   retention.py     数据点保留策略（纯函数：条数上限 / 失败限额 / 过期清理 / 永远留最新+最新成功）

@@ -19,6 +19,7 @@ from service.widgets.connectors import (  # noqa: E402
     sample,
     system_stats,
     web_page,
+    web_query,
 )
 
 CONNECTORS.add(sample.CONNECTOR.kind, sample.CONNECTOR)
@@ -28,6 +29,7 @@ CONNECTORS.add(agent_runs.CONNECTOR.kind, agent_runs.CONNECTOR)
 # P2：外部数据源
 CONNECTORS.add(http_api.CONNECTOR.kind, http_api.CONNECTOR)
 CONNECTORS.add(web_page.CONNECTOR.kind, web_page.CONNECTOR)
+CONNECTORS.add(web_query.CONNECTOR.kind, web_query.CONNECTOR)
 CONNECTORS.add(knowledge_base.CONNECTOR.kind, knowledge_base.CONNECTOR)
 CONNECTORS.add(knowledge_space.CONNECTOR.kind, knowledge_space.CONNECTOR)
 

@@ -21,6 +21,11 @@ class DesignRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=1000)
 
 
+class TemplateBuildRequest(BaseModel):
+    template_key: str = Field(min_length=1, max_length=64)
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class CreateWidgetRequest(BaseModel):
     draft: Dict[str, Any]
 
@@ -37,7 +42,26 @@ class ImportWidgetRequest(BaseModel):
     payload: Dict[str, Any]
 
 
-@router.post("/design", summary="用自然语言生成组件草稿")
+@router.get("/templates", summary="组件模板目录 + 表单下拉数据")
+async def list_templates_route(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await widget_async_service.list_templates(async_db, current_user)
+
+
+@router.post("/from-template", summary="按模板 + 表单参数生成组件草稿")
+async def from_template_route(
+        data: TemplateBuildRequest,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await widget_async_service.build_from_template(
+        async_db, current_user, data.template_key, data.params
+    )
+
+
+@router.post("/design", summary="用自然语言生成组件草稿（高级）")
 async def design_widget_route(
         data: DesignRequest,
         async_db=Depends(get_async_db),

@@ -205,6 +205,19 @@ export async function uploadSpaceDoc(
   return data
 }
 
+export async function uploadSpaceDocsBatch(spaceId: number, files: File[]): Promise<{
+  message: string
+  count: number
+  items: any[]
+}> {
+  const form = new FormData()
+  files.forEach((f) => form.append('files', f))
+  const { data } = await request.post(`/knowledge-spaces/${spaceId}/documents/batch`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
 export async function crawlSpaceDocs(spaceId: number, urls: string[]): Promise<any> {
   const { data } = await request.post(`/knowledge-spaces/${spaceId}/documents/crawl`, { urls })
   return data

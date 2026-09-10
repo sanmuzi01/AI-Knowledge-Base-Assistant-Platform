@@ -1,7 +1,7 @@
 // SSE 事件类型（与 react_engine.py 中 sse_events.make_* 生成的一致）
 export type SseEventType =
   | 'ready'      // { run_id }
-  | 'retrieval'  // { hit_count, content_preview }
+  | 'retrieval'  // { hit_count, content_preview, stats? }
   | 'citations'  // { citations: [{ index, knowledge_id, file_name, space_id, space_name }] }
   | 'thinking'   // { content, tool_calls? }
   | 'tool_call'  // { name, args, step_no }
@@ -14,8 +14,20 @@ export interface Citation {
   index: number
   knowledge_id: number
   file_name: string
-  space_id: number
+  space_id: number | null
   space_name?: string
+  snippet?: string
+}
+
+/** RAG 上下文压缩 / Token 节省（后端 service/rag/rag_stats.py::build_savings） */
+export interface RagSavings {
+  source_doc_chars: number
+  recall_chunks: number
+  context_chars: number
+  saved_ratio: number
+  est_tokens_full: number
+  est_tokens_context: number
+  est_tokens_saved: number
 }
 
 export interface SseEvent {
@@ -23,6 +35,7 @@ export interface SseEvent {
   run_id?: number
   hit_count?: number
   content_preview?: string
+  stats?: RagSavings
   citations?: Citation[]
   content?: string
   tool_calls?: any[]

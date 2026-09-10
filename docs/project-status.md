@@ -9,8 +9,19 @@
 - Agent 管理：创建、编辑、复制、选择、删除预检、调试。
 - 聊天系统：同步聊天、SSE 流式聊天、会话管理、消息历史、会话导出。
 - 模型配置：用户级 API Key、模型列表、自动适配模型 URL、配置测试。
+  搜索式模型（Perplexity `sonar` / OpenAI `*-search-preview`）已进目录，供组件「联网检索」数据源用。
+  **一次连接，多项能力（普通模式）**：选平台（智谱 / DeepSeek / OpenAI / Kimi / 通义 / Perplexity）+ 粘一次 Key
+  → `POST /llm_config/quick_connect` 一个事务里配好「回答问题」+「读取资料」两条配置并逐条测试
+  （`service/llm/model_catalog.py::PROVIDER_QUICK_DEFAULTS`；平台不支持资料读取时只配聊天并回报 skip）。
+  前端 `LlmConfig.vue`「一步开启」用默认模型时走这个原子端点，改过「技术人员选项」才退回逐条保存。
 - Skill 系统：创建、编辑、模板、导入、导出、校验、绑定 Agent。
 - 知识库：上传、批量上传、切块、Embedding、检索、片段查看、启停、重建、删除。
+  **切块大小可调**：上传 / 重建时传 `chunk_size`（120~2000，落 `knowledge.chunk_size`），入库按文档自选值切分；
+  前端「知识库」上传区「切块设置（高级）」输入框。
+  **RAG 上下文压缩 / Token 节省统计**（`service/rag/rag_stats.py`）：原文档总字数 / 召回片段数 /
+  送入上下文字符数 / 估算省 Token 比例 —— 挂在 `search_for_agent_async` 结果、`retrieval` SSE 事件、
+  `retrieval` 运行步骤审计；前端 `RagSavingsBar.vue` 共用组件，调试台快照与聊天页（检索轨迹行 +
+  回答下方 compact 版）都展示。
 - 知识库空间（阶段1-6，完整）：`/knowledge-spaces` 空间 CRUD + 空间内文档管理，
   `knowledge.space_id` / `agent.kb_*` 字段，向量集合键 `agent_{id}` / `space_{id}` 双制式，存量迁移脚本。
   Agent 可绑定多个空间做联合检索，回答带 `【来源N】` 引用来源，`kb_refuse_when_empty` 无命中拒答，
@@ -27,8 +38,11 @@
   单个助手的「聊天 / 知识库 / 记忆 / 运行检查」统一收在 `/agents/:id/*` 下，页内用 `AgentSubnav` 切换，
   侧栏只留一个「助手空间」入口；旧路径 `/chat/:id` 等做重定向，后端接口不变。
 - 网页抓取：支持输入公开 URL 抓取正文，保存为 Markdown 后进入知识库后台入库流程，并带基础 SSRF 防护。
-- 自定义工作台组件平台：自然语言 → 结构化组件配置（不落前端代码），统一运行引擎取数/处理/存快照 + 前端统一渲染器。
-  - 数据源：内置示例、平台数据服务、我的运行统计、外部 HTTP、网页正文/更新监控、我的知识库。
+- 自定义工作台组件平台：**模板优先**（选模板 + 填字段 → `from-template` 拼 spec，不走大模型，
+  10 个模板：知识库健康/检索抽查、我的用量/概览、内部接口表格/数值告警、网页监控/快照、每日 AI 简报、联网查指标），
+  自然语言（designer 调用户模型）降级为「高级」入口。统一运行引擎取数/处理/存快照 + 前端统一渲染器。
+  - 数据源：内置示例、平台数据服务、我的运行统计、外部 HTTP、网页正文/更新监控、我的知识库、
+    **联网检索**（无现成数据源时，用用户已配置的联网模型去查，`service/llm/web_search.py` 按 provider 开开关）。
   - 处理器：归一时序、字段挑选、聚合、JSON 取值、AI 摘要、阈值告警。
   - 到点自动调度：后台 Worker 乐观锁抢占，默认开启；失败指数退避、连续失败自动暂停；数据点保留策略。
   - 展示增强：时序/类目数据自动升级图表，创建前试运行，导出/导入配置，需关注标记。
@@ -59,24 +73,32 @@
 - `python -m compileall` 通过。
 - 前端 `npm run build`（含 vue-tsc 类型检查）通过。
 - FastAPI 应用导入与路由生成通过。
-- `python -m unittest`：195 通过（含真实路由级测试，需本地 / CI MySQL）。
+- `python -m unittest`：334 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
+  quick_connect、chunk_size、RAG 节省统计、web_query 联网检索、工作台模板测试，需本地 / CI MySQL）。
 - `npm run release:check` 静态检查通过。
 
 ## 当前主要风险
 
-- 同步 / 异步边界部分收口：路由层读接口 + 知识库检索已 async / 线程桥接，`service/widgets` 100% async；
-  但 `agent_runtime`（聊天 ReAct 执行）、知识库上传/入库/重建/诊断、任务 Worker 主体仍是同步实现。
-  详见 `docs/sync-async-boundary.md`。
+- 同步 / 异步边界部分收口：路由层读接口 + **RAG 检索链路（`search_entry.*_async` + `search_async`
+  + `search_spaces_async`）** + **聊天执行（`agent_runtime` 非流式与流式，含 `POST /chat/{id}` 与
+  `/stream`）** 已 async，`service/widgets` 100% async；剩知识库上传/入库/重建/诊断、任务 Worker 主体、
+  evaluation 路由（+ 随之退役 `rag_service.async_search`）仍待收口。
+  详见 `docs/sync-async-boundary.md`、`docs/agent-runtime-async-migration.md`。
 - service 层内部零散的 `raise ValueError` / 裸 `Exception` 尚未全部换成领域异常（路由层已在 `except` 里翻译）。
 - 压力测试还未在真实服务器上形成基准报告；`/metrics` 缺生产压测基线和告警规则。
 - 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
 - 备份命令已给出，但还需在真实部署环境做恢复演练。
 - 数据库迁移已建立骨架，但模型定义和数据库初始化尚未拆分，暂不适合直接开启 Alembic 自动生成。
+- 已加 `.gitattributes`（统一 LF）+ `.pre-commit-config.yaml`（BOM / 行尾 / 尾空格等卫生检查）。
+  一次性规范化：`git add --renormalize . && git commit`（建议在提交完当前功能改动后单独做）。
+  启用 pre-commit：`pip install pre-commit && pre-commit install`。
 
 ## 下一步建议
 
-1. `agent_runtime` async 迁移：先出分阶段、可回滚的设计文档，逐层换 + 每层配集成测试。
-2. RAG 检索彻底 async（`embedding_service._get_client` / chunk 反查改异步 DAO），退役 `async_search`。
+1. ~~`agent_runtime` async 迁移~~ **完成**（阶段 0~4，见 `docs/agent-runtime-async-migration.md`）。
+2. RAG 检索彻底 async —— **基本完成**（`search_entry.*_async` / `search_async` / `search_spaces_async`
+   + `_get_client_async` + async chunk 反查，`tests/test_rag_search_async.py`）；聊天链路与
+   `FasdtApi/knowledge.py` 检索端点均已切原生 async。只剩 evaluation 路由 async 化 + 退役 `async_search`。
 3. service 层内部异常逐模块换成 `service/exceptions.py` 领域异常。
 4. 真实服务器压力测试基准报告；告警规则接入。
 5. 拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管。

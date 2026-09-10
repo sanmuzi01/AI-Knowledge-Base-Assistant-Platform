@@ -25,6 +25,17 @@ npm run frontend:build
 npm run load:test -- --base-url http://127.0.0.1 --scenario health --requests 200 --concurrency 20
 ```
 
+## 路由级测试的数据清理
+
+`tests/_route_client.py` 建的 `rt_*` 用户是**真实落库**的。清理机制：
+
+- `cleanup()`（`tearDownClass` 调）—— 按本进程建的 id 删，级联清 agent / 知识库 / 空间 /
+  组件 / 会话 / operation_log 等；**每条 DELETE 独立提交**，某表撞 FK 不会连累其它（历史上
+  测试用户越积越多就是因为一条失败回滚了整轮）。
+- 进程退出兜底：`atexit` 里再跑一次 `cleanup()`，`setUpClass` 崩了 / Ctrl+C 也不会漏。
+- 手动清历史残留：`.venv\Scripts\python.exe scripts\purge_test_users.py --dry-run`（统计）/
+  `--yes`（删掉库里**所有** `rt_%` 用户，真实用户不动）。
+
 ## 后续应补充
 
 - 使用测试数据库覆盖注册、登录、权限隔离和管理员接口。

@@ -24,9 +24,29 @@ knowledge / agent / skill_route 的纯读接口已全量 `get_async_db` + `*_asy
 conversation / agent_run / memory / web_monitor / background_task 路由早已全量 async。
 
 ### 知识库检索
-`service/rag/search_entry.py::search_scoped`（同步，自带 Session + agent/文档归属 + 启用校验）
-封在 `asyncio.to_thread` 里；`FasdtApi/knowledge.py::search_knowledge` 是 `async def` 且不再持有
-同步 Session。`PermissionError → NotFound`、`ValueError → InvalidInput`。
+两套入口并存于 `service/rag/search_entry.py`：
+- **同步** `search_scoped` / `search_for_widget` / `search_for_agent`（自带同步 Session）——
+  只剩 `agent_service` 预览、`debug_service` 用。
+- **彻底 async** `search_scoped_async` / `search_for_widget_async` / `search_for_agent_async`
+  （自带 `AsyncSessionLocal()` 或复用传入 session）—— 聊天链路（`agent_runtime`）与
+  `FasdtApi/knowledge.py::search_knowledge` 都走这条。向量化走 `aembed_query_async`
+  （`_get_client_async` + `async_get_api_config` 系），归属校验 / chunk / knowledge 反查走
+  async DAO（`get_knowledge_by_id_async` / `get_chunks_by_vector_ids_async` /
+  `list_spaces_by_ids_async`），ChromaDB `search_similar` 与 rerank 封 `asyncio.to_thread`。
+  `rag_service.search_async` / `_build_search_results_async` 和 `space_search.search_spaces_async`
+  是它的实现。`search_for_agent_async` 还多返回一个 `stats`（上下文压缩 / Token 节省，
+  见 `service/rag/rag_stats.py`）。回归 `tests/test_rag_search_async.py`。
+`PermissionError → NotFound`、`ValueError → InvalidInput`。
+
+### 聊天执行（agent_runtime）—— 阶段 0~4 完成
+`POST /chat/{id}` 与 `POST /chat/{id}/stream` 整条走 `get_async_db`：
+`chat_service.chat_with_agent` / `chat_with_agent_stream_async` → `agent_runtime.run_with_history_async` /
+`run_stream_with_history_async`。ReAct 引擎（含 `ToolExecutor` 装配）整段 `asyncio.to_thread` +
+自带同步 Session；流式的 LangGraph 同步生成器经 worker 线程 + `asyncio.Queue` 桥回逐条 yield。
+RAG 检索走 `_kb_retrieve_async` → `search_for_agent_async`（原生 async，不再 `to_thread` 一个同步 Session）。
+事务：AgentRun 建好即 commit（失败留 `failed`），记忆总结走独立 `AsyncSession`。
+同步 `run_with_history` / `run_stream_with_history` / `chat_with_agent_stream` 已删。
+回归：`tests/test_agent_runtime_async{,_deps,_stream_async}.py`。
 
 ### 领域异常
 `service/exceptions.py`（`AppError` + `InvalidInput` / `NotFound` / `PermissionDenied` /
@@ -43,16 +63,20 @@ conversation / agent_run / memory / web_monitor / background_task 路由早已�
 
 | 位置 | 现状 | 备注 |
 | --- | --- | --- |
-| `rag_service.async_search` / `_build_search_results` | 半异步：向量化 async，ChromaDB + DAO 反查 + rerank 同步 | `rag_eval_service`、`agent_runtime` 仍在用，直接传同步 `db` |
+| `rag_service.async_search`（半异步：向量化 async，DAO 反查同步） | 仅 `rag_eval_service` 在用（`FasdtApi/evaluation.py` 还是 `get_db`）。聊天链路 + `FasdtApi/knowledge.py` 检索端点已迁到 `search_*_async`；退役 `async_search` 需连带 evaluation 路由一起 async 化 |
 | 知识库上传 / 入库 / 重建 / 诊断 | `async def` 端点 + 同步 `knowledge_service` + 后台任务 | 重活在同步 Worker，端点只做 ownership + 建任务行 |
-| `agent_runtime`（聊天 ReAct 执行） | `chat_service.chat_with_agent` 是 `async def` 但全程同步 `db`：建会话 / 存消息 / 工具执行 / 记忆。旧 `run()` / `run_stream()` 死路径已删 | 分阶段方案见 `docs/agent-runtime-async-migration.md` |
 | 任务 Worker 主体 | 同步循环（`service/background_worker.py::run_once`） | 组件调度 tick 已是常驻 async loop |
 | service 层内部 `raise ValueError` 等 | 路由层已在 `except` 里翻译成领域异常 | 可随各模块迁移逐步替换为直接抛领域异常 |
 
 ## 剩余计划
 
-1. **`agent_runtime` async 化**：分阶段方案已写 `docs/agent-runtime-async-migration.md`（阶段 0 死代码清理已做）。按设计（runtime → 工具执行 →
-   `conv_service` / `conv_dao` → 记忆），每层配集成测试，全程保证聊天可用。
-2. **RAG 检索彻底 async**：`embedding_service._get_client` / 知识 chunk 反查改异步 DAO，
-   ChromaDB / rerank 仍同步但统一封 `to_thread`；届时 `async_search` 可退役。
+1. ~~**`agent_runtime` async 化**~~ **完成**（阶段 0~4，见 `docs/agent-runtime-async-migration.md`
+   与上面「聊天执行」节）。过程分 5 批：死代码/去重 + 基线 → 下游 `*_async` 双胞胎 →
+   非流式 `run_with_history_async` → 流式 `run_stream_with_history_async` → 删同步版收尾。
+   顺带修了两个事务边界怪癖（失败运行不落库 / 记忆总结失败回滚整笔事务）。
+2. **RAG 检索彻底 async** —— 检索链路本体 + 消费方**完成**：`embedding_service._get_client_async` +
+   `aembed_query_async`、`knowledge_async_dao` 的 chunk / knowledge 反查、`space_search.search_spaces_async`、
+   `search_entry.*_async`；ChromaDB / rerank 封 `to_thread`。聊天链路（`agent_runtime._kb_retrieve_async`）
+   与 `FasdtApi/knowledge.py::search_knowledge` 都已切到原生 async（后者去掉了 `to_thread`）。
+   剩最后一根尾巴：evaluation 路由（`FasdtApi/evaluation.py`）async 化后即可退役 `async_search`。
 3. **写入链路 / Worker**：收益低、风险高，除非有明确性能需求，长期保持同步。

@@ -11,7 +11,7 @@ SSE 格式规则（参考 ExperienceRecall 教训）：
   - thinking       { content, tool_calls? }              → Agent 思考步（LLM 返回的 thought）
   - tool_call      { name, args, step_no }               → 决定调用某个工具
   - tool_result    { name, result, step_no }             → 工具执行完毕
-  - retrieval      { hit_count, content_preview }        → RAG 检索结果
+  - retrieval      { hit_count, content_preview, stats? } → RAG 检索结果（stats=上下文压缩/Token 节省）
   - memory         { action, message }                   → 记忆加载/总结
   - answer         { content }                           → 最终回答（完整字符串一次性推，Step1 先不做 token 级）
   - done           { run_id, steps, answer_length }      → 全部完成
@@ -65,11 +65,15 @@ def make_tool_result(name: str, result: str, step_no: int) -> str:
         "name": name, "result": result, "step_no": step_no
     })
 
-def make_retrieval(hit_count: int, content_preview: str) -> str:
-    return format_event(EVENT_RETRIEVAL, {
+def make_retrieval(hit_count: int, content_preview: str,
+                   stats: Optional[Dict[str, Any]] = None) -> str:
+    payload: Dict[str, Any] = {
         "hit_count": hit_count,
-        "content_preview": (content_preview or "")[:300]
-    })
+        "content_preview": (content_preview or "")[:300],
+    }
+    if stats:
+        payload["stats"] = stats  # RAG 上下文压缩 / Token 节省，见 service/rag/rag_stats.py
+    return format_event(EVENT_RETRIEVAL, payload)
 
 def make_citations(citations: list) -> str:
     """回答引用来源（多知识库空间检索时非空）。"""

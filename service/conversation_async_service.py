@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from models import conversation_async_dao as dao
 from models.init_db import Conversation, Message
+from service.conversation_service import auto_generate_title
 from utils.logger_handler import get_logger
 
 logger = get_logger("conversation_async_service")
@@ -166,3 +167,38 @@ async def delete_conversation(db, user_id: int, conversation_id: int) -> bool:
     await dao.delete_conversation_async(db, conv)
     await db.commit()
     return True
+
+
+# ========== 供 chat_service async 调用的辅助方法（对齐同步 conversation_service）==========
+
+async def save_message_async(db, conversation_id: int, role: str, content: str) -> Message:
+    """保存一条消息 + 刷新会话活跃时间。对齐同步 save_message；不在此 commit。"""
+    msg = await dao.create_message_async(db, conversation_id, role, content)
+    conv = await dao.get_conversation_by_id_async(db, conversation_id)
+    if conv:
+        await dao.touch_conversation_async(db, conv)
+    return msg
+
+
+async def load_history_for_llm_async(
+        db, conversation_id: int, limit: int = 20,
+) -> List[Dict[str, str]]:
+    """最近 N 条消息作为 LLM 上下文，只取 user / assistant。对齐同步 load_history_for_llm。"""
+    msgs = await dao.list_messages_for_history_async(db, conversation_id, limit)
+    return [
+        {"role": m.role, "content": m.content}
+        for m in msgs if m.role in ("user", "assistant")
+    ]
+
+
+async def maybe_update_title_by_first_message_async(
+        db, conversation_id: int, user_message: str,
+) -> None:
+    """首条消息时用消息内容自动生成会话标题。对齐同步 maybe_update_title_by_first_message。"""
+    conv = await dao.get_conversation_by_id_async(db, conversation_id)
+    if not conv:
+        return
+    if conv.title == "新会话":
+        new_title = auto_generate_title(user_message)
+        await dao.update_conversation_title_async(db, conv, new_title)
+        logger.info(f"会话{conversation_id}自动生成标题: {new_title}")

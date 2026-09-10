@@ -9,6 +9,7 @@
 无法连库时，调用方应 skip（见 route_tests_available）。
 """
 
+import atexit
 import os
 import sys
 import time
@@ -89,58 +90,111 @@ def admin_env(*names: str):
     return patch.dict(os.environ, {"ADMIN_USER_NAMES": merged})
 
 
-def cleanup():
-    """删除本模块建的用户及其级联数据。测试类 tearDownClass 调用。"""
-    if not _created_user_ids:
-        return
+def _purge_users(where_users: str) -> int:
+    """按 `where_users`（`user` 表的 WHERE 片段）删用户及其全部级联数据。
+
+    每条 DELETE 独立提交——某张表撞 FK / 不存在，不会把整轮清理一起回滚
+    （这是历史上测试用户越积越多的根因）。返回删掉的用户数。
+    """
     import pathlib
     from sqlalchemy import text
     from models.init_db import SessionLocal
+
     db = SessionLocal()
     try:
-        ids = tuple(_created_user_ids)
-        in_clause = "(" + ",".join(str(i) for i in ids) + ")"
-        # 先删测试 Agent 写出的提示词文件
-        agent_ids = [row[0] for row in db.execute(text(f"SELECT id FROM agent WHERE user_id IN {in_clause}")).all()]
+        ids = [r[0] for r in db.execute(text(f"SELECT id FROM `user` WHERE {where_users}")).all()]
+        if not ids:
+            return 0
+        inc = "(" + ",".join(str(i) for i in ids) + ")"
+
+        # 先删磁盘文件（提示词 yaml + 上传的原始文件）
         prompts_dir = pathlib.Path(__file__).resolve().parents[1] / "prompt" / "prompts"
-        for aid in agent_ids:
+        for aid in [r[0] for r in db.execute(text(f"SELECT id FROM agent WHERE user_id IN {inc}")).all()]:
             (prompts_dir / f"{aid}.yaml").unlink(missing_ok=True)
-        # 组件 + 数据点
-        db.execute(text(f"DELETE dp FROM widget_data_points dp JOIN user_widgets w ON dp.widget_id=w.id WHERE w.user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM user_widgets WHERE user_id IN {in_clause}"))
-        # 知识文档：按 user_id 统一删（覆盖 agent 私有库 + 空间库；agent_id 可能为 NULL）
-        krows = db.execute(text(f"SELECT id, file_path FROM knowledge WHERE user_id IN {in_clause}")).all()
-        kids = [r[0] for r in krows]
+        krows = db.execute(text(f"SELECT id, file_path FROM knowledge WHERE user_id IN {inc}")).all()
         for _kid, fpath in krows:
             try:
                 if fpath:
                     pathlib.Path(fpath).unlink(missing_ok=True)
             except Exception:  # noqa: BLE001
                 pass
-        if kids:
-            kin = "(" + ",".join(str(i) for i in kids) + ")"
-            db.execute(text(f"DELETE FROM knowledge_chunk WHERE knowledge_id IN {kin}"))
-            db.execute(text(f"DELETE FROM background_task WHERE target_type='knowledge' AND target_id IN {kin}"))
-        db.execute(text(f"DELETE FROM background_task WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM knowledge WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM rag_debug_samples WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM kb_audit_log WHERE user_id IN {in_clause}"))
-        # 知识库空间 + Agent 绑定 + 成员（成员可能是测试用户加入别人空间，或别人加入测试用户空间）
-        db.execute(text(f"DELETE FROM space_members WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE sm FROM space_members sm JOIN knowledge_spaces s ON sm.space_id=s.id WHERE s.user_id IN {in_clause}"))
-        db.execute(text(f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM knowledge_spaces WHERE user_id IN {in_clause}"))
-        db.execute(text(f"UPDATE `user` SET selected_agent_id=NULL WHERE id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM agent WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM user_role WHERE user_id IN {in_clause}"))
-        db.execute(text(f"DELETE FROM `user` WHERE id IN {in_clause}"))
-        db.commit()
-    except Exception:  # noqa: BLE001 - 清理尽力而为
-        db.rollback()
+        kids = [r[0] for r in krows]
+        kin = "(" + ",".join(str(i) for i in kids) + ")" if kids else None
+
+        stmts = [
+            f"DELETE dp FROM widget_data_points dp JOIN user_widgets w ON dp.widget_id=w.id WHERE w.user_id IN {inc}",
+            f"DELETE FROM user_widgets WHERE user_id IN {inc}",
+        ]
+        if kin:
+            stmts += [
+                f"DELETE FROM knowledge_chunk WHERE knowledge_id IN {kin}",
+                f"DELETE FROM background_task WHERE target_type='knowledge' AND target_id IN {kin}",
+            ]
+        stmts += [
+            f"DELETE FROM background_task WHERE user_id IN {inc}",
+            f"DELETE FROM knowledge WHERE user_id IN {inc}",
+            f"DELETE FROM rag_debug_samples WHERE user_id IN {inc}",
+            f"DELETE FROM kb_audit_log WHERE user_id IN {inc}",
+            f"DELETE FROM space_members WHERE user_id IN {inc}",
+            f"DELETE sm FROM space_members sm JOIN knowledge_spaces s ON sm.space_id=s.id WHERE s.user_id IN {inc}",
+            f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {inc}",
+            f"DELETE FROM knowledge_spaces WHERE user_id IN {inc}",
+            f"DELETE msg FROM message msg JOIN conversation c ON msg.conversation_id=c.id WHERE c.user_id IN {inc}",
+            f"DELETE FROM conversation WHERE user_id IN {inc}",
+            f"DELETE st FROM agent_step st JOIN agent_run r ON st.run_id=r.id WHERE r.user_id IN {inc}",
+            f"DELETE FROM agent_run WHERE user_id IN {inc}",
+            f"DELETE FROM chat WHERE user_id IN {inc}",
+            # agent_skill 同时被 agent.id / skill.id 外键引用 —— 删 agent / skill 之前先清掉
+            f"DELETE ask FROM agent_skill ask JOIN agent a ON ask.agent_id=a.id WHERE a.user_id IN {inc}",
+            f"DELETE ask FROM agent_skill ask JOIN skill s ON ask.skill_id=s.id WHERE s.user_id IN {inc}",
+            f"DELETE FROM skill WHERE user_id IN {inc}",
+            f"DELETE FROM web_monitor WHERE user_id IN {inc}",
+            f"DELETE FROM user_workspace WHERE user_id IN {inc}",
+            f"DELETE FROM operation_log WHERE user_id IN {inc}",
+            f"UPDATE `user` SET selected_agent_id=NULL WHERE id IN {inc}",
+            f"DELETE FROM agent WHERE user_id IN {inc}",
+            f"DELETE FROM llm_config WHERE user_id IN {inc}",
+            f"DELETE FROM user_profile WHERE user_id IN {inc}",
+            f"DELETE FROM memory WHERE user_id IN {inc}",
+            f"DELETE FROM user_role WHERE user_id IN {inc}",
+            f"DELETE FROM `user` WHERE id IN {inc}",
+        ]
+        for s in stmts:
+            try:
+                db.execute(text(s))
+                db.commit()
+            except Exception:  # noqa: BLE001 - 单条失败不影响其它
+                db.rollback()
+        left = db.execute(text(f"SELECT COUNT(*) FROM `user` WHERE {where_users}")).scalar() or 0
+        return len(ids) - int(left)
     finally:
         db.close()
+
+
+def sweep_test_users() -> int:
+    """兜底：删掉库里所有 `rt_%` 测试用户（不限本进程）。给清理脚本 / 手动用。"""
+    return _purge_users(r"name LIKE 'rt\_%'")
+
+
+def cleanup():
+    """删除本模块建的用户及其级联数据。测试类 tearDownClass 调用。"""
+    try:
+        if _created_user_ids:
+            _purge_users("id IN (" + ",".join(str(i) for i in set(_created_user_ids)) + ")")
+    finally:
         _created_user_ids.clear()
         if _ORIG_APP_ENV is None:
             os.environ.pop("APP_ENV", None)
         else:
             os.environ["APP_ENV"] = _ORIG_APP_ENV
+
+
+# 进程退出兜底：某个测试类 setUpClass 崩了、或 Ctrl+C 中断，tearDownClass 没跑到，
+# 本进程建的用户也不会漏在库里。
+@atexit.register
+def _cleanup_on_exit():
+    if _created_user_ids:
+        try:
+            cleanup()
+        except Exception:  # noqa: BLE001
+            pass

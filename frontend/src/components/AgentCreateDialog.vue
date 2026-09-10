@@ -142,8 +142,17 @@
               <option value="glm-4" />
               <option value="glm-4-plus" />
               <option value="deepseek-chat" />
+              <option value="deepseek-reasoner" />
               <option value="gpt-4o" />
               <option value="gpt-4o-mini" />
+              <option value="o3-mini" />
+              <option value="o4-mini" />
+              <option value="kimi-latest" />
+              <option value="kimi-k2-0711-preview" />
+              <option value="qwen-plus" />
+              <option value="qwen-turbo" />
+              <option value="qwen-max" />
+              <option value="qwen-long" />
             </datalist>
                 <p :class="modelReady ? 'text-emerald-600' : 'text-amber-600'" class="mt-1 text-xs">
                   {{ modelReady ? '该模型已连接' : '该模型还未连接' }}

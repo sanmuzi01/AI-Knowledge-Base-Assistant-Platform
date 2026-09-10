@@ -1,4 +1,4 @@
-﻿"""
+"""
 OpenAI Embedding 实现
 对应模型：text-embedding-ada-002, text-embedding-3-small, text-embedding-3-large
 和智谱

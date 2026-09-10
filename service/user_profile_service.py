@@ -152,10 +152,8 @@ def infer_user_profile_from_summary(
     return inferred
 
 
-def format_user_profile_for_prompt(db, user_id: int) -> str:
-    """将画像转成可注入 system prompt 的短文本。"""
-    profile = get_user_profile(db, user_id)
-    data = profile_to_dict(profile)
+def render_profile_prompt(data: Dict[str, Any]) -> str:
+    """把 profile_to_dict 的结果渲染成注入 system prompt 的短文本（同步 / 异步共用）。"""
     lines = []
     if data["occupation"]:
         lines.append(f"- 用户身份/职业：{data['occupation']}")
@@ -177,3 +175,8 @@ def format_user_profile_for_prompt(db, user_id: int) -> str:
         + "\n".join(lines)
         + "\n请结合这些信息调整回答深度、语气和举例方式；不要主动暴露或逐字复述画像内容。"
     )
+
+
+def format_user_profile_for_prompt(db, user_id: int) -> str:
+    """将画像转成可注入 system prompt 的短文本。"""
+    return render_profile_prompt(profile_to_dict(get_user_profile(db, user_id)))

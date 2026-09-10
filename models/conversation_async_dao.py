@@ -124,3 +124,41 @@ async def update_conversation_flags_async(
 async def delete_conversation_async(db: AsyncSession, conv: Conversation) -> None:
     await db.delete(conv)
     await db.flush()
+
+
+# ========== Message 写入 / 历史（chat_service async 迁移用）==========
+
+async def create_message_async(
+        db: AsyncSession, conversation_id: int, role: str, content: str,
+) -> Message:
+    """创建一条消息。对齐同步版 conversation_dao.create_message。"""
+    msg = Message(
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        create_time=utcnow(),
+    )
+    db.add(msg)
+    await db.flush()
+    return msg
+
+
+async def touch_conversation_async(db: AsyncSession, conv: Conversation) -> Conversation:
+    """刷新会话最后活跃时间（发消息时调用）。"""
+    conv.update_time = utcnow()
+    await db.flush()
+    return conv
+
+
+async def list_messages_for_history_async(
+        db: AsyncSession, conversation_id: int, limit: int = 20,
+) -> List[Message]:
+    """最近 N 条消息作为 LLM 上下文（倒序取 limit 条后反转为正序）。
+    对齐同步版 conversation_dao.list_messages_for_history。"""
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.create_time.desc())
+        .limit(limit)
+    )
+    return list(reversed(list(result.scalars().all())))
