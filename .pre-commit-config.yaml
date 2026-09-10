@@ -1,0 +1,18 @@
+# 安装：pip install pre-commit && pre-commit install
+# 只做「卫生」检查，不引入格式化器（避免全库重排造成巨大 diff）。
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: fix-byte-order-marker        # 去掉 UTF-8 BOM
+      - id: mixed-line-ending            # 统一行尾
+        args: [--fix=lf]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-case-conflict
