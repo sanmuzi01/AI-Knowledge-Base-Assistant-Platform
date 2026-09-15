@@ -116,7 +116,7 @@
                   {{ user.run_count }}
                 </div>
               </div>
-              <span class="text-right text-xs text-slate-500">约 {{ formatNumber(user.tokens) }} 字符消耗</span>
+              <span class="text-right text-xs text-slate-500">{{ formatNumber(user.tokens) }} Token</span>
             </div>
             <div v-if="!topUserRows.length && !loading" class="py-10 text-center text-sm text-slate-500">暂无活跃用户数据。</div>
           </div>

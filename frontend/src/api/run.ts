@@ -6,6 +6,7 @@ export interface AgentRun {
   user_message: string
   status: 'running' | 'finished' | 'failed' | 'cancelled'
   total_steps: number
+  total_tokens?: number | null
   final_answer?: string
   error_msg?: string
   started_at?: string

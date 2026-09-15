@@ -408,7 +408,9 @@
                   </span>
                 </div>
                 <p class="text-xs text-gray-700 line-clamp-2 leading-snug">{{ r.user_message }}</p>
-                <p class="text-[10px] text-gray-400 mt-1.5">{{ r.started_at?.slice(5, 16) }} · {{ r.total_steps }}步</p>
+                <p class="text-[10px] text-gray-400 mt-1.5">
+                  {{ r.started_at?.slice(5, 16) }} · {{ r.total_steps }}步<span v-if="r.total_tokens != null"> · {{ r.total_tokens }} Token</span>
+                </p>
               </button>
             </div>
           </div>
@@ -454,9 +456,6 @@
                     <div class="flex items-center gap-2 mb-1.5">
                       <span :class="['text-[10px] font-medium px-1.5 h-4 rounded flex items-center', stepIcon(step).tag]">
                         Step {{ step.step_no }} · {{ stepLabel(step) }}
-                      </span>
-                      <span v-if="step.tokens" class="text-[10px] text-gray-400 ml-auto">
-                        约 {{ step.tokens }} 字符消耗
                       </span>
                     </div>
 

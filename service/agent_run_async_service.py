@@ -18,6 +18,7 @@ def _run_to_dict(run) -> Dict:
         "user_message": run.user_message,
         "status": run.status,
         "total_steps": run.total_steps,
+        "total_tokens": run.total_tokens,
         "final_answer": final_answer[:200] + "..." if final_answer and len(final_answer) > 200 else final_answer,
         "error_msg": run.error_msg,
         "started_at": _format_dt(run.started_at),
