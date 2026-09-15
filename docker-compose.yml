@@ -1,0 +1,106 @@
+# 一条命令跑起整套：MySQL + Redis + 后端 API + 后台 Worker + 前端。
+#   docker compose up -d --build
+#   # 首启后端会自动建表；想要演示数据：
+#   docker compose exec api python scripts/seed_demo.py
+#   # 打开 http://localhost:8080
+#
+# 仅用于本地体验 / 演示。生产部署见 docs/deployment.md（用 systemd，不用 compose）。
+# 下面的密钥是公开的演示值，正式用请在项目根目录建 .env 覆盖。
+
+x-backend-env: &backend-env
+  APP_ENV: dev
+  DB_HOST: db
+  DB_PORT: "3306"
+  DB_USER: root
+  DB_PASSWORD: ${DB_PASSWORD:-devpass}
+  DB_NAME: ${DB_NAME:-agent_sql}
+  REDIS_URL: redis://redis:6379/0
+  # 下面两个是公开的演示值（谁都能在这份代码里看到），只用来让 `docker compose up`
+  # 零配置跑通。启动时的生产配置校验会精确识别并拒绝这两个值——只要在 .env 里
+  # 覆盖了真实值，一切正常；只要忘了覆盖又把 APP_ENV 设成 production，会直接启动失败
+  # 而不是带着一把公开密钥悄悄上线。
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-not-a-secret-change-me}
+  LLM_ENCRYPTION_KEY: ${LLM_ENCRYPTION_KEY:-LG5sThiGcVsg9jRbbN_fezONjfKdo3E72yQPYIUwZHQ=}
+  KNOWLEDGE_FILE_PATH: /app/data/knowledge_files
+  # Chroma 走独立 Server（见下面 chroma 服务）：api 和 worker 是两个进程，
+  # 各自内嵌 PersistentClient 并发读写同一份 sqlite 文件有损坏风险。
+  CHROMA_SERVER_HOST: chroma
+  CHROMA_SERVER_PORT: "8000"
+  TRUSTED_HOSTS: localhost,127.0.0.1
+  CORS_ALLOW_ORIGINS: http://localhost:8080
+  WIDGET_SCHEDULER_ENABLED: "1"
+
+services:
+  chroma:
+    image: chromadb/chroma:1.5.9
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/v2/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  db:
+    image: mysql:8.0
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-devpass}
+      MYSQL_DATABASE: ${DB_NAME:-agent_sql}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_PASSWORD:-devpass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: .
+    environment: *backend-env
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    ports:
+      - "8011:8000"       # 直连后端（调 API / 看 /metrics）
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build: .
+    command: python -m service.background_worker
+    environment: *backend-env
+    volumes:
+      - app_data:/app/data       # 与 api 共享：worker 写入库文件/原始文档，api 读
+    depends_on:
+      db:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  redis_data:
+  chroma_data:
+  app_data:
