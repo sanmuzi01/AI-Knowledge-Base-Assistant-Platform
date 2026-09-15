@@ -88,9 +88,20 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   return data as AdminOverview
 }
 
-export async function listAdminUsers(): Promise<AdminUser[]> {
-  const { data } = await request.get('/admin/users')
-  return data as AdminUser[]
+export interface AdminUserPage {
+  items: AdminUser[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export async function listAdminUsers(params: {
+  limit?: number
+  offset?: number
+  search?: string
+} = {}): Promise<AdminUserPage> {
+  const { data } = await request.get('/admin/users', { params })
+  return data as AdminUserPage
 }
 
 export async function updateUserRoles(userId: number, roles: string[]) {
@@ -128,16 +139,24 @@ export async function getAdminUsage(days = 14): Promise<AdminUsage> {
   return data as AdminUsage
 }
 
+export interface AdminLogPage {
+  items: AdminLog[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export async function listAdminLogs(params: {
   limit?: number
+  offset?: number
   days?: number
   keyword?: string
   method?: string
   status_group?: string
   user_id?: number
-} = {}): Promise<AdminLog[]> {
+} = {}): Promise<AdminLogPage> {
   const { data } = await request.get('/admin/logs', { params })
-  return data as AdminLog[]
+  return data as AdminLogPage
 }
 
 export interface AdminKnowledgeSpace {
@@ -148,6 +167,7 @@ export interface AdminKnowledgeSpace {
   organization_id: number | null
   team_id: number | null
   status: string
+  is_enabled: boolean
   purpose: string | null
   doc_count: number
   chunk_count: number
@@ -158,7 +178,26 @@ export interface AdminKnowledgeSpace {
   updated_at: string | null
 }
 
-export async function listAdminKnowledgeSpaces(): Promise<{ items: AdminKnowledgeSpace[]; total: number }> {
-  const { data } = await request.get('/admin/knowledge-spaces')
+export interface AdminKnowledgeSpacePage {
+  items: AdminKnowledgeSpace[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export async function listAdminKnowledgeSpaces(params: {
+  limit?: number
+  offset?: number
+} = {}): Promise<AdminKnowledgeSpacePage> {
+  const { data } = await request.get('/admin/knowledge-spaces', { params })
+  return data
+}
+
+/** 管理员直接改一个空间的启停/归档状态，不要求管理员是该空间成员 */
+export async function updateAdminSpaceStatus(
+  spaceId: number,
+  patch: { is_enabled?: boolean; status?: 'active' | 'archived' },
+): Promise<{ id: number; name: string; is_enabled: boolean; status: string }> {
+  const { data } = await request.patch(`/admin/knowledge-spaces/${spaceId}`, patch)
   return data
 }

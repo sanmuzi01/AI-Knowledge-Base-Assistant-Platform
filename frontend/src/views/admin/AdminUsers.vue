@@ -18,7 +18,7 @@
       <div class="border-b border-slate-200 px-4 py-3">
         <div class="mb-3 flex items-center justify-between gap-3">
           <h2 class="text-sm font-semibold text-slate-900">用户列表</h2>
-          <span class="text-xs text-slate-400">{{ filteredUsers.length }} / {{ users.length }} 个用户</span>
+          <span class="text-xs text-slate-400">{{ filteredUsers.length }} / 共 {{ total }} 个用户</span>
         </div>
         <div class="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto]">
           <div class="relative">
@@ -27,7 +27,7 @@
               v-model="userQuery"
               type="text"
               class="h-9 w-full rounded border border-slate-300 pl-8 pr-3 text-sm outline-none focus:border-indigo-500"
-              placeholder="搜索用户名、手机号或 ID"
+              placeholder="按用户名或手机号搜索（服务端搜索，回车或停顿后自动查）"
             />
           </div>
           <div class="grid grid-cols-5 gap-1 rounded bg-slate-100 p-1 text-xs">
@@ -138,9 +138,10 @@
           </tbody>
         </table>
         <div v-if="!filteredUsers.length && !loading" class="py-12 text-center text-sm text-slate-500">
-          {{ users.length ? '没有匹配的用户。' : '暂无用户。' }}
+          {{ users.length ? '当前页没有匹配筛选条件的用户。' : '没有找到用户。' }}
         </div>
       </div>
+      <AdminPagination :total="total" :limit="limit" :offset="offset" @update:offset="onPageChange" />
     </section>
 
     <!-- 用户详情弹窗 -->
@@ -213,18 +214,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RefreshCcw, Search } from 'lucide-vue-next'
+import AdminPagination from '../../components/admin/AdminPagination.vue'
 import * as adminApi from '../../api/admin'
 import type { AdminUser } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
 
 const users = ref<AdminUser[]>([])
+const total = ref(0)
+const limit = ref(50)
+const offset = ref(0)
 const userQuery = ref('')
 const userFilter = ref<'all' | 'active' | 'disabled' | 'online' | 'admin'>('all')
 const loading = ref(false)
 const errorMsg = ref('')
 const acting = ref(false)
+let searchDebounce: ReturnType<typeof setTimeout> | undefined
 
 const passwordDialog = ref({
   visible: false,
@@ -264,17 +270,15 @@ const userFilters: Array<{ label: string; value: 'all' | 'active' | 'disabled' |
   { label: '管理员', value: 'admin' },
 ]
 
+// 用户名/手机号搜索已经交给后端（分页场景下前端只筛选当前这一页没意义）；
+// 这几个快捷筛选（正常/禁用/在线/管理员）只在当前页内做，不额外发请求。
 const filteredUsers = computed(() => {
-  const query = userQuery.value.trim().toLowerCase()
   return users.value.filter((user) => {
     if (userFilter.value === 'active' && user.is_disabled === 1) return false
     if (userFilter.value === 'disabled' && user.is_disabled !== 1) return false
     if (userFilter.value === 'online' && !user.is_online) return false
     if (userFilter.value === 'admin' && !user.roles.includes('admin')) return false
-    if (!query) return true
-    return user.name.toLowerCase().includes(query)
-      || String(user.id).includes(query)
-      || (user.phone || '').includes(query)
+    return true
   })
 })
 
@@ -282,13 +286,34 @@ const loadUsers = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    users.value = await adminApi.listAdminUsers()
+    const page = await adminApi.listAdminUsers({
+      limit: limit.value, offset: offset.value, search: userQuery.value.trim() || undefined,
+    })
+    users.value = page.items
+    total.value = page.total
   } catch (e: any) {
     errorMsg.value = getErrorMessage(e, '加载用户列表失败')
   } finally {
     loading.value = false
   }
 }
+
+const onPageChange = (nextOffset: number) => {
+  offset.value = nextOffset
+  loadUsers()
+}
+
+watch(userQuery, () => {
+  if (searchDebounce) clearTimeout(searchDebounce)
+  searchDebounce = setTimeout(() => {
+    offset.value = 0
+    loadUsers()
+  }, 300)
+})
+
+onUnmounted(() => {
+  if (searchDebounce) clearTimeout(searchDebounce)
+})
 
 const toggleAdmin = async (user: AdminUser) => {
   const nextRoles = user.roles.includes('admin')

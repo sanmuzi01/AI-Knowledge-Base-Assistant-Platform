@@ -31,6 +31,7 @@ async def list_tasks(
 @router.get("/all", summary="管理员查询全局后台任务")
 async def list_all_tasks(
     limit: int = 50,
+    offset: int = 0,
     status: str = None,
     task_type: str = None,
     async_db=Depends(get_async_db),
@@ -38,7 +39,7 @@ async def list_all_tasks(
 ):
     _require_admin(current_user)
     return await background_task_async_service.list_all_tasks(
-        async_db, limit=limit, status=status, task_type=task_type
+        async_db, limit=limit, offset=offset, status=status, task_type=task_type
     )
 
 

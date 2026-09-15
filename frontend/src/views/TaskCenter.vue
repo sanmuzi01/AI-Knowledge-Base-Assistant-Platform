@@ -239,7 +239,7 @@ const reload = async (silent = false) => {
       limit: 100,
     }
     if (showAll.value && isAdmin.value) {
-      tasks.value = await taskApi.listAllTasks(params)
+      tasks.value = (await taskApi.listAllTasks(params)).items
     } else {
       tasks.value = await taskApi.listTasks(params)
     }

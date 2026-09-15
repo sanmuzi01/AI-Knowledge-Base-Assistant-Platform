@@ -37,8 +37,17 @@ interface TaskActionResponse {
 /** 查询参数 */
 export interface TaskQuery {
   limit?: number
+  offset?: number
   status?: TaskStatus
   task_type?: string
+}
+
+/** 分页后的任务列表 */
+export interface TaskPage {
+  items: Task[]
+  total: number
+  limit: number
+  offset: number
 }
 
 // ===== 查询 =====
@@ -54,9 +63,9 @@ export async function listTasks(arg: number | TaskQuery = {}): Promise<Task[]> {
   return data
 }
 
-/** 管理员查询全局后台任务（支持筛选） */
-export async function listAllTasks(params: TaskQuery = {}): Promise<Task[]> {
-  const { data } = await request.get<Task[]>('/task/all', { params })
+/** 管理员查询全局后台任务（支持筛选 + 分页） */
+export async function listAllTasks(params: TaskQuery = {}): Promise<TaskPage> {
+  const { data } = await request.get<TaskPage>('/task/all', { params })
   return data
 }
 

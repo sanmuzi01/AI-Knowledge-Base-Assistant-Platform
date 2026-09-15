@@ -1,9 +1,21 @@
 <template>
   <div class="space-y-4">
-    <header>
-      <h1 class="text-lg font-semibold text-slate-900">企业知识库</h1>
-      <p class="mt-1 text-sm text-slate-500">平台内所有知识库空间的归属、规模、成员和健康分。</p>
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-semibold text-slate-900">企业知识库</h1>
+        <p class="mt-1 text-sm text-slate-500">平台内所有知识库空间的归属、规模、成员和健康分。</p>
+      </div>
+      <button
+        @click="load"
+        :disabled="loading"
+        class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+      >
+        <RefreshCcw :size="14" :class="loading ? 'animate-spin' : ''" />
+        刷新
+      </button>
     </header>
+
+    <p v-if="actionErr" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ actionErr }}</p>
 
     <div v-if="loading" class="py-12 text-center text-sm text-slate-400">加载中…</div>
     <div v-else-if="err" class="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ err }}</div>
@@ -19,6 +31,7 @@
             <th class="px-3 py-2 text-right">绑定 Agent</th>
             <th class="px-3 py-2 text-right">健康分</th>
             <th class="px-3 py-2 text-left">状态</th>
+            <th class="px-3 py-2 text-left">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -36,40 +49,109 @@
               <span :class="healthColor(s.health_score)">{{ s.health_score ?? '—' }}</span>
             </td>
             <td class="px-3 py-2">
-              <span class="rounded px-2 py-0.5 text-xs"
-                :class="s.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">
-                {{ s.status === 'active' ? '启用' : '归档' }}
-              </span>
+              <div class="flex flex-wrap gap-1">
+                <span class="rounded px-2 py-0.5 text-xs"
+                  :class="s.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'">
+                  {{ s.status === 'active' ? '启用中' : '已归档' }}
+                </span>
+                <span v-if="!s.is_enabled" class="rounded bg-red-50 px-2 py-0.5 text-xs text-red-600">已停用</span>
+              </div>
+            </td>
+            <td class="px-3 py-2">
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  @click="toggleEnabled(s)"
+                  :disabled="actingId === s.id"
+                  class="rounded border px-2 py-1 text-xs transition-colors disabled:opacity-50"
+                  :class="s.is_enabled
+                    ? 'border-red-200 text-red-700 hover:bg-red-50'
+                    : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'"
+                >{{ s.is_enabled ? '停用' : '启用' }}</button>
+                <button
+                  @click="toggleArchived(s)"
+                  :disabled="actingId === s.id"
+                  class="rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >{{ s.status === 'active' ? '归档' : '恢复' }}</button>
+              </div>
             </td>
           </tr>
-          <tr v-if="items.length === 0"><td colspan="8" class="px-3 py-8 text-center text-slate-400">暂无知识库空间</td></tr>
+          <tr v-if="items.length === 0"><td colspan="9" class="px-3 py-8 text-center text-slate-400">暂无知识库空间</td></tr>
         </tbody>
       </table>
+      <AdminPagination :total="total" :limit="limit" :offset="offset" @update:offset="onPageChange" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { listAdminKnowledgeSpaces, type AdminKnowledgeSpace } from '../../api/admin'
+import { RefreshCcw } from 'lucide-vue-next'
+import AdminPagination from '../../components/admin/AdminPagination.vue'
+import { listAdminKnowledgeSpaces, updateAdminSpaceStatus, type AdminKnowledgeSpace } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
 
 const loading = ref(true)
 const err = ref('')
+const actionErr = ref('')
+const actingId = ref<number | null>(null)
 const items = ref<AdminKnowledgeSpace[]>([])
+const total = ref(0)
+const limit = ref(50)
+const offset = ref(0)
 
 const healthColor = (n: number | null) =>
   n == null ? 'text-slate-300'
     : n >= 80 ? 'text-emerald-600 font-semibold'
     : n >= 55 ? 'text-amber-600 font-semibold' : 'text-red-600 font-semibold'
 
-onMounted(async () => {
+const load = async () => {
+  loading.value = true
+  err.value = ''
   try {
-    items.value = (await listAdminKnowledgeSpaces()).items
+    const page = await listAdminKnowledgeSpaces({ limit: limit.value, offset: offset.value })
+    items.value = page.items
+    total.value = page.total
   } catch (e: any) {
     err.value = getErrorMessage(e, '加载失败')
   } finally {
     loading.value = false
   }
-})
+}
+
+const onPageChange = (nextOffset: number) => {
+  offset.value = nextOffset
+  load()
+}
+
+const toggleEnabled = async (s: AdminKnowledgeSpace) => {
+  const next = !s.is_enabled
+  if (!confirm(`确认${next ? '启用' : '停用'}空间「${s.name}」？${next ? '' : '停用后该空间的知识检索将不再生效。'}`)) return
+  actingId.value = s.id
+  actionErr.value = ''
+  try {
+    await updateAdminSpaceStatus(s.id, { is_enabled: next })
+    s.is_enabled = next
+  } catch (e: any) {
+    actionErr.value = getErrorMessage(e, '操作失败')
+  } finally {
+    actingId.value = null
+  }
+}
+
+const toggleArchived = async (s: AdminKnowledgeSpace) => {
+  const nextStatus = s.status === 'active' ? 'archived' : 'active'
+  if (!confirm(`确认${nextStatus === 'archived' ? '归档' : '恢复'}空间「${s.name}」？`)) return
+  actingId.value = s.id
+  actionErr.value = ''
+  try {
+    await updateAdminSpaceStatus(s.id, { status: nextStatus })
+    s.status = nextStatus
+  } catch (e: any) {
+    actionErr.value = getErrorMessage(e, '操作失败')
+  } finally {
+    actingId.value = null
+  }
+}
+
+onMounted(load)
 </script>

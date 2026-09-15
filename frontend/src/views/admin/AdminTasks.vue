@@ -27,7 +27,7 @@
           <input
             v-model="taskQuery"
             type="search"
-            placeholder="搜索任务、用户或助手"
+            placeholder="在当前页内搜索任务、用户或助手"
             class="h-8 w-full rounded border border-slate-200 bg-white pl-8 pr-2 text-xs outline-none focus:border-blue-500"
           />
         </div>
@@ -52,7 +52,7 @@
             <option v-for="type in typeOptions" :key="type" :value="type">{{ type }}</option>
           </select>
         </div>
-        <span class="ml-auto text-xs text-slate-400">{{ filteredTasks.length }} / {{ tasks.length }} 条</span>
+        <span class="ml-auto text-xs text-slate-400">{{ filteredTasks.length }} / 共 {{ total }} 条</span>
       </div>
     </section>
 
@@ -129,9 +129,10 @@
         </article>
 
         <div v-if="!filteredTasks.length && !loading" class="py-14 text-center text-sm text-slate-500">
-          {{ tasks.length ? '没有匹配的后台任务。' : '暂无后台任务。' }}
+          {{ tasks.length ? '当前页没有匹配搜索词的任务。' : '暂无后台任务。' }}
         </div>
       </div>
+      <AdminPagination :total="total" :limit="limit" :offset="offset" @update:offset="onPageChange" />
     </section>
   </div>
 </template>
@@ -139,11 +140,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RefreshCcw, RotateCcw, Search, X } from 'lucide-vue-next'
+import AdminPagination from '../../components/admin/AdminPagination.vue'
 import * as taskApi from '../../api/task'
 import type { Task, TaskStatus } from '../../api/task'
 import { getErrorMessage } from '../../utils/request'
 
 const tasks = ref<Task[]>([])
+const total = ref(0)
+const limit = ref(50)
+const offset = ref(0)
 const loading = ref(false)
 const actingId = ref<number | null>(null)
 const errorMsg = ref('')
@@ -188,11 +193,14 @@ const reload = async (silent = false) => {
   loading.value = !silent
   errorMsg.value = ''
   try {
-    tasks.value = await taskApi.listAllTasks({
-      limit: 100,
+    const page = await taskApi.listAllTasks({
+      limit: limit.value,
+      offset: offset.value,
       status: filterStatus.value || undefined,
       task_type: filterType.value || undefined,
     })
+    tasks.value = page.items
+    total.value = page.total
   } catch (e: any) {
     if (!silent) errorMsg.value = getErrorMessage(e, '加载后台任务失败')
   } finally {
@@ -200,7 +208,15 @@ const reload = async (silent = false) => {
   }
 }
 
-watch([filterStatus, filterType], () => reload())
+const onPageChange = (nextOffset: number) => {
+  offset.value = nextOffset
+  reload()
+}
+
+watch([filterStatus, filterType], () => {
+  offset.value = 0
+  reload()
+})
 watch([hasWorking, autoRefresh], ([working, enabled]) => {
   if (working && enabled && timer === undefined) {
     timer = window.setInterval(() => reload(true), 5000)

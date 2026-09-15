@@ -256,6 +256,16 @@ def reset_user_password(db, user_id: int, new_password: str) -> Dict:
 
 
 def delete_user(db, user_id: int, operator_id: int) -> Dict:
+    """删除用户及其全部级联数据。
+
+    审计管理后台时发现：这个函数原来只清了 LLMConfig/Memory/BackgroundTask/Chat/角色
+    这几张表——agent_service.delete() 循环能处理每个 Agent 名下的会话/运行记录/
+    旧版私有知识库，但完全不知道"知识库空间"（现在所有新上传文档走的默认路径）、
+    工作台组件、网页监控、操作日志这些表的存在。对任何真实用过产品的用户（几乎
+    必然有至少一个 KnowledgeSpace），点"删除用户"会直接撞 FK 约束报 500，这个
+    按钮实际上是坏的。现在按 tests/_route_client.py 里已经验证过的完整覆盖顺序补齐。
+    """
+    from sqlalchemy import text
     from models.init_db import agent_skill, association_table
     from service import agent_service
 
@@ -267,10 +277,51 @@ def delete_user(db, user_id: int, operator_id: int) -> Dict:
     if user.name == "admin":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不能删除内置管理员账号")
 
+    # 1. 企业接口连接器 / 固定评估集：agent_api_connector.agent_id 和 eval_set.agent_id
+    #    都外键引用 agent.id，必须在删 Agent 之前先清掉，顺序反了会在下面 agent_service.delete()
+    #    里报 FK 约束失败（这个坑真实踩过一次：写成放在 agent 循环后面，测试直接炸了）。
+    db.execute(text("DELETE FROM agent_api_connector WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text(
+        "DELETE er FROM eval_run er JOIN eval_set es ON er.eval_set_id = es.id "
+        "WHERE es.user_id = :uid"
+    ), {"uid": user.id})
+    db.execute(text("DELETE FROM eval_set WHERE user_id = :uid"), {"uid": user.id})
+
+    # 2. 逐个 Agent 显式级联（会话/消息、运行轨迹、旧版私有知识库+向量、记忆/工具/旧聊天）
     agents = db.query(Agent).filter(Agent.user_id == user.id).all()
     for agent in agents:
         agent_service.delete(db, user, agent.id)
 
+    # 3. 知识库空间体系（当前所有新上传文档的默认路径，agent_service.delete 管不到）
+    #    子表在前、KnowledgeSpace 本身在后；同时清"这个用户是别人空间的成员"和
+    #    "别人是这个用户空间的成员"两个方向。
+    db.execute(text("DELETE FROM kb_audit_log WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text("DELETE FROM space_members WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text(
+        "DELETE sm FROM space_members sm JOIN knowledge_spaces s ON sm.space_id = s.id "
+        "WHERE s.user_id = :uid"
+    ), {"uid": user.id})
+    db.execute(text(
+        "DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id = s.id "
+        "WHERE s.user_id = :uid"
+    ), {"uid": user.id})
+    db.execute(text("DELETE FROM knowledge_spaces WHERE user_id = :uid"), {"uid": user.id})
+
+    # 4. 工作台组件（先删数据点，widget_data_points.widget_id -> user_widgets.id）
+    db.execute(text(
+        "DELETE dp FROM widget_data_points dp JOIN user_widgets w ON dp.widget_id = w.id "
+        "WHERE w.user_id = :uid"
+    ), {"uid": user.id})
+    db.execute(text("DELETE FROM user_widgets WHERE user_id = :uid"), {"uid": user.id})
+
+    # 5. 其它按 user_id 直接挂的表
+    db.execute(text("DELETE FROM rag_debug_samples WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text("DELETE FROM web_monitor WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text("DELETE FROM user_workspace WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text("DELETE FROM operation_log WHERE user_id = :uid"), {"uid": user.id})
+    db.execute(text("DELETE FROM user_profile WHERE user_id = :uid"), {"uid": user.id})
+
+    # 6. Skill（agent_skill 绑定关系先清）
     skill_ids = [row[0] for row in db.query(Skill.id).filter(Skill.user_id == user.id).all()]
     if skill_ids:
         db.execute(agent_skill.delete().where(agent_skill.c.skill_id.in_(skill_ids)))

@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.init_db import BackgroundTask
@@ -44,19 +44,36 @@ async def list_tasks_by_user_async(
     return list(result.scalars().all())
 
 
-async def list_all_tasks_async(
-        db: AsyncSession,
-        limit: int = 50,
-        status: str = None,
-        task_type: str = None,
-) -> List[BackgroundTask]:
+def _all_tasks_conditions(status: str = None, task_type: str = None) -> list:
     conditions = []
     if status:
         conditions.append(BackgroundTask.status == status)
     if task_type:
         conditions.append(BackgroundTask.task_type == task_type)
-    statement = select(BackgroundTask).order_by(BackgroundTask.created_at.desc()).limit(limit)
+    return conditions
+
+
+async def list_all_tasks_async(
+        db: AsyncSession,
+        limit: int = 50,
+        offset: int = 0,
+        status: str = None,
+        task_type: str = None,
+) -> List[BackgroundTask]:
+    conditions = _all_tasks_conditions(status, task_type)
+    statement = select(BackgroundTask).order_by(BackgroundTask.created_at.desc()).limit(limit).offset(offset)
     if conditions:
         statement = statement.where(*conditions)
     result = await db.execute(statement)
     return list(result.scalars().all())
+
+
+async def count_all_tasks_async(
+        db: AsyncSession, status: str = None, task_type: str = None,
+) -> int:
+    conditions = _all_tasks_conditions(status, task_type)
+    statement = select(func.count(BackgroundTask.id))
+    if conditions:
+        statement = statement.where(*conditions)
+    result = await db.execute(statement)
+    return int(result.scalar() or 0)

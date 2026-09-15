@@ -9,6 +9,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
+from service.exceptions import InvalidInput, NotFound
+
 from models.init_db import (
     Agent,
     AgentRun,
@@ -39,8 +41,14 @@ async def _count(db, model) -> int:
     return int(result.scalar() or 0)
 
 
-async def _count_by_user(db, model) -> Dict[int, int]:
-    result = await db.execute(select(model.user_id, func.count(model.id)).group_by(model.user_id))
+async def _count_by_user(db, model, user_ids: List[int] = None) -> Dict[int, int]:
+    """按 user_id 分组计数。传 user_ids 时只统计这些用户（分页场景下不用全表扫）。"""
+    stmt = select(model.user_id, func.count(model.id))
+    if user_ids is not None:
+        if not user_ids:
+            return {}
+        stmt = stmt.where(model.user_id.in_(user_ids))
+    result = await db.execute(stmt.group_by(model.user_id))
     return {user_id: int(count or 0) for user_id, count in result.all()}
 
 
@@ -79,16 +87,38 @@ async def overview(db) -> Dict:
     }
 
 
-async def list_users(db) -> List[Dict]:
-    result = await db.execute(
-        select(User).options(selectinload(User.roles)).order_by(User.id.desc())
-    )
-    users = list(result.scalars().all())
-    agent_counts = await _count_by_user(db, Agent)
-    skill_counts = await _count_by_user(db, Skill)
-    knowledge_counts = await _count_by_user(db, Knowledge)
-    task_counts = await _count_by_user(db, BackgroundTask)
-    return [
+async def list_users(db, limit: int = 50, offset: int = 0, search: str = None) -> Dict:
+    """用户管控列表，支持分页 + 按用户名/手机号搜索。
+
+    之前是一次性 SELECT * FROM User（无 limit）+ 4 条全表 GROUP BY 统计所有用户
+    的 agent/skill/knowledge/task 数量——用户量一大，这条路由会越来越慢。现在
+    分页查用户本身，4 条计数也只统计当前页这些用户，不再扫全表。
+    """
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    conditions = []
+    if search:
+        like = f"%{search.strip()}%"
+        conditions.append(or_(User.name.like(like), User.phone.like(like)))
+
+    count_stmt = select(func.count(User.id))
+    if conditions:
+        count_stmt = count_stmt.where(*conditions)
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+
+    query = select(User).options(selectinload(User.roles))
+    if conditions:
+        query = query.where(*conditions)
+    query = query.order_by(User.id.desc()).limit(limit).offset(offset)
+    users = list((await db.execute(query)).scalars().all())
+
+    user_ids = [u.id for u in users]
+    agent_counts = await _count_by_user(db, Agent, user_ids)
+    skill_counts = await _count_by_user(db, Skill, user_ids)
+    knowledge_counts = await _count_by_user(db, Knowledge, user_ids)
+    task_counts = await _count_by_user(db, BackgroundTask, user_ids)
+    items = [
         _user_admin_payload(
             user,
             agent_count=agent_counts.get(user.id, 0),
@@ -98,6 +128,7 @@ async def list_users(db) -> List[Dict]:
         )
         for user in users
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 async def get_user_detail(db, user_id: int) -> Dict:
@@ -307,16 +338,20 @@ async def reset_user_password(db, user_id: int, new_password: str) -> Dict:
     return {"message": "密码已重置", "user_id": user.id}
 
 
-async def list_knowledge_spaces(db, limit: int = 500) -> Dict:
+async def list_knowledge_spaces(db, limit: int = 500, offset: int = 0) -> Dict:
     """企业知识库视角：所有知识库空间 + 归属 / 规模 / 成员数 / 健康分。"""
     from models.init_db import AgentKnowledgeSpace, KnowledgeSpace, SpaceMember
 
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+    total = int((await db.execute(select(func.count(KnowledgeSpace.id)))).scalar() or 0)
+
     res = await db.execute(
-        select(KnowledgeSpace).order_by(KnowledgeSpace.id.desc()).limit(limit)
+        select(KnowledgeSpace).order_by(KnowledgeSpace.id.desc()).limit(limit).offset(offset)
     )
     spaces = list(res.scalars().all())
     if not spaces:
-        return {"items": [], "total": 0}
+        return {"items": [], "total": total, "limit": limit, "offset": offset}
 
     owner_ids = {s.user_id for s in spaces}
     owners_res = await db.execute(select(User.id, User.name).where(User.id.in_(owner_ids)))
@@ -343,6 +378,7 @@ async def list_knowledge_spaces(db, limit: int = 500) -> Dict:
             "organization_id": s.organization_id,
             "team_id": s.team_id,
             "status": s.status,
+            "is_enabled": bool(s.is_enabled),
             "purpose": s.purpose,
             "doc_count": s.doc_count,
             "chunk_count": s.chunk_count,
@@ -354,7 +390,45 @@ async def list_knowledge_spaces(db, limit: int = 500) -> Dict:
         }
         for s in spaces
     ]
-    return {"items": items, "total": len(items)}
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+async def admin_update_space(db, admin_user_id: int, space_id: int, patch: Dict) -> Dict:
+    """管理员直接改一个知识库空间的启停/归档状态——不要求管理员是该空间成员。
+
+    普通的 update_space（service/knowledge_space/space_async_service.py）要求调用者
+    是空间的所有者/管理员成员；企业知识库总览页面向的是平台管理员，本来就该能管
+    任何空间，不应该被"你不是这个空间的成员"挡住。复用同一个字段校验规则和同一张
+    审计日志（kb_audit_dao），只是跳过成员权限校验，用 action 前缀区分是管理员操作。
+    """
+    from models import kb_audit_dao
+    from models.knowledge_space_async_dao import get_space_by_id_async, update_space_async
+
+    space = await get_space_by_id_async(db, space_id)
+    if not space:
+        raise NotFound("知识库空间不存在")
+
+    fields: Dict = {}
+    if "is_enabled" in patch and patch["is_enabled"] is not None:
+        fields["is_enabled"] = 1 if patch["is_enabled"] else 0
+    if "status" in patch and patch["status"] in ("active", "archived"):
+        fields["status"] = patch["status"]
+    if not fields:
+        raise InvalidInput("没有需要更新的内容")
+
+    space = await update_space_async(db, space, fields)
+    try:
+        await kb_audit_dao.record_async(
+            db, admin_user_id, "admin.space.update", space_id=space_id,
+            target_type="space", target_id=space_id, detail={"fields": sorted(fields.keys())},
+        )
+    except Exception:  # noqa: BLE001 —— 审计失败不影响主流程
+        pass
+
+    return {
+        "id": space.id, "name": space.name, "is_enabled": bool(space.is_enabled),
+        "status": space.status,
+    }
 
 
 async def delete_user(user_id: int, operator_id: int) -> Dict:

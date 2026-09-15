@@ -4,7 +4,7 @@ from utils.timeutil import utcnow
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from models.init_db import OperationLog
 from service.operation_log_service import _format_dt
@@ -13,13 +13,15 @@ from service.operation_log_service import _format_dt
 async def list_operation_logs(
         db,
         limit: int = 100,
+        offset: int = 0,
         keyword: str = None,
         method: str = None,
         status_group: str = None,
         user_id: int = None,
         days: int = 7,
-) -> List[Dict]:
+) -> Dict:
     limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     days = max(1, min(days, 90))
     conditions = [OperationLog.created_at >= utcnow() - timedelta(days=days)]
 
@@ -42,13 +44,16 @@ async def list_operation_logs(
             OperationLog.error_msg.like(like),
         ))
 
+    total = int((await db.execute(select(func.count(OperationLog.id)).where(*conditions))).scalar() or 0)
+
     result = await db.execute(
         select(OperationLog)
         .where(*conditions)
         .order_by(OperationLog.created_at.desc())
         .limit(limit)
+        .offset(offset)
     )
-    return [
+    items = [
         {
             "id": item.id,
             "user_id": item.user_id,
@@ -64,3 +69,4 @@ async def list_operation_logs(
         }
         for item in result.scalars().all()
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}

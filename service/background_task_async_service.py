@@ -30,13 +30,20 @@ async def list_user_tasks(
 async def list_all_tasks(
         db,
         limit: int = 50,
+        offset: int = 0,
         status: str = None,
         task_type: str = None,
-) -> List[Dict]:
+) -> Dict:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    total = await dao.count_all_tasks_async(db, status=status, task_type=task_type)
     tasks = await dao.list_all_tasks_async(
-        db, limit=limit, status=status, task_type=task_type
+        db, limit=limit, offset=offset, status=status, task_type=task_type
     )
-    return [task_to_dict(task) for task in tasks]
+    return {
+        "items": [task_to_dict(task) for task in tasks],
+        "total": total, "limit": limit, "offset": offset,
+    }
 
 
 async def retry_task(user_id: int, task_id: int, is_admin: bool = False) -> Optional[Dict]:

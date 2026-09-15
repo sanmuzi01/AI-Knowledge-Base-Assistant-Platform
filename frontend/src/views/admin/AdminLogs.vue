@@ -52,7 +52,7 @@
             {{ item.label }}
           </button>
         </div>
-        <span class="ml-auto text-xs text-slate-400">共 {{ logs.length }} 条</span>
+        <span class="ml-auto text-xs text-slate-400">共 {{ total }} 条</span>
       </div>
     </section>
 
@@ -104,6 +104,7 @@
 
         <div v-if="!logs.length && !loading" class="py-14 text-center text-sm text-slate-500">暂无操作日志。</div>
       </div>
+      <AdminPagination :total="total" :limit="limit" :offset="offset" @update:offset="onPageChange" />
     </section>
   </div>
 </template>
@@ -111,12 +112,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RefreshCcw, Search } from 'lucide-vue-next'
+import AdminPagination from '../../components/admin/AdminPagination.vue'
 import * as adminApi from '../../api/admin'
 import type { AdminLog, AdminUser } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
 
 const logs = ref<AdminLog[]>([])
 const users = ref<AdminUser[]>([])
+const total = ref(0)
+const limit = ref(100)
+const offset = ref(0)
 const loading = ref(false)
 const errorMsg = ref('')
 const keyword = ref('')
@@ -155,14 +160,17 @@ const loadLogs = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    logs.value = await adminApi.listAdminLogs({
-      limit: 200,
+    const page = await adminApi.listAdminLogs({
+      limit: limit.value,
+      offset: offset.value,
       days: days.value,
       keyword: keyword.value.trim() || undefined,
       user_id: userId.value || undefined,
       method: method.value || undefined,
       status_group: statusGroup.value || undefined,
     })
+    logs.value = page.items
+    total.value = page.total
   } catch (e: any) {
     errorMsg.value = getErrorMessage(e, '读取操作日志失败')
   } finally {
@@ -170,18 +178,31 @@ const loadLogs = async () => {
   }
 }
 
+const onPageChange = (nextOffset: number) => {
+  offset.value = nextOffset
+  loadLogs()
+}
+
 const loadUsers = async () => {
   try {
-    users.value = await adminApi.listAdminUsers()
+    // 只用来填"按用户筛选"下拉框；200 对目前的用户规模够用，用户量再上一个数量级
+    // 需要换成专门的"用户名称查找"接口，不该复用分页列表接口硬拉大 limit。
+    users.value = (await adminApi.listAdminUsers({ limit: 200 })).items
   } catch {
     users.value = []
   }
 }
 
-watch([days, userId, method, statusGroup], loadLogs)
+watch([days, userId, method, statusGroup], () => {
+  offset.value = 0
+  loadLogs()
+})
 watch(keyword, () => {
   if (searchTimer !== undefined) window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(loadLogs, 300)
+  searchTimer = window.setTimeout(() => {
+    offset.value = 0
+    loadLogs()
+  }, 300)
 })
 
 const methodClass = (value: string) => ({

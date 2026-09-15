@@ -135,6 +135,10 @@ def _purge_users(where_users: str) -> int:
             f"DELETE FROM knowledge WHERE user_id IN {inc}",
             f"DELETE FROM rag_debug_samples WHERE user_id IN {inc}",
             f"DELETE FROM kb_audit_log WHERE user_id IN {inc}",
+            f"DELETE FROM agent_api_connector WHERE user_id IN {inc}",
+            # eval_run 没有 user_id，靠 eval_set 反查；必须先删它，eval_set 才能删（FK 子表）
+            f"DELETE er FROM eval_run er JOIN eval_set es ON er.eval_set_id=es.id WHERE es.user_id IN {inc}",
+            f"DELETE FROM eval_set WHERE user_id IN {inc}",
             f"DELETE FROM space_members WHERE user_id IN {inc}",
             f"DELETE sm FROM space_members sm JOIN knowledge_spaces s ON sm.space_id=s.id WHERE s.user_id IN {inc}",
             f"DELETE aks FROM agent_knowledge_space aks JOIN knowledge_spaces s ON aks.space_id=s.id WHERE s.user_id IN {inc}",
