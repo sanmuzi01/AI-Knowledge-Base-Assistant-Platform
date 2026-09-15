@@ -74,11 +74,18 @@ python -m service.background_worker
 
 ## 3. 健康检查
 
+`/health` 是公开的、不需要登录的探活端点，只回 `{"ok": true/false}`，给 Docker
+healthcheck、负载均衡这类不带登录态的场景用：
+
 ```text
 http://<域名>/health
 ```
 
-正常情况下：
+数据库连接池、缓存/限流用的是不是 Redis、后台任务执行模式这些运行细节
+**不再从 `/health` 公开**——这些是内部架构信息，之前任何知道这个 URL 的匿名
+请求都能看到，属于不必要的踩点信息暴露。完整诊断现在需要登录，走
+`/system/diagnose`（同一份数据也能在产品里看：普通用户在「设置」页，
+管理员在后台「系统诊断」页）：
 
 - `database` 为正常
 - `redis` 为正常（未配置 Redis 时为回退内存模式）
@@ -87,6 +94,7 @@ http://<域名>/health
 - `database.pool.checked_out` 不应长期接近 `DB_POOL_SIZE + DB_MAX_OVERFLOW`
 
 Prometheus 指标端点：`http://<域名>/metrics`（可接入已有的 Prometheus / Grafana）。
+`/metrics` 目前也是公开的，生产环境建议在反向代理层限制只允许内网/监控系统访问。
 
 数据库连接池说明：
 

@@ -9,7 +9,7 @@ from service.config_validation import assert_runtime_config, validate_runtime_co
 # 避免应用已经连接数据库或初始化业务模块后才暴露配置错误。
 assert_runtime_config()
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -35,7 +35,7 @@ from FasdtApi.evaluation import router as evaluation_router
 from FasdtApi.web_monitor import router as web_monitor_router
 from FasdtApi.user_widget import router as user_widget_router
 from models.async_db import async_engine
-from models.init_db import SessionLocal, engine, bootstrap_database
+from models.init_db import SessionLocal, engine, bootstrap_database, User
 from service.operation_log_middleware import OperationLogMiddleware
 from service.background_task_service import task_execution_mode
 from service.http_resilience import circuit_breaker
@@ -43,6 +43,7 @@ from service.metrics_async_service import async_metrics_response
 from service.metrics_service import update_runtime_metrics
 from service.request_context_middleware import RequestContextMiddleware
 from service.security_middleware import SecurityHeadersMiddleware
+from service.dependencies import get_current_user_async
 from utils.cache import config_cache, skill_cache, verification_cache
 from utils.rate_limit import concurrency_limiter, rate_limiter
 
@@ -126,8 +127,17 @@ async def root():
     return {"message": "Hello World"}
 
 
-@app.get("/health", summary="服务健康检查")
-async def health_check():
+async def _build_health_payload() -> dict:
+    """探活 + 详细运行诊断（DB 连接池、缓存后端、限流器、熔断器状态等）。
+
+    这份数据面向"自己人"：要么是不认识别人的基础设施探活（只看返回是不是
+    2xx，不解析内容），要么是登录用户在设置页/管理后台看运行状态。之前
+    `/health` 把这整份详细数据公开给任何匿名请求，相当于把数据库连接池大小、
+    缓存/限流用的是不是 Redis、后台任务执行模式这些内部架构细节告诉了互联网上
+    任何知道这个 URL 的人——对判断"这套系统防护弱不弱"是有效的踩点信息。
+    现在拆成两层：`/health` 只回 {"ok": bool}，这份完整数据挪到需要登录才能
+    访问的 `/system/diagnose`。
+    """
     checks = []
     config_status = validate_runtime_config()
 
@@ -231,6 +241,20 @@ async def health_check():
             "circuits": circuit_breaker.stats(),
         },
     }
+
+
+@app.get("/health", summary="服务健康检查（公开，仅返回是否正常）")
+async def health_check():
+    """给 Docker healthcheck / 负载均衡这类不带登录态的探活用。
+    只回布尔值，详细诊断数据见 `/system/diagnose`（需要登录）。"""
+    payload = await _build_health_payload()
+    return {"ok": payload["ok"]}
+
+
+@app.get("/system/diagnose", summary="详细运行诊断（需要登录）")
+async def system_diagnose(current_user: User = Depends(get_current_user_async)):
+    """设置页 / 管理后台的诊断面板用，完整数据同旧版 `/health`。"""
+    return await _build_health_payload()
 
 
 @app.get("/metrics", summary="Prometheus 指标")

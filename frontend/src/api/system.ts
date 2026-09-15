@@ -70,7 +70,15 @@ export interface HealthStatus {
   }
 }
 
-export async function getHealth(): Promise<HealthStatus> {
+/** 公开探活，只返回 { ok }，给不带登录态的场景（比如自己手动看一眼）用。 */
+export async function getHealth(): Promise<{ ok: boolean }> {
   const { data } = await request.get('/health')
+  return data
+}
+
+/** 完整运行诊断（DB 连接池 / 缓存 / 限流 / 熔断器等），需要登录。
+ * 设置页、管理后台的诊断面板用这个，不要再用 getHealth()。 */
+export async function getDiagnose(): Promise<HealthStatus> {
+  const { data } = await request.get('/system/diagnose')
   return data as HealthStatus
 }

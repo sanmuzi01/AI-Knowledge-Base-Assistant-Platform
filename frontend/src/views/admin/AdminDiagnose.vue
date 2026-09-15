@@ -108,7 +108,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { AlertTriangle, CheckCircle2, Database, RefreshCcw, Server, ShieldCheck, Workflow } from 'lucide-vue-next'
-import { getHealth, type HealthStatus } from '../../api/system'
+import { getDiagnose, type HealthStatus } from '../../api/system'
 import { getErrorMessage } from '../../utils/request'
 
 const health = ref<HealthStatus | null>(null)
@@ -133,7 +133,7 @@ const loadHealth = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    health.value = await getHealth()
+    health.value = await getDiagnose()
   } catch (e: any) {
     errorMsg.value = getErrorMessage(e, '系统诊断加载失败')
   } finally {

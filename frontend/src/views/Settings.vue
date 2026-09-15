@@ -163,7 +163,7 @@
           </span>
           <div>
             <h2 class="text-sm font-semibold text-slate-900">{{ health?.ok ? '服务运行正常' : '存在需要处理的问题' }}</h2>
-            <p class="text-xs text-slate-500">{{ errorMsg || '健康检查来自 /health 接口' }}</p>
+            <p class="text-xs text-slate-500">{{ errorMsg || '健康检查来自 /system/diagnose 接口' }}</p>
           </div>
         </div>
       </section>
@@ -193,7 +193,7 @@
       <section class="sci-panel mt-5 rounded-lg p-5">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-900">缓存状态</h2>
-          <span class="text-xs text-slate-400">来自 /health</span>
+          <span class="text-xs text-slate-400">来自 /system/diagnose</span>
         </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <article class="rounded border border-slate-100 p-3">
@@ -285,7 +285,7 @@ const loadHealth = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    health.value = await systemApi.getHealth()
+    health.value = await systemApi.getDiagnose()
   } catch (e: any) {
     errorMsg.value = getErrorMessage(e, '健康检查失败')
   } finally {
