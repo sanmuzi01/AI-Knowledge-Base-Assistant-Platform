@@ -67,16 +67,25 @@
           </div>
         </section>
 
-        <!-- 跑评估 -->
+        <!-- 跑评估（一次性，不留痕迹） -->
         <section class="rounded-lg border border-sky-200 bg-white/80 p-4">
           <div class="mb-2 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-slate-800">按评估集跑一次 RAG 评估</h3>
-            <button
-              @click="runEval" :disabled="evalRunning"
-              class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
-            >{{ evalRunning ? '评估中…' : '跑一次' }}</button>
+            <div class="flex gap-2">
+              <button
+                @click="saveAsFixedSet" :disabled="evalRunning || savingSet"
+                class="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >{{ savingSet ? '保存中…' : '存成固定评估集' }}</button>
+              <button
+                @click="runEval" :disabled="evalRunning"
+                class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+              >{{ evalRunning ? '评估中…' : '跑一次' }}</button>
+            </div>
           </div>
-          <p class="text-xs text-slate-500">用调试台里勾进「评估集」的样例，走多空间联合检索算命中率 / 召回 / 忠诚度。</p>
+          <p class="text-xs text-slate-500">
+            用调试台里勾进「评估集」的样例，走多空间联合检索算命中率 / 召回 / 忠诚度。
+            "跑一次"是一次性的，不会留痕迹；"存成固定评估集"之后可以重复跑、自动跟上一轮比较有没有变差。
+          </p>
           <p v-if="evalMsg" class="mt-2 text-xs" :class="evalErr ? 'text-red-600' : 'text-slate-500'">{{ evalMsg }}</p>
           <div v-if="report" class="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
             <Metric label="用例数" :value="report.case_count" />
@@ -84,6 +93,52 @@
             <Metric label="召回" :rate="report.metrics.recall" />
             <Metric label="precision@k" :rate="report.metrics.precision_at_k" />
             <Metric label="忠诚度" :rate="report.metrics.faithfulness" />
+          </div>
+        </section>
+
+        <!-- 固定评估集：可重复跑，自动跟上一轮比较 -->
+        <section class="rounded-lg border border-sky-200 bg-white/80 p-4">
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-slate-800">固定评估集</h3>
+            <button @click="loadEvalSets" class="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">刷新</button>
+          </div>
+          <div v-if="evalSets.length === 0"
+               class="rounded border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-xs text-slate-400">
+            还没有固定评估集。用上面的"存成固定评估集"从调试台样例建一份。
+          </div>
+          <div v-else class="space-y-2">
+            <div v-for="s in evalSets" :key="s.id" class="rounded border border-slate-200 bg-white px-3 py-2.5">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-slate-800">{{ s.name }}</p>
+                  <p class="text-xs text-slate-400">{{ s.cases.length }} 条用例</p>
+                </div>
+                <button
+                  @click="runFixedSet(s)" :disabled="runningSetId === s.id"
+                  class="sci-primary shrink-0 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                >{{ runningSetId === s.id ? '跑一次…' : '重新跑一次' }}</button>
+              </div>
+              <div v-if="runResults[s.id]" class="mt-2 border-t border-slate-100 pt-2">
+                <div class="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
+                  <Metric label="命中率" :rate="runResults[s.id].report.metrics.hit_rate" />
+                  <Metric label="召回" :rate="runResults[s.id].report.metrics.recall" />
+                  <Metric label="precision@k" :rate="runResults[s.id].report.metrics.precision_at_k" />
+                  <Metric label="忠诚度" :rate="runResults[s.id].report.metrics.faithfulness" />
+                </div>
+                <div v-if="runResults[s.id].diff" class="mt-2 space-y-1 text-xs">
+                  <p v-if="runResults[s.id].diff!.regressed_questions.length" class="text-red-600">
+                    ⚠ 回归了 {{ runResults[s.id].diff!.regressed_questions.length }} 条：{{ runResults[s.id].diff!.regressed_questions.join('、') }}
+                  </p>
+                  <p v-if="runResults[s.id].diff!.improved_questions.length" class="text-emerald-600">
+                    ✓ 变好了 {{ runResults[s.id].diff!.improved_questions.length }} 条：{{ runResults[s.id].diff!.improved_questions.join('、') }}
+                  </p>
+                  <p v-if="!runResults[s.id].diff!.regressed_questions.length && !runResults[s.id].diff!.improved_questions.length" class="text-slate-400">
+                    和上一轮相比没有变化
+                  </p>
+                </div>
+                <p v-else class="mt-2 text-xs text-slate-400">第一次运行，没有上一轮可比较</p>
+              </div>
+            </div>
           </div>
         </section>
       </template>
@@ -98,8 +153,8 @@ import { ArrowLeft } from 'lucide-vue-next'
 import * as ksApi from '../../api/knowledgeSpace'
 import type { KnowledgeSpace, SpaceHealth } from '../../api/knowledgeSpace'
 import { exportRagEvalCases } from '../../api/ragDebug'
-import { evaluateSpaceRag } from '../../api/evaluation'
-import type { RagEvalReport } from '../../api/evaluation'
+import { evaluateSpaceRag, createEvalSet, listEvalSets, runEvalSet } from '../../api/evaluation'
+import type { RagEvalReport, EvalSet, EvalRunResult } from '../../api/evaluation'
 import { getErrorMessage } from '../../utils/request'
 
 const props = defineProps<{ id: string | number }>()
@@ -115,6 +170,11 @@ const evalRunning = ref(false)
 const evalMsg = ref('')
 const evalErr = ref(false)
 const report = ref<RagEvalReport | null>(null)
+const savingSet = ref(false)
+
+const evalSets = ref<EvalSet[]>([])
+const runningSetId = ref<number | null>(null)
+const runResults = ref<Record<number, EvalRunResult>>({})
 
 const levelLabel = computed(() =>
   health.value?.level === 'good' ? '健康' : health.value?.level === 'fair' ? '一般' : '需要关注')
@@ -158,6 +218,51 @@ const runEval = async () => {
   }
 }
 
+const saveAsFixedSet = async () => {
+  const name = prompt('给这份评估集起个名字（比如"客服常见问题-v1"）')
+  if (!name || !name.trim()) return
+  savingSet.value = true
+  evalMsg.value = ''
+  evalErr.value = false
+  try {
+    const { cases } = await exportRagEvalCases({ space_id: spaceId.value })
+    if (!cases.length) {
+      evalMsg.value = '评估集为空，请先在调试台把样例勾进「评估集」'
+      evalErr.value = true
+      return
+    }
+    await createEvalSet({ name: name.trim(), space_id: spaceId.value, cases, top_k: 5 })
+    evalMsg.value = `已保存「${name.trim()}」，共 ${cases.length} 条用例`
+    await loadEvalSets()
+  } catch (e: any) {
+    evalErr.value = true
+    evalMsg.value = getErrorMessage(e, '保存失败')
+  } finally {
+    savingSet.value = false
+  }
+}
+
+const loadEvalSets = async () => {
+  try {
+    evalSets.value = await listEvalSets({ space_id: spaceId.value })
+  } catch {
+    evalSets.value = []
+  }
+}
+
+const runFixedSet = async (s: EvalSet) => {
+  runningSetId.value = s.id
+  try {
+    const result = await runEvalSet(s.id)
+    runResults.value = { ...runResults.value, [s.id]: result }
+  } catch (e: any) {
+    evalErr.value = true
+    evalMsg.value = getErrorMessage(e, '运行失败')
+  } finally {
+    runningSetId.value = null
+  }
+}
+
 const Metric: FunctionalComponent<{ label: string; value?: number; rate?: number | null; total?: number; bad?: boolean }> =
   (p) => {
     const parts: any[] = []
@@ -171,5 +276,8 @@ const Metric: FunctionalComponent<{ label: string; value?: number; rate?: number
     ])
   }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadEvalSets()
+})
 </script>
