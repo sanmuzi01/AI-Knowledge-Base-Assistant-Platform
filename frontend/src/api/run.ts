@@ -4,7 +4,7 @@ export interface AgentRun {
   id: number
   agent_id: number
   user_message: string
-  status: 'running' | 'finished' | 'failed'
+  status: 'running' | 'finished' | 'failed' | 'cancelled'
   total_steps: number
   final_answer?: string
   error_msg?: string

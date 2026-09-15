@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.init_db import Agent, AgentRun, AgentStep
@@ -92,6 +92,22 @@ async def update_run_status_async(
     run.finished_at = utcnow()
     await db.flush()
     return run
+
+
+async def add_run_tokens_async(db: AsyncSession, run_id: int, extra_tokens: int) -> None:
+    """给已经写完的 run 追加 token 用量（不改状态/时间戳）。
+
+    用于记忆总结这类跑在 run「finished」之后的独立事务里的花费——不能等它跑完再
+    finalize 这次 run（会拖慢用户拿到回答的时间，且失败了不该牵连已完成的 run），
+    所以先按主循环用量收尾，总结算完再补一笔。
+    """
+    if not extra_tokens:
+        return
+    await db.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run_id)
+        .values(total_tokens=func.coalesce(AgentRun.total_tokens, 0) + extra_tokens)
+    )
 
 
 async def create_step_async(

@@ -85,6 +85,7 @@ class ToolExecutor:
             tools=self.lc_tools,
             max_iterations=max_iterations,
             step_callback=step_callback,
+            ctx=self.ctx,
         )
         logger.info(f"ReActEngine已创建: max_iter={max_iterations}, tools={len(self.lc_tools)}个")
         return engine

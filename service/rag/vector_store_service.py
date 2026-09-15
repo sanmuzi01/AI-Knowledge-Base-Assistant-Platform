@@ -27,6 +27,9 @@ from utils.path_tool import get_abs_path
 load_dotenv()
 logger = get_logger("vector_store")
 VECTOR_DB_PATH = os.getenv("VECTOR_DB_PATH", "./vector_db")
+CHROMA_SERVER_HOST = os.getenv("CHROMA_SERVER_HOST", "").strip()
+CHROMA_SERVER_PORT = int(os.getenv("CHROMA_SERVER_PORT", "8000") or 8000)
+CHROMA_SERVER_SSL = os.getenv("CHROMA_SERVER_SSL", "0") == "1"
 _client = None
 
 
@@ -49,10 +52,23 @@ def _collection_name(key) -> str:
 def _get_client() -> "chromadb.api.ClientAPI":
     global _client
     if _client is None:
-        abs_path = get_abs_path(VECTOR_DB_PATH)
-        os.makedirs(abs_path, exist_ok=True)
-        _client = chromadb.PersistentClient(path=abs_path)
-        logger.info(f"ChromaDB初始化完成，持久化路径: {abs_path}")
+        if CHROMA_SERVER_HOST:
+            # 多进程部署（API + Worker 是独立进程/容器）必须走 Server 模式：
+            # PersistentClient 是内嵌 sqlite，官方不保证多进程并发读写安全，
+            # 两个进程各开一份很容易在写入时报 "database is locked" 甚至损坏索引。
+            _client = chromadb.HttpClient(
+                host=CHROMA_SERVER_HOST, port=CHROMA_SERVER_PORT, ssl=CHROMA_SERVER_SSL,
+            )
+            logger.info(f"ChromaDB 已连接远程 Server: {CHROMA_SERVER_HOST}:{CHROMA_SERVER_PORT}")
+        else:
+            abs_path = get_abs_path(VECTOR_DB_PATH)
+            os.makedirs(abs_path, exist_ok=True)
+            _client = chromadb.PersistentClient(path=abs_path)
+            logger.warning(
+                f"ChromaDB 使用内嵌 PersistentClient，路径: {abs_path}。"
+                "仅适合单进程本地开发/演示；若 API 和 Worker 分进程部署，"
+                "请设置 CHROMA_SERVER_HOST 改用 Server 模式，否则存在并发写入风险。"
+            )
     return _client
 
 

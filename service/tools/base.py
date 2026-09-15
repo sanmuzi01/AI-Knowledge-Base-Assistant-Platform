@@ -8,7 +8,7 @@ Tool 工具系统基础
 """
 from abc import ABC,abstractmethod
 import os
-from typing import Dict,Any,List
+from typing import Dict,Any,List,Optional
 
 
 class ToolPermissionError(Exception):
@@ -38,6 +38,17 @@ class ToolContext:
         self.system_prompt = system_prompt    # 用户自定义prompt（覆盖工具默认）
         self.permissions = permissions or {"network": False, "file_read": [], "exec": False}
         self.resource_roots = [os.path.abspath(path) for path in (resource_roots or []) if path]
+        self.usage_log: List[Dict[str, int]] = []  # 工具内部调 LLM 的用量，engine 每轮跑完会取走汇总
+
+    def record_usage(self, usage: Optional[Dict[str, int]]) -> None:
+        """需要调 LLM 的工具（requires_context=True）调用 LLM 后，把用量记在这里。"""
+        if usage:
+            self.usage_log.append(usage)
+
+    def drain_usage(self) -> List[Dict[str, int]]:
+        """取走并清空累积的用量记录（ReActEngine 每次工具节点跑完调用一次）。"""
+        log, self.usage_log = self.usage_log, []
+        return log
 
     def can_use_network(self) -> bool:
         return bool(self.permissions.get("network", False))

@@ -1,16 +1,17 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from service.exceptions import InvalidInput
 from pydantic import BaseModel,Field
 from service import auth_async_service
 from service.phone_verification_service import normalize_phone
-from service.phone_verification_async_service import async_send_register_code
+from service.phone_verification_async_service import async_send_register_code, async_send_verification_code
 from models.async_db import get_async_db
 from models.user_async_dao import get_user_by_phone_async
 from service.dependencies import get_current_user_async
 from models.init_db import User
 from service.admin_service import current_user_payload
+from utils.rate_limit import LimitExceeded, require_limit
 from service.user_dashboard_async_service import get_user_dashboard as get_user_dashboard_async
 from service.user_workspace_async_service import (
     apply_workspace_command,
@@ -40,6 +41,20 @@ class SendRegisterCodeRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(min_length=1)
     new_password: str = Field(min_length=6, max_length=72)
+
+
+class ResetPasswordRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+    sms_code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=6, max_length=72)
+
+
+def _limit_error(exc: LimitExceeded) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=exc.message,
+        headers={"Retry-After": str(exc.retry_after)},
+    )
 
 
 class UserProfileRequest(BaseModel):
@@ -72,15 +87,50 @@ class WorkspaceCommandRequest(BaseModel):
 @router.post("/login",summary="用户登录")
 async def login(
         user: LoginUser,
+        request: Request,
         async_db=Depends(get_async_db),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        # 按 IP 限：防止单一来源脚本化撞库；按用户名限：防止分布式撞同一个账号。
+        require_limit(
+            key=f"login:ip:{client_ip}",
+            limit_env="LOGIN_IP_RATE_LIMIT",
+            default_limit=20,
+            window_env="LOGIN_RATE_WINDOW_SECONDS",
+            default_window=300,
+            label="登录",
+        )
+        require_limit(
+            key=f"login:user:{user.name.strip().lower()}",
+            limit_env="LOGIN_USER_RATE_LIMIT",
+            default_limit=8,
+            window_env="LOGIN_RATE_WINDOW_SECONDS",
+            default_window=300,
+            label="登录",
+        )
+    except LimitExceeded as e:
+        raise _limit_error(e)
     return await auth_async_service.login(async_db, user.name, user.password)
 #注册
 @router.post("/register",summary="用户注册")
 async def register(
         user: RegisterUser,
+        request: Request,
         async_db=Depends(get_async_db),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        require_limit(
+            key=f"register:ip:{client_ip}",
+            limit_env="REGISTER_RATE_LIMIT",
+            default_limit=10,
+            window_env="REGISTER_RATE_WINDOW_SECONDS",
+            default_window=3600,
+            label="注册",
+        )
+    except LimitExceeded as e:
+        raise _limit_error(e)
     return await auth_async_service.register(
         async_db,
         user.name,
@@ -103,6 +153,50 @@ async def send_register_sms_code(
         raise InvalidInput("手机号已经注册")
     client_ip = request.client.host if request.client else ""
     return await async_send_register_code(phone, client_ip)
+
+
+@router.post("/reset-password/sms-code", summary="发送找回密码手机验证码")
+async def send_reset_password_sms_code(
+        data: SendRegisterCodeRequest,
+        request: Request,
+        async_db=Depends(get_async_db),
+):
+    phone = normalize_phone(data.phone)
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        require_limit(
+            key=f"sms:reset-probe:ip:{client_ip}",
+            limit_env="SMS_CODE_IP_LIMIT",
+            default_limit=20,
+            window_env="SMS_CODE_IP_WINDOW_SECONDS",
+            default_window=3600,
+            label="验证码发送",
+        )
+    except LimitExceeded as e:
+        raise _limit_error(e)
+    # 无论手机号是否已注册都返回同样的成功响应，避免把"是否存在该账号"暴露给调用方；
+    # 未注册手机号不会真的发送验证码，只是走同一套返回结构。
+    existing = await get_user_by_phone_async(async_db, phone)
+    if not existing:
+        return {
+            "message": "验证码已发送",
+            "phone": phone,
+            "expires_in": 300,
+            "retry_after": 60,
+            "provider": "console",
+            "dev_code": None,
+        }
+    return await async_send_verification_code(phone, client_ip, scene="reset")
+
+
+@router.post("/reset-password", summary="通过手机验证码重置密码")
+async def reset_password(
+        data: ResetPasswordRequest,
+        async_db=Depends(get_async_db),
+):
+    return await auth_async_service.reset_password_with_phone(
+        async_db, data.phone, data.sms_code, data.new_password,
+    )
 @router.get("/me", summary="查询当前登录用户信息")
 async def get_me(current_user: User = Depends(get_current_user_async)):
     return current_user_payload(current_user)

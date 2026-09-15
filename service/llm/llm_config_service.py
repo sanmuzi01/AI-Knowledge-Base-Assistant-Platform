@@ -233,6 +233,7 @@ async def async_get_first_embedding_config(db, user_id: int):
     priority = [
         "embedding-3", "embedding-2",
         "text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002",
+        "BAAI/bge-small-zh-v1.5", "BAAI/bge-base-zh-v1.5", "BAAI/bge-large-zh-v1.5",
     ]
     configs = await list_configs_by_user_async(db, user_id)
     active = {c.model_name: c for c in configs if c.is_active}
@@ -267,6 +268,9 @@ def get_first_embedding_config(db, user_id: int):
             "text-embedding-3-small",
             "text-embedding-3-large",
             "text-embedding-ada-002",
+            "BAAI/bge-small-zh-v1.5",
+            "BAAI/bge-base-zh-v1.5",
+            "BAAI/bge-large-zh-v1.5",
         ]
         configs = list_configs_by_user(db, user_id)
         active = {c.model_name: c for c in configs if c.is_active}

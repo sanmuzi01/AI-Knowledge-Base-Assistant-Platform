@@ -9,7 +9,9 @@ from starlette.concurrency import run_in_threadpool
 from service.phone_verification_service import (
     normalize_phone,
     send_register_code,
+    send_verification_code,
     verify_register_code,
+    verify_verification_code,
 )
 
 
@@ -20,3 +22,12 @@ async def async_send_register_code(phone: str, client_ip: str = ""):
 
 async def async_verify_register_code(phone: str, code: str, consume: bool = True) -> str:
     return await run_in_threadpool(verify_register_code, phone, code, consume)
+
+
+async def async_send_verification_code(phone: str, client_ip: str = "", scene: str = "register"):
+    normalized_phone = normalize_phone(phone)
+    return await run_in_threadpool(send_verification_code, normalized_phone, client_ip, scene)
+
+
+async def async_verify_verification_code(phone: str, code: str, scene: str = "register", consume: bool = True) -> str:
+    return await run_in_threadpool(verify_verification_code, phone, code, scene, consume)

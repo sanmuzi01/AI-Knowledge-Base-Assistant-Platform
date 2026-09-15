@@ -98,10 +98,16 @@ async def should_summarize_async(db, user_id: int, agent_id: int) -> bool:
 
 async def summarize_and_save_async(
         db, user_id: int, agent_id: int, llm_model_name: str = "glm-4",
+        usage_sink: Optional[list] = None,
 ) -> Optional[str]:
     """总结旧对话 → 覆盖旧摘要存 DB。对齐同步 memory_service.summarize_and_save，
-    但 LLM 调用走 `async_chat`，不在函数内 commit（由调用方统一提交事务）。"""
-    from service.llm.llm_service import async_chat as llm_async_chat
+    但 LLM 调用走 `async_chat`，不在函数内 commit（由调用方统一提交事务）。
+
+    usage_sink: 传一个列表进来，本次总结调用 LLM 的 token 用量会 append 进去
+    （拿不到就不 append）。调用方用它把记忆总结的花费也算进这次 Agent 运行的总用量，
+    不传就是原来的行为（不统计）。
+    """
+    from service.llm.llm_service import async_chat_with_usage as llm_async_chat_with_usage
 
     runs = await run_dao.list_finished_runs_by_agent_async(db, user_id, agent_id, limit=1000)
     if len(runs) <= SHORT_TERM_ROUNDS:
@@ -116,7 +122,7 @@ async def summarize_and_save_async(
     summarize_prompt = _build_summary_prompt(old_summary=old_summary_text, new_chats_text=chat_text)
 
     try:
-        new_summary = await llm_async_chat(
+        new_summary, usage = await llm_async_chat_with_usage(
             db=db, user_id=user_id, model_name=llm_model_name,
             system_prompt=(
                 "你是一个专业的对话记忆总结助手。"
@@ -126,6 +132,8 @@ async def summarize_and_save_async(
             ),
             history=[], user_message=summarize_prompt, temperature=0.1,
         )
+        if usage_sink is not None and usage:
+            usage_sink.append(usage)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"记忆总结失败: {e}，将在下次对话时重试")
         return None

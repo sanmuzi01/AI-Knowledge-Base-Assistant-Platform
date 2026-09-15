@@ -86,6 +86,9 @@ def make_memory(action: str, message: str) -> str:
 def make_answer(content: str) -> str:
     return format_event(EVENT_ANSWER, {"content": content})
 
+def make_answer_delta(content: str) -> str:
+    return format_event("answer_delta", {"content": content})
+
 def make_done(run_id: Optional[int], steps: int, answer_length: int,
               conversation_id: Optional[int] = None, tokens: Optional[int] = None) -> str:
     payload: Dict[str, Any] = {

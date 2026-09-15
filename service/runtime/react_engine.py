@@ -21,16 +21,20 @@ ReAct 推理引擎 - 基于 LangGraph StateGraph
   ChatOpenAI (LLM) + LangChain Tools (适配后的自定义工具)
 """
 import operator
+import threading
 from typing import Dict, Any, List, Optional, Annotated
 from typing_extensions import TypedDict#创建有固定字段的字典。
 from langchain_core.messages import (
-    BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+    BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage,
+    message_chunk_to_message,
 )#所有消息的父类，用户消息，模型回复，系统提示词，工具执行后的返回。
 from langgraph.graph import StateGraph, END, START #创建 Agent 工作流图。入口和出口
 from langgraph.graph.message import add_messages#状态合并函数
 from langgraph.prebuilt import ToolNode#提供的工具执行节点
+from langgraph.config import get_stream_writer
 from utils.logger_handler import get_logger
-from service.runtime.sse_events import make_thinking, make_tool_call, make_tool_result, make_answer
+from service.runtime.sse_events import make_thinking, make_tool_call, make_tool_result, make_answer, make_answer_delta
+from service.llm.usage import extract_usage
 
 logger = get_logger("react_engine")
 #state定义
@@ -46,18 +50,26 @@ class ReActEngine:
                  llm,tools,
                  max_iterations: int = 5,  # 最大迭代次数（防止死循环）
                  step_callback=None,  # 每步回调（供 agent_runtime 实时写轨迹）
+                 ctx=None,  # ToolContext：工具内部调 LLM 的用量从这里回收进 self._usage
                  ):
         """:param llm: ChatOpenAI 实例
             :param tools: LangChain 工具列表
             :param max_iterations: 最大工具调用次数
             :param step_callback: 回调函数 fn(step_info: dict) → None
-            每个节点执行后调用，用于实时记录轨迹"""
+            每个节点执行后调用，用于实时记录轨迹
+            :param ctx: 工具执行上下文（ToolContext），工具用它调 LLM 时会把用量记在
+            ctx.usage_log 里；每次工具节点跑完就取走汇总，避免这次运行的总用量漏计"""
         self.llm = llm
         self.tools = tools
         self.max_iterations = max_iterations
         self.step_callback = step_callback
+        self._ctx = ctx
         self._iteration_count = 0
         self._force_finalize = False
+        self._streaming = False
+        self.cancel_event = threading.Event()
+        self._usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        self._usage_calls = 0
         #工具绑定llm
         if tools:
             self.llm_with_tools = llm.bind_tools(tools)
@@ -71,8 +83,8 @@ class ReActEngine:
         #添加节点
         workflow.add_node("agent",self._agent_node)
         if self.tools:
-            tool_node = ToolNode(self.tools)
-            workflow.add_node("tools",tool_node)
+            self.tool_node = ToolNode(self.tools)
+            workflow.add_node("tools", self._run_tools)
         #设置入口,把工作流的入口 START 连接到名为 "agent" 的节点，Agent 运行时从这里开始执行。
         workflow.add_edge(START,"agent")
         #添加条件边：agent → tools or END
@@ -90,12 +102,73 @@ class ReActEngine:
 
         # 5. 编译
         return workflow.compile()
+
+    def _check_cancelled(self):
+        if self.cancel_event.is_set():
+            raise RuntimeError("Agent run cancelled")
+
+    def _run_tools(self, state):
+        self._check_cancelled()
+        result = self.tool_node.invoke(state)
+        # requires_context=True 的工具（比如 outline_generator）会自己调一次 LLM；
+        # 这次运行的总用量必须把它算进去，不然「Token 用量」display 永远只统计主循环。
+        if self._ctx is not None and hasattr(self._ctx, "drain_usage"):
+            for usage in self._ctx.drain_usage():
+                self._merge_usage(usage)
+        return result
+
+    def _merge_usage(self, usage):
+        if not usage:
+            return
+        self._usage["input_tokens"] += int(usage.get("input_tokens", 0) or 0)
+        self._usage["output_tokens"] += int(usage.get("output_tokens", 0) or 0)
+        self._usage["total_tokens"] += int(usage.get("total_tokens", 0) or 0)
+        self._usage_calls += 1
+
+    def _record_usage(self, response):
+        self._merge_usage(extract_usage(response))
+
+    def _reset_run(self, streaming=False):
+        self._iteration_count = 0
+        self._force_finalize = False
+        self._streaming = streaming
+        self._usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        self._usage_calls = 0
+        if self._ctx is not None and hasattr(self._ctx, "drain_usage"):
+            self._ctx.drain_usage()  # 清掉上一次运行可能残留的用量记录
+
+    def _finalize_messages(self, messages):
+        # The last requested tools were not executed; do not send dangling tool_calls.
+        if messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
+            return messages[:-1]
+        return messages
+
     def _agent_node(self,state:AgentState)->Dict[str,Any]:
         #"Agent 思考节点：调 LLM 决定下一步（调工具 or 生成回答)
         messages = state["messages"]
         logger.info(f"[ReAct] Agent思考中... (消息数={len(messages)})")
         # 调 LLM（已绑定工具，LLM会决定是否调工具）
-        response = self.llm_with_tools.invoke(messages)
+        self._check_cancelled()
+        if self._streaming and callable(getattr(self.llm_with_tools, "stream", None)):
+            writer = get_stream_writer()
+            response = None
+            stream = self.llm_with_tools.stream(messages)
+            try:
+                for part in stream:
+                    self._check_cancelled()
+                    response = part if response is None else response + part
+                    if isinstance(part.content, str) and part.content:
+                        writer(make_answer_delta(part.content))
+            finally:
+                if hasattr(stream, "close"):
+                    stream.close()
+            if response is None:
+                raise ValueError("Model returned an empty stream")
+            response = message_chunk_to_message(response)
+        else:
+            response = self.llm_with_tools.invoke(messages)
+        self._check_cancelled()
+        self._record_usage(response)
         # ===== 新增:详细日志,看LLM返回了什么 =====
         tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
         content_preview = (response.content or "")[:100] if response.content else "(空)"
@@ -121,12 +194,12 @@ class ReActEngine:
         last_message = state["messages"][-1]
         # 查询次数，防止死循环
         if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            self._iteration_count += 1  # ← 只在真正要调工具时才+1
             if self._iteration_count >= self.max_iterations:
                 logger.warning(f"[ReAct] 达到最大迭代次数 {self.max_iterations}，强制生成最终回答")
                 # 不直接结束，而是注入一条提示让 LLM 基于已有信息收尾
                 self._force_finalize = True
                 return "end"
+            self._iteration_count += 1
             logger.info(
                 f"[ReAct] 决定调用工具: "
                 f"{[tc['name'] for tc in last_message.tool_calls]}"
@@ -147,8 +220,7 @@ class ReActEngine:
             "steps": 轨迹列表,
             "total_iterations": 实际迭代次数}"""
         #1，组装初始消息
-        self._iteration_count = 0
-        self._force_finalize = False
+        self._reset_run()
         messages = []
         if system_prompt:
             messages.append(SystemMessage(content=system_prompt))
@@ -168,12 +240,12 @@ class ReActEngine:
         }
         #3,执行图
         logger.info(f"[ReAct] 开始执行，system_prompt长度={len(system_prompt) if system_prompt else 0}")
-        final_state = self.graph.invoke(initial_state)
+        final_state = self.graph.invoke(initial_state, {"recursion_limit": max(25, self.max_iterations * 2 + 5)})
 
         # 3.5 如果因达到最大迭代强制结束，再调一次 LLM（不绑工具）让它收尾
         if self._force_finalize:
             logger.info("[ReAct] 触发收尾调用：让 LLM 基于已有工具结果生成最终回答")
-            finalize_messages = final_state["messages"] + [
+            finalize_messages = self._finalize_messages(final_state["messages"]) + [
                 HumanMessage(content=(
                     "已达到工具调用上限。请根据已有的工具执行结果，"
                     "直接给用户一个完整、自然的最终回答。"
@@ -181,9 +253,12 @@ class ReActEngine:
                 ))
             ]
             try:
+                self._check_cancelled()
                 final_response = self.llm.invoke(finalize_messages)
+                self._record_usage(final_response)
                 final_state["messages"].append(final_response)
             except Exception as e:
+                self._check_cancelled()
                 logger.warning(f"[ReAct] 收尾调用失败: {e}")
 
         if self.step_callback:
@@ -212,6 +287,7 @@ class ReActEngine:
             "answer": final_answer,
             "steps": final_state.get("steps", []),
             "total_iterations": self._iteration_count,
+            "usage": dict(self._usage) if self._usage_calls else None,
             "all_messages": final_messages,  # 完整消息历史（调试用）
         }
     def invoke_stream(self,system_prompt:str,
@@ -225,8 +301,7 @@ class ReActEngine:
                     print(event)   # 每条是 format_event 格式的 SSE 字符串
                 """
         # 1. 组装初始消息（和 invoke 完全一致）
-        self._iteration_count = 0
-        self._force_finalize = False
+        self._reset_run(streaming=True)
         messages= []
         if system_prompt:
             messages.append(SystemMessage(content=system_prompt))
@@ -247,7 +322,15 @@ class ReActEngine:
         #    LangGraph stream() 的每一项形如：
         #      {"agent": {"messages": [...], "steps": [...]}}
         #      {"tools": {"messages": [ToolMessage, ...]}}
-        for chunk in self.graph.stream(initial_state):
+        for mode, chunk in self.graph.stream(
+            initial_state,
+            {"recursion_limit": max(25, self.max_iterations * 2 + 5)},
+            stream_mode=["custom", "updates"],
+        ):
+            self._check_cancelled()
+            if mode == "custom":
+                yield chunk
+                continue
             for node_name, node_output in chunk.items():
                 # ---- 节点: agent（LLM 思考完成） ----
                 if node_name =="agent":
@@ -260,19 +343,12 @@ class ReActEngine:
                         # 有工具调用 → 同时发 thinking + 每个 tool_call 事件
                         if tool_calls:
                             yield make_thinking(content, tool_calls=tool_calls)
-                            for tc in tool_calls:
+                            for tc in ([] if self._force_finalize else tool_calls):
                                 step_no += 1
                                 yield make_tool_call(
                                     name=tc.get("name", ""),
                                     args=tc.get("args", {}),
                                     step_no=step_no,
-                                )
-                            # 迭代计数：移到这里（对应 _should_continue 的计数逻辑）
-                            self._iteration_count += 1
-                            if self._iteration_count >= self.max_iterations:
-                                self._force_finalize = True
-                                logger.warning(
-                                    f"[ReAct][stream] 达到最大迭代次数 {self.max_iterations}，将在下一步强制收尾"
                                 )
                         else:
                             # 无工具调用：这就是最终回答
@@ -286,8 +362,7 @@ class ReActEngine:
                             "content": content,
                             "tool_calls": tool_calls or None,
                         }
-                        if self.step_callback:
-                            self.step_callback(step_info)
+                        # _agent_node already records this thought once.
 
                         # 累积最终 messages（供收尾用）
                     if "messages" in node_output:
@@ -317,7 +392,7 @@ class ReActEngine:
         # 3. 达到最大迭代强制结束 → 再调一次 LLM（不绑工具）生成最终回答
         if self._force_finalize and not final_answer:
             logger.info("[ReAct][stream] 触发收尾调用：让 LLM 基于已有工具结果生成最终回答")
-            finalize_messages = final_messages + [
+            finalize_messages = self._finalize_messages(final_messages) + [
                 HumanMessage(
                     content=(
                         "已达到工具调用上限。请根据已有的工具执行结果，"
@@ -327,12 +402,15 @@ class ReActEngine:
                 )
             ]
             try:
+                self._check_cancelled()
                 final_response = self.llm.invoke(finalize_messages)
+                self._record_usage(final_response)
                 final_answer = getattr(final_response, "content", "") or ""
                 final_messages.append(final_response)
                 yield make_thinking(final_answer)
                 yield make_answer(final_answer)
             except Exception as e:
+                self._check_cancelled()
                 logger.warning(f"[ReAct][stream] 收尾调用失败: {e}")
 
         logger.info(
@@ -345,6 +423,7 @@ class ReActEngine:
             "answer": final_answer,
             "steps": [],  # 轨迹由 step_callback 已写入 DB，这里不再重复攒
             "total_iterations": self._iteration_count,
+            "usage": dict(self._usage) if self._usage_calls else None,
             "all_messages": final_messages,
         }
         return result

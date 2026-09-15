@@ -16,6 +16,7 @@ RAG编排服务：把文档解析→切分→嵌入→向量存储→DB存储 �
 这些业务逻辑封装在这里，路由层只调 upload_and_index() / search()。
 """
 import os
+import re
 import uuid
 from typing import List,Dict,Any
 from dotenv import load_dotenv
@@ -83,19 +84,72 @@ def _get_rerank_client():
         return None
 # ========== 文档解析（不同文件类型用不同库） ==========
 def _parse_pdf(file_path:str)->str:
-    """解析PDF成纯文本"""
+    """解析PDF成纯文本。每页前插一个 [第N页] 标记——纯文本层面最简单的定位手段：
+    某个 chunk 切到哪页，标记会随着切块一起留在 chunk 内容里，引用展示时用户
+    一眼就知道这段话来自原 PDF 第几页，不用额外的页码字段/schema 改动。"""
     from pypdf import PdfReader
     reader = PdfReader(file_path)
-    text=""
-    for page in reader.pages:#当前 PDF 文件里面所有页面的列表。
-        text += (page.extract_text() or "") + "\n\n"# extract_text() 返回每页文字，末尾加换行分隔页
-    return text
+    parts = []
+    for page_no, page in enumerate(reader.pages, start=1):#当前 PDF 文件里面所有页面的列表，页码从1开始（人类习惯）
+        page_text = (page.extract_text() or "").strip()
+        if not page_text:
+            continue  # 扫描件/纯图片页提取不出文字，跳过，不留一个空页码占位
+        parts.append(f"[第{page_no}页]\n{page_text}")
+    return "\n\n".join(parts)
+
+
+def _iter_docx_block_items(doc):
+    """按文档里出现的先后顺序，依次产出段落(Paragraph)和表格(Table)。
+
+    python-docx 没有直接提供"正文顺序遍历"的 API——doc.paragraphs 和 doc.tables
+    是分开的两个列表，天然就丢了表格在文中的相对位置。这是 python-docx 官方文档
+    推荐的标准写法：直接读 body 的 XML 子节点，按类型分发。
+    """
+    from docx.document import Document as _Document
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    parent_elm = doc.element.body if isinstance(doc, _Document) else doc._element
+    for child in parent_elm.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, doc)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, doc)
+
+
+def _table_to_text(table) -> str:
+    """表格转成分隔符文本：每行一条，单元格用 | 分开，整体裹一个【表格】标记。
+
+    之前 _parse_docx 只读 doc.paragraphs，表格内容完全没进入过切块/向量化——
+    产品说明书里常见的参数表、价目表全部丢失。转纯文本虽然丢掉了表格的视觉结构，
+    但内容不再丢失，向量检索也能命中表格里的关键词。
+    """
+    rows = []
+    for row in table.rows:
+        cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+        if any(cells):
+            rows.append(" | ".join(cells))
+    if not rows:
+        return ""
+    return "【表格】\n" + "\n".join(rows)
+
+
 def _parse_docx(file_path:str)->str:
-    """解析 Word(.docx) 成纯文本"""
+    """解析 Word(.docx) 成纯文本，段落和表格按文中原有顺序输出。"""
     import docx
     doc = docx.Document(file_path)
-    # paragraph 是每一段，跳过空段
-    return "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+    parts = []
+    for block in _iter_docx_block_items(doc):
+        if hasattr(block, "rows"):  # Table
+            table_text = _table_to_text(block)
+            if table_text:
+                parts.append(table_text)
+        else:  # Paragraph
+            if block.text.strip():
+                parts.append(block.text)
+    return "\n".join(parts)
 def _parse_txt(file_path:str)->str:
     """解析纯文本 / Markdown"""
     for encoding in ("utf-8", "utf-8-sig", "gb18030"):
@@ -122,25 +176,70 @@ def parse_document(file_path:str,file_type:str)->str:#文件在哪里 和 文件
         raise ValueError(f"不支持的文件类型: {file_type}，支持: {list(parsers.keys())}")
     return parser(file_path)
 # ========== 文本切分 ==========
+def _split_fixed_window(text: str, chunk_size: int, overlap: int) -> List[str]:
+    """定长滑窗切分（旧算法）。只在单个自然段/表格本身就超过 chunk_size 时兜底用，
+    保证再长的一块内容也能落地，不会因为切不动而卡死。"""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk.strip())
+        start = end - overlap
+    return chunks
+
+
 def split_text(
         text:str,chunk_size:int = CHUNK_SIZE,
         overlap:int = CHUNK_OVERLAP
 )->List[str]:
-    #    按固定字符长度切分 + 重叠
+    """按段落切分：优先在空行处断开，尽量不把一句话/一段表格从中间切断，
+    只有单个自然段本身就超过 chunk_size 才退回定长滑窗切。
+    之前是不管内容结构、纯按字符数切，经常把一句话切成两半分到不同 chunk 里，
+    检索命中其中一半时上下文残缺，也更容易在编号、型号这类需要完整读到的地方出问题。
+    """
     if not text or not text.strip():
         return []
-    chunks = []
-    start = 0
-    while start<len(text):
-        end = start+chunk_size
-        chunk = text[start:end]
-    # strip() 去掉块首尾的空白字符（很多文档有大量无用空行/空格）
-        chunks.append(chunk.strip())
-    # strip() 去掉块首尾的空白字符（很多文档有大量无用空行/空格）
-        start = end-overlap
-    # 过滤掉太短的块小于十个字符的多半是切分后的残留空白）
-    chunks = [c for c in chunks if len(c)>10]
-    logger.info(f"文本切分完成：{len(chunks)} 块，每块约 {chunk_size} 字")
+
+    # 空行是最自然的段落边界；PDF 页标记 [第N页]、表格标记【表格】也都是独立成段的，
+    # 天然不会被硬切断。
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+    if not blocks:
+        blocks = [text.strip()]
+
+    chunks: List[str] = []
+    current = ""
+    for block in blocks:
+        candidate = f"{current}\n\n{block}" if current else block
+        if len(candidate) <= chunk_size:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        if len(block) <= chunk_size:
+            current = block
+        else:
+            # 罕见情况：单个自然段/表格本身就超过 chunk_size，退回定长滑窗切
+            sub_chunks = _split_fixed_window(block, chunk_size, overlap)
+            if sub_chunks:
+                chunks.extend(sub_chunks[:-1])
+                current = sub_chunks[-1]
+            else:
+                current = ""
+    if current:
+        chunks.append(current)
+
+    # 相邻块之间带一点上一块的尾巴，缓解"关键信息刚好卡在切分点"的问题
+    if overlap > 0 and len(chunks) > 1:
+        with_overlap = [chunks[0]]
+        for i in range(1, len(chunks)):
+            prev_tail = chunks[i - 1][-overlap:]
+            with_overlap.append(f"{prev_tail}\n{chunks[i]}")
+        chunks = with_overlap
+
+    # 过滤掉太短的块（小于十个字符的多半是切分后的残留空白）
+    chunks = [c.strip() for c in chunks if len(c.strip()) > 10]
+    logger.info(f"文本切分完成（按段落）：{len(chunks)} 块，目标每块约 {chunk_size} 字")
     return chunks
 # ========== 上传入库完整流程（核心） ==========
 def _vector_key(knowledge):
@@ -245,7 +344,14 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
 
 
 def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dict[str, Any]:
-    """重新解析已有文件并重建 chunks + 向量。"""
+    """重新解析已有文件并重建 chunks + 向量。
+
+    顺序是关键：先把新内容全部生成好（解析 → 切块 → 向量化——这三步最容易失败：
+    文件内容读不出来、切完没有有效文字、embedding API 报错/超限），确认新内容齐了
+    再删旧数据、写新数据。这样"生成新内容"阶段任何一步失败，旧的 chunks/向量完全
+    不受影响，文档仍能正常检索；不会像之前那样一上来就把旧数据删光，一旦后面任何
+    一步失败，文档就变成没有任何内容、无法检索的空文档。
+    """
     knowledge = get_knowledge_by_id(db, knowledge_id)
     if not knowledge or knowledge.user_id != user_id or (agent_id is not None and knowledge.agent_id != agent_id):
         raise ValueError("文档不存在或无权限")
@@ -254,14 +360,10 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
         raise ValueError("原始文件已丢失，请重新上传这份资料。")
 
     try:
-        update_knowledge_status(db, knowledge, "processing", chunk_count=0)
+        update_knowledge_status(db, knowledge, "processing")
         db.flush()
-        try:
-            delete_vectors_by_knowledge(_vector_key(knowledge), knowledge_id)
-        except Exception as e:
-            logger.warning(f"重建索引时删除旧向量失败，继续重建: {e}")
-        delete_chunks_by_knowledge(db, knowledge_id)
 
+        # ---- 先把新内容全部生成好，旧数据这时候还原封不动 ----
         text = parse_document(knowledge.file_path, knowledge.file_type)
         if not text.strip():
             raise ValueError("没读到文字内容。若是扫描件 / 图片版 PDF，请先用 OCR 转成可复制的文字再上传。")
@@ -269,8 +371,15 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
         chunks_text = split_text(text, chunk_size=_cs, overlap=_ov)
         if not chunks_text:
             raise ValueError("文档里几乎没有有效文字（可能太短，或全是空白 / 表格图片）。")
-
         vectors = embed_texts(db, user_id, chunks_text)
+
+        # ---- 新内容都拿到手了，才开始删旧、写新 ----
+        try:
+            delete_vectors_by_knowledge(_vector_key(knowledge), knowledge_id)
+        except Exception as e:
+            logger.warning(f"重建索引时删除旧向量失败，继续重建: {e}")
+        delete_chunks_by_knowledge(db, knowledge_id)
+
         vector_ids = [f"k{knowledge.id}_c{i}" for i in range(len(chunks_text))]
         metadatas = [
             {"knowledge_id": knowledge.id, "chunk_index": i}

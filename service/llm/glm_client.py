@@ -3,6 +3,7 @@ import requests
 import json
 from typing import Dict,List,Generator
 from service.llm.base import BaseLLM
+from service.llm.usage import from_openai_usage
 from service.http_resilience import async_request_with_retry, request_with_retry, stream_request_with_circuit
 from utils.logger_handler import get_logger
 logger = get_logger("glm_client")
@@ -35,6 +36,7 @@ class GLMClient(BaseLLM):
             )
             response.raise_for_status()
             result = response.json()
+            self.last_usage = from_openai_usage(result.get("usage"))
             return result["choices"][0]["message"]["content"]
         except httpx.HTTPError as e:
             raise Exception(f"大模型请求失败: {e}")
@@ -63,6 +65,7 @@ class GLMClient(BaseLLM):
             response.raise_for_status()
         # 解析响应
             result = response.json()
+            self.last_usage = from_openai_usage(result.get("usage"))
             content = result["choices"][0]["message"]["content"]
             logger.info(f"[GLM] 响应成功: {len(content)}字")
             return content

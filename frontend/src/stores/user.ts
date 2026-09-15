@@ -75,6 +75,18 @@ export const useUserStore = defineStore('user', {
       })
       return data
     },
+    async sendResetPasswordSmsCode(phone: string) {
+      const { data } = await request.post('/user/reset-password/sms-code', { phone })
+      return data
+    },
+    async resetPassword(phone: string, smsCode: string, newPassword: string) {
+      const { data } = await request.post('/user/reset-password', {
+        phone,
+        sms_code: smsCode,
+        new_password: newPassword,
+      })
+      return data
+    },
     logout() {
       this.token = ''
       this.user = null

@@ -105,37 +105,45 @@ async def chat_with_agent_stream_async(db, user, agent_id: int, user_message: st
         history = history[:-1]
 
     final_answer = ""
+    run_tokens = None
+    runtime_stream = agent_runtime.run_stream_with_history_async(
+        db=db, user_id=user.id, agent_id=agent_id,
+        user_message=user_message, history=history, conversation_id=conversation_id,
+    )
     try:
-        async for event in agent_runtime.run_stream_with_history_async(
-            db=db, user_id=user.id, agent_id=agent_id,
-            user_message=user_message, history=history, conversation_id=conversation_id,
-        ):
+        async for event in runtime_stream:
             yield event
-            if isinstance(event, str) and event.startswith("event: answer"):
+            if isinstance(event, str) and event.startswith(("event: answer\n", "event: done\n")):
                 try:
                     import json
                     data_line = event.split("\n", 1)[1]
                     data_str = data_line[data_line.index(":") + 1:].strip()
-                    final_answer = json.loads(data_str).get("content", "") or ""
+                    payload = json.loads(data_str)
+                    if event.startswith("event: answer\n"):
+                        final_answer = payload.get("content", "") or ""
+                    else:
+                        run_tokens = payload.get("tokens")
                 except Exception as parse_err:  # noqa: BLE001
                     logger.debug(f"解析 answer 事件失败，走兜底: {parse_err}")
     except ValueError as e:
         yield make_error(str(e))
+        return
     except Exception as e:  # noqa: BLE001
         logger.error(f"流式对话异常: {e}")
         yield make_error(message="服务暂时异常，请稍后重试", detail=str(e)[:300])
         return
+    finally:
+        await runtime_stream.aclose()
 
     if final_answer:
         await conv_async.save_message_async(db, conversation_id, "assistant", final_answer)
         await db.flush()
     await db.commit()
 
-    ans_tokens = max(1, len(final_answer) // 2) if final_answer else 0
     yield make_done(
         run_id=None,
         steps=0,
         answer_length=len(final_answer) if final_answer else 0,
         conversation_id=conversation_id,
-        tokens=ans_tokens,
+        tokens=run_tokens,
     )

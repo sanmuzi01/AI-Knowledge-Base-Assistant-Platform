@@ -217,15 +217,20 @@
                   ? 'bg-blue-600 text-white rounded-br-md'
                   : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
               ]"
-              v-html="msg.role === 'assistant' ? renderAnswer(msg.content) : msg.content"
               @click="msg.role === 'assistant' && onAnswerClick($event, msg)"
-            ></div>
+            >
+              <template v-if="msg.role === 'user'">{{ msg.content }}</template>
+              <div v-else v-html="renderAnswer(msg.content)"></div>
+            </div>
             <CitationList
               v-if="msg.role === 'assistant'"
               :citations="msg.citations"
               :open-index="msg.citeOpen ?? null"
             />
             <RagSavingsBar v-if="msg.role === 'assistant' && msg.ragStats" :stats="msg.ragStats" compact class="mt-1.5 max-w-md" />
+            <div v-if="msg.role === 'assistant' && msg.tokens != null" class="mt-1 text-xs text-gray-500">
+              本轮实际用量：{{ msg.tokens }} Token（含工具调用与记忆总结，非估算）
+            </div>
           </div>
         </div>
 
@@ -399,7 +404,7 @@
                   <span :class="statusDot(r.status).dot" class="inline-block w-1.5 h-1.5 rounded-full"></span>
                   <span class="text-[11px] text-gray-400">#{{ r.id }}</span>
                   <span :class="statusDot(r.status).text" class="text-[10px] ml-auto font-medium">
-                    {{ r.status === 'finished' ? '成功' : r.status === 'failed' ? '失败' : '运行中' }}
+                    {{ r.status === 'finished' ? '成功' : r.status === 'failed' ? '失败' : r.status === 'cancelled' ? '已停止' : '运行中' }}
                   </span>
                 </div>
                 <p class="text-xs text-gray-700 line-clamp-2 leading-snug">{{ r.user_message }}</p>
@@ -499,7 +504,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
 import { useRoute ,useRouter } from 'vue-router'
-import { marked } from 'marked'
+import { renderMarkdown } from '../utils/markdown'
 import * as agentApi from '../api/agent'
 import * as convApi from '../api/conversation'
 import * as chatApi from '../api/chat'
@@ -644,10 +649,7 @@ const filteredConversations = computed(() => {
 
 // 把回答正文里的 【来源N】 变成可点标记，点了就展开对应的来源片段
 const renderAnswer = (text: string) =>
-  (marked.parse(text || '') as string).replace(
-    /【来源(\d+)】/g,
-    '<span class="cite-ref" data-cite="$1">【来源$1】</span>',
-  )
+  renderMarkdown(text, true)
 
 function onAnswerClick(e: MouseEvent, msg: any) {
   const el = (e.target as HTMLElement)?.closest?.('.cite-ref') as HTMLElement | null
@@ -879,15 +881,19 @@ const sendMessage = async () => {
         } else if (evt.type === 'citations') {
           messages.value[placeholderIdx].citations = (evt.citations || []) as Citation[]
         } else if (evt.type === 'thinking') {
+          if (evt.tool_calls?.length) messages.value[placeholderIdx].content = ''
           eventTraces.value.push({ type: 'thinking', content: evt.content || '' })
         } else if (evt.type === 'tool_call') {
           eventTraces.value.push({ type: 'tool_call', name: evt.name, args: evt.args || {} })
         } else if (evt.type === 'tool_result') {
           eventTraces.value.push({ type: 'tool_result', name: evt.name, result: evt.result || '' })
+        } else if (evt.type === 'answer_delta') {
+          messages.value[placeholderIdx].content += evt.content || ''
         } else if (evt.type === 'answer') {
           // answer 事件：完整内容替换（因为是 answer 而不是 token 流）
           messages.value[placeholderIdx].content = evt.content || ''
                } else if (evt.type === 'done') {
+          if (evt.tokens != null) messages.value[placeholderIdx].tokens = evt.tokens
           // 完成：刷新会话列表 + 按当前会话刷新运行轨迹
           if (evt.conversation_id) {
             currentConversationId.value = evt.conversation_id

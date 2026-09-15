@@ -7,6 +7,7 @@ export type SseEventType =
   | 'tool_call'  // { name, args, step_no }
   | 'tool_result'// { name, result, step_no }
   | 'answer'     // { content }  最终回答（完整字符串，不是增量 token）
+  | 'answer_delta'
   | 'done'       // { run_id, steps, answer_length, conversation_id? }
   | 'error'      // { message, detail? }
 
@@ -45,6 +46,7 @@ export interface SseEvent {
   result?: string
   steps?: number
   answer_length?: number
+  tokens?: number
   conversation_id?: number
   message?: string
   detail?: string

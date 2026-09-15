@@ -6,6 +6,14 @@ from cryptography.fernet import Fernet
 
 PLACEHOLDER_MARKERS = ("change-me", "your-", "example.com", "placeholder")
 WEAK_ADMIN_PASSWORDS = {"139218", "admin", "admin123", "password", "123456", "12345678", ""}
+# docker-compose.yml 里为了让 `docker compose up` 零配置跑通演示，给
+# JWT_SECRET_KEY / LLM_ENCRYPTION_KEY 写了公开的默认值——任何拿到这份代码的人
+# 都知道这两个值，绝不能被当成真实密钥使用。它们是合法格式（尤其后者是可用的
+# Fernet key），普通的“看起来像占位符”检测认不出来，所以单独按精确值拦截。
+KNOWN_DEMO_SECRETS = {
+    "dev-only-not-a-secret-change-me",
+    "LG5sThiGcVsg9jRbbN_fezONjfKdo3E72yQPYIUwZHQ=",
+}
 
 
 def is_production() -> bool:
@@ -19,7 +27,10 @@ def _is_blank(value: str) -> bool:
 
 
 def _looks_placeholder(value: str) -> bool:
-    lowered = (value or "").strip().lower()
+    stripped = (value or "").strip()
+    if stripped in KNOWN_DEMO_SECRETS:
+        return True
+    lowered = stripped.lower()
     return any(marker in lowered for marker in PLACEHOLDER_MARKERS)
 
 

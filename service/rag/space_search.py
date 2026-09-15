@@ -14,11 +14,22 @@ RAG 链路整体同步（见 docs/sync-async-boundary.md）。异步调用方经
 """
 
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from utils.logger_handler import get_logger
 
 logger = get_logger("space_search")
+
+# 编号/型号/英文专有名词这类 token：字母数字混排、允许中间带 -_./，长度至少 3。
+# 向量检索靠语义相似度，恰恰对"精确匹配一串编号"天然不敏感；这类 token 直接
+# 拿去 chunk 内容里做关键词补充召回，纠偏那类查询几乎搜不到的问题。
+_KEYWORD_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-_./]{2,}")
+
+
+def _extract_keyword_tokens(query: str, limit: int = 5) -> List[str]:
+    tokens = [t for t in dict.fromkeys(_KEYWORD_TOKEN_RE.findall(query or ""))]
+    return tokens[:limit]  # 一次查太多 token 会拖慢 LIKE 查询，只取前几个
 
 
 def _min_score() -> float:
@@ -52,7 +63,7 @@ def search_spaces(
 ) -> Dict[str, Any]:
     """跨多个知识库空间检索，返回 hits / context / citations（结构见模块 docstring 与方案 5 节）。"""
     from models.init_db import SessionLocal
-    from models.knowledge_chunk_dao import get_chunks_by_vector_ids
+    from models.knowledge_chunk_dao import get_chunks_by_vector_ids, search_chunks_by_keyword
     from models.knowledge_dao import get_knowledge_by_id
     from models.knowledge_space_dao import list_spaces_by_ids
     from service.access_control import user_space_ids
@@ -153,6 +164,42 @@ def search_spaces(
                 },
             })
 
+        # ---- 关键词补充召回：向量检索对编号/型号这类精确匹配天然弱，
+        # 直接在 chunk 内容里找一遍，命中的一起交给下面的排序/rerank ----
+        keyword_tokens = _extract_keyword_tokens(query)
+        if keyword_tokens:
+            existing_ids = {m["chunk_id"] for m in merged}
+            extra_chunks = search_chunks_by_keyword(db, want_ids, keyword_tokens, existing_ids, limit=5)
+            for chunk in extra_chunks:
+                kid = chunk.knowledge_id
+                if kid not in knowledge_map:
+                    knowledge_map[kid] = get_knowledge_by_id(db, kid)
+                knowledge = knowledge_map[kid]
+                if not knowledge or knowledge.is_enabled == 0:
+                    continue
+                space = spaces.get(knowledge.space_id)
+                merged.append({
+                    "chunk_id": chunk.id,
+                    "content": chunk.content,
+                    "score": 0.5,  # 关键词命中的基线分；开了 rerank 会被重新打分
+                    "rerank_score": None,
+                    "distance": None,
+                    "knowledge_id": kid,
+                    "chunk_index": chunk.chunk_index,
+                    "keyword_hit": True,
+                    "source": {
+                        "space_id": knowledge.space_id,
+                        "space_name": space.name if space else "",
+                        "file_name": knowledge.file_name,
+                        "file_type": knowledge.file_type,
+                        "category": knowledge.category,
+                        "version": knowledge.version,
+                        "source_url": knowledge.source_url,
+                    },
+                })
+            if extra_chunks:
+                logger.info(f"关键词补充召回 {len(extra_chunks)} 条: tokens={keyword_tokens}")
+
         if not merged:
             return _empty_result(query, want_ids, top_k, use_rerank)
 
@@ -198,7 +245,7 @@ async def search_spaces_async(
     import asyncio
 
     from models.knowledge_async_dao import (
-        get_chunks_by_vector_ids_async, get_knowledge_by_id_async,
+        get_chunks_by_vector_ids_async, get_knowledge_by_id_async, search_chunks_by_keyword_async,
     )
     from models.knowledge_space_async_dao import list_spaces_by_ids_async
     from service.access_control import user_space_ids_async
@@ -295,6 +342,42 @@ async def search_spaces_async(
                     "source_url": knowledge.source_url,
                 },
             })
+
+        keyword_tokens = _extract_keyword_tokens(query)
+        if keyword_tokens:
+            existing_ids = {m["chunk_id"] for m in merged}
+            extra_chunks = await search_chunks_by_keyword_async(
+                session, want_ids, keyword_tokens, existing_ids, limit=5,
+            )
+            for chunk in extra_chunks:
+                kid = chunk.knowledge_id
+                if kid not in knowledge_map:
+                    knowledge_map[kid] = await get_knowledge_by_id_async(session, kid)
+                knowledge = knowledge_map[kid]
+                if not knowledge or knowledge.is_enabled == 0:
+                    continue
+                space = spaces.get(knowledge.space_id)
+                merged.append({
+                    "chunk_id": chunk.id,
+                    "content": chunk.content,
+                    "score": 0.5,
+                    "rerank_score": None,
+                    "distance": None,
+                    "knowledge_id": kid,
+                    "chunk_index": chunk.chunk_index,
+                    "keyword_hit": True,
+                    "source": {
+                        "space_id": knowledge.space_id,
+                        "space_name": space.name if space else "",
+                        "file_name": knowledge.file_name,
+                        "file_type": knowledge.file_type,
+                        "category": knowledge.category,
+                        "version": knowledge.version,
+                        "source_url": knowledge.source_url,
+                    },
+                })
+            if extra_chunks:
+                logger.info(f"关键词补充召回(async) {len(extra_chunks)} 条: tokens={keyword_tokens}")
 
         if not merged:
             return _empty_result(query, want_ids, top_k, use_rerank)

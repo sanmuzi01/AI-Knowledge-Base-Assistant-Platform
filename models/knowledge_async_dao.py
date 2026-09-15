@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.init_db import Agent, Knowledge, KnowledgeChunk
@@ -104,6 +104,30 @@ async def get_chunks_by_vector_ids_async(
     result = await db.execute(
         select(KnowledgeChunk).where(KnowledgeChunk.vector_id.in_(vector_ids))
     )
+    return list(result.scalars().all())
+
+
+async def search_chunks_by_keyword_async(
+        db: AsyncSession, space_ids: List[int], tokens: List[str],
+        exclude_chunk_ids=None, limit: int = 5,
+) -> List[KnowledgeChunk]:
+    """`knowledge_chunk_dao.search_chunks_by_keyword` 的 async 版。"""
+    tokens = [t for t in dict.fromkeys(tokens or []) if t]
+    ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    if not tokens or not ids:
+        return []
+    conditions = [KnowledgeChunk.content.like(f"%{t}%") for t in tokens]
+    stmt = (
+        select(KnowledgeChunk)
+        .join(Knowledge, Knowledge.id == KnowledgeChunk.knowledge_id)
+        .where(Knowledge.space_id.in_(ids), Knowledge.is_enabled != 0)
+        .where(or_(*conditions))
+    )
+    exclude = set(exclude_chunk_ids or [])
+    if exclude:
+        stmt = stmt.where(~KnowledgeChunk.id.in_(exclude))
+    stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
 
 

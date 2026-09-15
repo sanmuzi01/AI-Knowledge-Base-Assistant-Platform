@@ -1,5 +1,6 @@
 {
   "name": "knowledge-assistant",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "npm --prefix frontend run dev",
@@ -7,6 +8,8 @@
     "frontend:build": "npm --prefix frontend run build",
     "backend:dev": ".venv\\Scripts\\python.exe -m uvicorn FasdtApi.main:app --reload --host 127.0.0.1 --port 8011",
     "backend:worker": ".venv\\Scripts\\python.exe -m service.background_worker",
+    "seed:demo": ".venv\\Scripts\\python.exe scripts\\seed_demo.py",
+    "backup": ".venv\\Scripts\\python.exe scripts\\backup.py",
     "db:current": ".venv\\Scripts\\python.exe -m alembic current",
     "db:migrate": ".venv\\Scripts\\python.exe -m alembic upgrade head",
     "db:stamp": ".venv\\Scripts\\python.exe -m alembic stamp head",

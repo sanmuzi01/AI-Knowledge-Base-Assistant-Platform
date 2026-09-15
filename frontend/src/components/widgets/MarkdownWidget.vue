@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '../../utils/markdown'
 import { Clock } from 'lucide-vue-next'
 import type { WidgetItem } from '../../api/widget'
 
@@ -56,12 +56,7 @@ const text = computed<string>(() => {
 // 内容可能来自 llm_summarize / 外部数据源，渲染前统一做一轮轻量清洗
 const html = computed<string>(() => {
   if (!text.value) return ''
-  const raw = marked.parse(String(text.value), { async: false }) as string
-  return raw
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
-    .replace(/ on[a-z]+="[^"]*"/gi, '')
-    .replace(/javascript:/gi, '')
+  return renderMarkdown(String(text.value))
 })
 </script>
 

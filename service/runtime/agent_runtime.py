@@ -15,7 +15,7 @@ from utils.timeutil import utcnow
 from typing import Any, AsyncGenerator, Dict, List
 from sqlalchemy import select
 from models.agent_run_async_dao import (
-    create_run_async, create_step_async, update_run_status_async,
+    create_run_async, create_step_async, update_run_status_async, add_run_tokens_async,
 )
 from service.access_control import get_owned_agent_async
 from prompt.prompt_manager import build_prompt
@@ -227,18 +227,20 @@ async def _finalize_run_async(db, run_id: int, status: str, *, error_msg: str = 
         await db.rollback()
 
 
-async def _summarize_memory_async(user_id: int, agent_id: int, model_name: str) -> bool:
+async def _summarize_memory_async(user_id: int, agent_id: int, model_name: str,
+                                   usage_sink: list = None) -> bool:
     """记忆总结跑在独立 AsyncSession + 独立事务里：失败只吞自己，
     不牵连已 finished 的 run（修同步版怪癖 2）。
 
     返回 True 表示确实跑了一次总结并落库（流式路径据此发 memory:summarized 事件）。
+    usage_sink：传一个列表进来收总结这次调用的 token 用量，调用方再补到 run 的 total_tokens 上。
     """
     from models.async_db import AsyncSessionLocal
     try:
         async with AsyncSessionLocal() as mem_db:
             if await should_summarize_async(mem_db, user_id, agent_id):
                 logger.info("开始总结长期记忆(async)...")
-                await summarize_and_save_async(mem_db, user_id, agent_id, model_name)
+                await summarize_and_save_async(mem_db, user_id, agent_id, model_name, usage_sink=usage_sink)
                 await mem_db.commit()
                 logger.info("长期记忆总结完成(async)")
                 return True
@@ -358,14 +360,25 @@ async def run_with_history_async(
                 await create_step_async(db=db, run_id=run_id, **kw)
         total_steps = step_no_ref["value"] - 1 if step_no_ref["value"] > 1 else 1
 
+        usage = react_result.get("usage")
         await update_run_status_async(
             db=db, run=run, status="finished",
             final_answer=answer, total_steps=total_steps,
+            total_tokens=(usage or {}).get("total_tokens"),
         )
         await db.commit()
 
         if memory_enabled:
-            await _summarize_memory_async(user_id, agent_id, agent_model_name)
+            memory_usage: list = []
+            await _summarize_memory_async(user_id, agent_id, agent_model_name, usage_sink=memory_usage)
+            if memory_usage:
+                extra = sum(u.get("total_tokens", 0) for u in memory_usage)
+                if extra:
+                    await add_run_tokens_async(db, run_id, extra)
+                    await db.commit()
+                    usage = dict(usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                    usage["total_tokens"] = usage.get("total_tokens", 0) + extra
+                    usage["memory_tokens"] = extra
 
         logger.info(
             f"Agent运行完成(async): run_id={run_id}, steps={total_steps}, answer长度={len(answer)}"
@@ -380,6 +393,7 @@ async def run_with_history_async(
             "rag_mode": rag.get("mode", "off"),
             "rag_refused": rag.get("refused", False),
             "rag_stats": rag.get("stats"),
+            "usage": usage,
         }
 
     except Exception as e:
@@ -440,12 +454,13 @@ async def run_stream_with_history_async(
             f"conv={conversation_id}, rag={'on' if rag_enabled else 'off'}, "
             f"memory={'on' if memory_enabled else 'off'}"
         )
-        yield make_ready(run_id)
     except Exception as e:  # noqa: BLE001
         yield make_error(f"创建运行记录失败: {e}")
         return
 
+    run_finished = False
     try:
+        yield make_ready(run_id)
         # 3. system_prompt + Memory 事件
         prompt_parts = await _compose_system_prompt_async(db, user_id, agent_id, agent)
         system_prompt = prompt_parts["system_prompt"]
@@ -489,6 +504,8 @@ async def run_stream_with_history_async(
         # 4. 桥接同步引擎流：worker 线程 next(gen) → queue → 主协程 yield
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
+        import threading
+        stop_event = threading.Event()
         step_infos: List[Dict[str, Any]] = []
         result_box: Dict[str, Any] = {}
         _SENTINEL = object()
@@ -502,29 +519,37 @@ async def run_stream_with_history_async(
                     model_name=agent_model_name, temperature=agent_temperature / 100,
                 )
                 engine = executor.create_engine(max_iterations=5, step_callback=step_infos.append)
+                engine.cancel_event = stop_event
                 gen = engine.invoke_stream(
                     system_prompt=full_system_prompt,
                     user_message=user_message, history=history,
                 )
                 try:
-                    while True:
+                    while not stop_event.is_set():
                         ev = next(gen)
-                        loop.call_soon_threadsafe(queue.put_nowait, ev)
+                        if not stop_event.is_set():
+                            loop.call_soon_threadsafe(queue.put_nowait, ev)
                 except StopIteration as si:
                     result_box["result"] = si.value or {}
+                finally:
+                    gen.close()
             except Exception as e:  # noqa: BLE001
                 result_box["error"] = e
             finally:
                 sdb.close()
-                loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
+                if not stop_event.is_set():
+                    loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
 
         worker = asyncio.create_task(asyncio.to_thread(_worker))
-        while True:
-            ev = await queue.get()
-            if ev is _SENTINEL:
-                break
-            yield ev
-        await worker
+        try:
+            while True:
+                ev = await queue.get()
+                if ev is _SENTINEL:
+                    break
+                yield ev
+            await worker
+        finally:
+            stop_event.set()
 
         if "error" in result_box:
             raise result_box["error"]
@@ -539,23 +564,41 @@ async def run_stream_with_history_async(
                 await create_step_async(db=db, run_id=run_id, **kw)
         total_steps = step_no_ref["value"] - 1 if step_no_ref["value"] > 1 else 1
 
+        usage = react_result.get("usage")
         await update_run_status_async(
             db=db, run=run, status="finished",
             final_answer=answer, total_steps=total_steps,
+            total_tokens=(usage or {}).get("total_tokens"),
         )
         await db.commit()
 
+        run_finished = True
         # 6. 记忆总结（独立事务）
         if memory_enabled:
-            if await _summarize_memory_async(user_id, agent_id, agent_model_name):
+            memory_usage: list = []
+            if await _summarize_memory_async(user_id, agent_id, agent_model_name, usage_sink=memory_usage):
                 yield make_memory("summarized", "长期记忆总结完成")
+            if memory_usage:
+                extra = sum(u.get("total_tokens", 0) for u in memory_usage)
+                if extra:
+                    await add_run_tokens_async(db, run_id, extra)
+                    await db.commit()
+                    usage = dict(usage or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+                    usage["total_tokens"] = usage.get("total_tokens", 0) + extra
+                    usage["memory_tokens"] = extra
 
         logger.info(
             f"Agent[stream] 运行完成(async): run_id={run_id}, steps={total_steps}, "
             f"answer长度={len(answer)}"
         )
-        yield make_done(run_id, total_steps, len(answer))
+        yield make_done(run_id, total_steps, len(answer),
+                        tokens=(usage or {}).get("total_tokens"))
 
+    except (asyncio.CancelledError, GeneratorExit):
+        if not run_finished:
+            await db.rollback()
+            await _finalize_run_async(db, run_id, "cancelled", error_msg="用户停止生成")
+        raise
     except Exception as e:  # noqa: BLE001
         logger.error(f"Agent[stream] 运行失败(async): run_id={run_id}, error={e}")
         try:

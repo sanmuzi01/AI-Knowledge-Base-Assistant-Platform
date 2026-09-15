@@ -1,5 +1,7 @@
 #生成大纲工具
 import json
+from langchain_core.messages import HumanMessage, SystemMessage
+from service.llm.usage import extract_usage
 from service.tools.base import BaseTool,ToolRegistry
 @ToolRegistry.register
 class OutlineGeneratorTool(BaseTool):
@@ -42,15 +44,20 @@ class OutlineGeneratorTool(BaseTool):
             return json.dumps({"error": "工具上下文未初始化"}, ensure_ascii=False)
         # 3.构造生成大纲的 prompt
         user_message = self._build_user_message(topic, sections)
+        # ctx.llm_client 是 create_langchain_llm() 建的 ChatOpenAI 实例，
+        # 接口是 invoke(messages)，不是 chat(messages)——之前这里调用 .chat() 从来没成功过，
+        # 每次都直接进 except 返回「LLM调用失败」，这个工具实际上从未真正生成过大纲。
         messages = [
-            {"role": "system", "content": self.get_system_prompt()},
-            {"role": "user", "content": user_message},
+            SystemMessage(content=self.get_system_prompt()),
+            HumanMessage(content=user_message),
         ]
-        # 4. 通过 llm_service 调用大模型
+        # 4. 调大模型
         try:
-            outline = self._ctx.llm_client.chat(messages, temperature=0.7)
+            response = self._ctx.llm_client.invoke(messages)
         except Exception as e:
             return json.dumps({"error": f"LLM调用失败: {str(e)}"}, ensure_ascii=False)
+        outline = response.content or ""
+        self._ctx.record_usage(extract_usage(response))
         #返回字符串结果（ReAct Loop 要求 observation 是字符串）
         result = {
                 "topic": topic,

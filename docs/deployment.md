@@ -7,6 +7,14 @@
 - 前端：`npm run frontend:build` 产出 `frontend/dist`，交给 Nginx 做静态托管 + `/api` 反向代理
 - `mysql`: 主数据库（自建或云 RDS）
 - `redis`: 分布式缓存、限流和并发控制（可选，不配则回退进程内内存）
+- `chroma`: 向量库 Server（`pip install chromadb` 自带的 `chroma run` 命令，或用官方镜像单独跑）。
+  `api` 用 `--workers 2` 起了多个进程，加上独立的 `worker` 进程，至少 3 个进程会同时碰向量库；
+  ChromaDB 内嵌的 `PersistentClient` 不保证多进程并发读写安全，生产必须设置
+  `CHROMA_SERVER_HOST`/`CHROMA_SERVER_PORT` 走 Server 模式，不要只填 `VECTOR_DB_PATH`。
+
+  ```bash
+  chroma run --path /data/chroma_db --port 8000    # 用 systemd/supervisor 常驻
+  ```
 
 ## 1. 准备配置
 
@@ -160,6 +168,23 @@ REDIS_RECONNECT_INTERVAL_SECONDS=5
 - 应用文件目录：`knowledge_files`、`vector_db`、`logs`、`skills`、`skills_packages`、`prompt/prompts`。
 
 迁移服务器时，数据库导出文件和上述目录一起打包带走即可。
+
+以上手动步骤已经包装成 `scripts/backup.py`（`npm run backup`），可以直接丢进 cron /
+Windows 计划任务定时跑，会在 `backups/` 下生成一份 `db_*.sql` + `data_*.tar.gz`：
+
+```bash
+.venv/Scripts/python.exe scripts/backup.py --keep-days 14   # 顺带清理 14 天前的旧备份
+```
+
+Docker Compose 部署时，Chroma 数据在 `chroma_data` 具名卷里，不在上面的脚本覆盖范围，
+单独备份：
+
+```bash
+docker run --rm -v pythonproject1_chroma_data:/data -v "$PWD/backups":/backup \
+  alpine tar czf /backup/chroma_$(date +%Y%m%d_%H%M%S).tar.gz -C /data .
+```
+
+（卷名前缀跟你项目目录名有关，跑 `docker volume ls` 确认实际名字。）
 
 ## 6. 开发临时模式
 

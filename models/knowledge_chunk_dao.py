@@ -1,6 +1,6 @@
 from typing import List,Optional
-from sqlalchemy import func
-from models.init_db import KnowledgeChunk
+from sqlalchemy import func, or_
+from models.init_db import Knowledge, KnowledgeChunk
 
 
 def sum_content_chars_by_knowledge_ids(db, knowledge_ids: List[int]) -> int:
@@ -40,6 +40,33 @@ def get_chunks_by_vector_ids(db,vector_ids:List[str])->List[KnowledgeChunk]:
     if not vector_ids:
         return []
     return (db.query(KnowledgeChunk).filter(KnowledgeChunk.vector_id.in_(vector_ids)).all())
+
+def search_chunks_by_keyword(
+        db, space_ids: List[int], tokens: List[str],
+        exclude_chunk_ids=None, limit: int = 5,
+) -> List[KnowledgeChunk]:
+    """按关键词直接在 chunk 内容里找命中，补向量检索之外的召回。
+
+    只在给定空间下、已启用的文档里找；token 之间是 OR 关系（命中任意一个即可）。
+    只覆盖已迁移到"空间"模型的文档（Knowledge.space_id 有值）——这是新上传文档的
+    默认路径，存量走 legacy per-agent 集合的文档不在这条补充召回里，向量检索仍照常工作。
+    """
+    tokens = [t for t in dict.fromkeys(tokens or []) if t]
+    ids = [int(s) for s in dict.fromkeys(space_ids or [])]
+    if not tokens or not ids:
+        return []
+    conditions = [KnowledgeChunk.content.like(f"%{t}%") for t in tokens]
+    query = (
+        db.query(KnowledgeChunk)
+        .join(Knowledge, Knowledge.id == KnowledgeChunk.knowledge_id)
+        .filter(Knowledge.space_id.in_(ids), Knowledge.is_enabled != 0)
+        .filter(or_(*conditions))
+    )
+    exclude = set(exclude_chunk_ids or [])
+    if exclude:
+        query = query.filter(~KnowledgeChunk.id.in_(exclude))
+    return query.limit(limit).all()
+
 
 def delete_chunks_by_knowledge(db,knowledge_id:int)->int:
      """删除某文档的所有知识块，返回删除条数"""

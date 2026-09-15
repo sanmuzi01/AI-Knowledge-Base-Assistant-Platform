@@ -9,6 +9,7 @@ from models.init_db import User, get_db
 from service.access_control import get_owned_agent, get_owned_knowledge, get_owned_space
 from service.dependencies import get_current_user_async
 from service.evaluation.rag_eval_service import evaluate_rag_dataset, run_for_space
+from service.evaluation import eval_set_service
 from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 
@@ -148,3 +149,114 @@ async def evaluate_space_rag(
         raise InvalidInput(str(e))
     except Exception as e:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"评估失败: {str(e)}")
+
+
+# ============================================================================
+# 固定评估集：建一次问题集，之后随时重跑，自动跟上一轮比对回归/变好的问题
+# ============================================================================
+
+class CreateEvalSetRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    agent_id: Optional[int] = None
+    space_id: Optional[int] = None
+    cases: List[RagEvalCase] = Field(min_length=1, max_length=50)
+    top_k: int = Field(default=5, ge=1, le=20)
+    rerank: Optional[bool] = None
+    text_match_threshold: float = Field(default=0.35, ge=0, le=1)
+    faithfulness_threshold: float = Field(default=0.25, ge=0, le=1)
+    faithfulness_judge_model: Optional[str] = None
+
+
+@router.post("/sets", summary="创建固定评估集")
+async def create_eval_set_route(
+        data: CreateEvalSetRequest,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    if data.agent_id is not None and get_owned_agent(db, current_user.id, data.agent_id) is None:
+        raise NotFound("智能体不存在或无权限")
+    if data.space_id is not None and get_owned_space(db, current_user.id, data.space_id) is None:
+        raise NotFound("知识库空间不存在或无权限")
+
+    settings = {
+        "top_k": data.top_k,
+        "rerank": data.rerank,
+        "text_match_threshold": data.text_match_threshold,
+        "faithfulness_threshold": data.faithfulness_threshold,
+        "faithfulness_judge_model": data.faithfulness_judge_model,
+    }
+    try:
+        return eval_set_service.create_eval_set(
+            db, current_user.id, data.name,
+            [case.model_dump() for case in data.cases],
+            agent_id=data.agent_id, space_id=data.space_id, settings=settings,
+        )
+    except ValueError as e:
+        raise InvalidInput(str(e))
+
+
+@router.get("/sets", summary="列出我的固定评估集")
+async def list_eval_sets_route(
+        agent_id: Optional[int] = None,
+        space_id: Optional[int] = None,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return eval_set_service.list_eval_sets(db, current_user.id, agent_id=agent_id, space_id=space_id)
+
+
+@router.get("/sets/{eval_set_id}", summary="查看评估集详情（含问题列表）")
+async def get_eval_set_route(
+        eval_set_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    try:
+        return eval_set_service.get_eval_set(db, current_user.id, eval_set_id)
+    except ValueError as e:
+        raise NotFound(str(e))
+
+
+@router.delete("/sets/{eval_set_id}", summary="删除评估集（含历史运行记录）")
+async def delete_eval_set_route(
+        eval_set_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    try:
+        eval_set_service.delete_eval_set(db, current_user.id, eval_set_id)
+    except ValueError as e:
+        raise NotFound(str(e))
+    return {"message": "删除成功"}
+
+
+@router.post("/sets/{eval_set_id}/run", summary="跑一次评估集，并和上一轮自动比较")
+async def run_eval_set_route(
+        eval_set_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    _rate_limit_rag_eval(current_user.id)
+    try:
+        with _rag_eval_concurrency(current_user.id):
+            return await eval_set_service.run_eval_set(db, current_user.id, eval_set_id)
+    except LimitExceeded as e:
+        raise _limit_error(e)
+    except ValueError as e:
+        raise NotFound(str(e))
+    except PermissionError as e:
+        raise NotFound(str(e))
+    except Exception as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"评估失败: {str(e)}")
+
+
+@router.get("/sets/{eval_set_id}/runs", summary="评估集历史运行记录")
+async def list_eval_runs_route(
+        eval_set_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    try:
+        return eval_set_service.list_eval_runs(db, current_user.id, eval_set_id)
+    except ValueError as e:
+        raise NotFound(str(e))

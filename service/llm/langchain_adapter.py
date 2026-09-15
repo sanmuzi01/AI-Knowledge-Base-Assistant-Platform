@@ -51,6 +51,9 @@ def create_langchain_llm(
         "model": model_name,
         "api_key": api_config["api_key"],
         "temperature": temperature,
+        "timeout": 60,
+        "max_retries": 2,
+        "stream_usage": True,
     }
     if base_url:
         llm_kwargs["base_url"] = base_url

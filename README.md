@@ -47,6 +47,19 @@ OpenAI 兼容 API。
 
 ## 快速开始
 
+### 用 Docker（最省事，一条命令起全套）
+
+```bash
+docker compose up -d --build
+docker compose exec api python scripts/seed_demo.py   # 可选：塞演示数据
+# 打开 http://localhost:8080 ，用 demo / demo12345 登录
+```
+
+起的是 MySQL + Redis + 后端 API + 后台 Worker + 前端。仅供本地体验；
+生产部署见 [`docs/deployment.md`](docs/deployment.md)。
+
+### 本地开发（不用 Docker）
+
 需要本机 **MySQL**（建一个空库）。Redis 可选，留空自动回退。
 
 ```bash
@@ -54,15 +67,15 @@ OpenAI 兼容 API。
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # Windows
 # source .venv/bin/activate && pip install -r requirements.txt          # macOS/Linux
 
-# 2. 配置：复制 .env 模板，填 DB_* 和 JWT_SECRET_KEY
-cp .env.example .env    # 按注释填写
+# 2. 配置：复制模板，填 DB_* / JWT_SECRET_KEY / LLM_ENCRYPTION_KEY（模板注释里有生成命令）
+cp .env.example .env
 
 # 3. 前端依赖
 npm --prefix frontend install
-
-# 4. 建表（或首次启动自动建）
-npm run db:migrate
 ```
+
+表结构在后端首次启动时自动建（`bootstrap_database()` = `create_all` + 幂等 `ALTER`），
+只需要一个空的 MySQL 库，不用手动迁移。
 
 三个进程（三个终端，项目根目录）：
 
@@ -72,7 +85,14 @@ npm run backend:worker   # 定时调度 + 知识库入库
 npm run frontend:dev     # 前端 → http://localhost:5173
 ```
 
-打开 `http://localhost:5173` 注册 → 「模型连接」填一个模型 Key → 建 Agent → 传文档 → 开聊。
+**塞一份演示数据**（可选，用本地向量模型，不需要任何 Key）：
+
+```bash
+npm run seed:demo        # 建 demo/demo12345 + 示例助手 + 一份已入库的知识库文档
+```
+
+打开 `http://localhost:5173`，用 `demo / demo12345` 登录——知识库检索、调试台、健康分
+开箱即用；聊天再去「模型连接」填一个聊天模型 Key 即可。或直接注册新账号从零开始。
 
 详见 [`docs/startup-guide.md`](docs/startup-guide.md)。
 

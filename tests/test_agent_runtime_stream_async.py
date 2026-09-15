@@ -104,12 +104,54 @@ class RunStreamAsyncTest(unittest.TestCase):
                 "status": run.status if run else None,
                 "final_answer": run.final_answer if run else None,
                 "error_msg": run.error_msg if run else None,
+                "total_tokens": run.total_tokens if run else None,
                 "step_types": [s.step_type for s in steps],
             }
         finally:
             db.close()
 
     # -------------------------------------------------- 与同步基线一致
+
+    def test_stream_usage_is_persisted(self):
+        agent_id = self._mk_agent("usage")
+        conv_id = self._mk_conv(agent_id)
+        fake = _FakeLLM(responses=[AIMessage(content="ok", usage_metadata={
+            "input_tokens": 11, "output_tokens": 2, "total_tokens": 13,
+        })])
+        events = self._run_stream(agent_id, conv_id, fake, tools=[])
+        self.assertEqual(self._latest_run(conv_id)["total_tokens"], 13)
+        self.assertIn('"tokens": 13', "".join(events))
+
+    def test_closing_stream_cancels_run_and_model(self):
+        from models.async_db import AsyncSessionLocal, async_engine
+        from service.runtime import agent_runtime
+        from tests.test_react_engine_streaming import StreamingLLM
+
+        agent_id = self._mk_agent("cancel")
+        conv_id = self._mk_conv(agent_id)
+        fake = StreamingLLM()
+
+        async def go():
+            try:
+                async with AsyncSessionLocal() as db:
+                    with patch.object(agent_runtime, "ToolExecutor", lambda **kw: _StubExecutor(fake, [])):
+                        stream = agent_runtime.run_stream_with_history_async(
+                            db=db, user_id=self.user["id"], agent_id=agent_id,
+                            user_message="hi", history=[], conversation_id=conv_id,
+                        )
+                        async for event in stream:
+                            if event.startswith("event: answer_delta"):
+                                await stream.aclose()
+                                fake.resume.set()
+                                break
+            finally:
+                fake.resume.set()
+                await async_engine.dispose()
+
+        asyncio.run(go())
+        self.assertEqual(self._latest_run(conv_id)["status"], "cancelled")
+        self.assertTrue(fake.closed)
+        self.assertFalse(fake.completed)
 
     def test_plain_stream(self):
         agent_id = self._mk_agent("plain")

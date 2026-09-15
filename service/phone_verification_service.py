@@ -35,8 +35,8 @@ def normalize_phone(phone: str) -> str:
     return normalized
 
 
-def _cache_key(phone: str) -> tuple:
-    return "sms_register", phone
+def _cache_key(scene: str, phone: str) -> tuple:
+    return f"sms_{scene}", phone
 
 
 def _code_digest(phone: str, code: str) -> str:
@@ -55,7 +55,7 @@ def _now() -> int:
     return int(time.time())
 
 
-def _send_by_webhook(phone: str, code: str, ttl_seconds: int) -> None:
+def _send_by_webhook(phone: str, code: str, ttl_seconds: int, scene: str = "register") -> None:
     """通过通用 Webhook 发送短信，方便上线时接入任意短信服务网关。"""
 
     webhook_url = os.getenv("SMS_WEBHOOK_URL")
@@ -66,7 +66,7 @@ def _send_by_webhook(phone: str, code: str, ttl_seconds: int) -> None:
         "phone": phone,
         "code": code,
         "ttl_seconds": ttl_seconds,
-        "scene": "register",
+        "scene": scene,
     }).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     token = os.getenv("SMS_WEBHOOK_TOKEN")
@@ -80,7 +80,7 @@ def _send_by_webhook(phone: str, code: str, ttl_seconds: int) -> None:
             raise RuntimeError(f"短信服务返回异常状态: {resp.status}")
 
 
-def _send_sms(phone: str, code: str, ttl_seconds: int) -> Dict[str, Optional[str]]:
+def _send_sms(phone: str, code: str, ttl_seconds: int, scene: str) -> Dict[str, Optional[str]]:
     """发送验证码。
 
     SMS_PROVIDER=webhook 时走真实短信网关；默认 console 模式只写日志，便于本地开发测试。
@@ -88,16 +88,16 @@ def _send_sms(phone: str, code: str, ttl_seconds: int) -> Dict[str, Optional[str
 
     provider = os.getenv("SMS_PROVIDER", "console").strip().lower()
     if provider == "webhook":
-        _send_by_webhook(phone, code, ttl_seconds)
+        _send_by_webhook(phone, code, ttl_seconds, scene)
         return {"provider": "webhook", "dev_code": None}
 
-    logger.info(f"注册短信验证码: phone={phone}, code={code}, ttl={ttl_seconds}s")
+    logger.info(f"短信验证码[{scene}]: phone={phone}, code={code}, ttl={ttl_seconds}s")
     dev_code = code if os.getenv("SMS_EXPOSE_DEV_CODE", "0") == "1" else None
     return {"provider": "console", "dev_code": dev_code}
 
 
-def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
-    """发送注册验证码，并限制同一手机号和 IP 的发送频率。"""
+def send_verification_code(phone: str, client_ip: str = "", scene: str = "register") -> Dict[str, object]:
+    """发送验证码，并限制同一手机号和 IP 的发送频率。scene 区分用途（register/reset），互不干扰。"""
 
     normalized = normalize_phone(phone)
     ttl_seconds = _env_int("SMS_CODE_TTL_SECONDS", 300)
@@ -105,7 +105,7 @@ def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
 
     try:
         require_limit(
-            key=f"sms:register:phone:{normalized}",
+            key=f"sms:{scene}:phone:{normalized}",
             limit_env="SMS_CODE_PHONE_LIMIT",
             default_limit=1,
             window_env="SMS_CODE_PHONE_WINDOW_SECONDS",
@@ -114,7 +114,7 @@ def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
         )
         if client_ip:
             require_limit(
-                key=f"sms:register:ip:{client_ip}",
+                key=f"sms:{scene}:ip:{client_ip}",
                 limit_env="SMS_CODE_IP_LIMIT",
                 default_limit=20,
                 window_env="SMS_CODE_IP_WINDOW_SECONDS",
@@ -122,7 +122,7 @@ def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
                 label="验证码发送",
             )
         require_limit(
-            key=f"sms:register:daily:{normalized}",
+            key=f"sms:{scene}:daily:{normalized}",
             limit_env="SMS_CODE_DAILY_LIMIT",
             default_limit=10,
             window_env="SMS_CODE_DAILY_WINDOW_SECONDS",
@@ -137,9 +137,9 @@ def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
         )
 
     code = _new_code()
-    sent = _send_sms(normalized, code, ttl_seconds)
+    sent = _send_sms(normalized, code, ttl_seconds, scene)
     verification_cache.set(
-        _cache_key(normalized),
+        _cache_key(scene, normalized),
         {
             "digest": _code_digest(normalized, code),
             "attempts": 0,
@@ -158,15 +158,15 @@ def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
     }
 
 
-def verify_register_code(phone: str, code: str, consume: bool = True) -> str:
-    """校验注册验证码，成功后默认立即失效。"""
+def verify_verification_code(phone: str, code: str, scene: str = "register", consume: bool = True) -> str:
+    """校验验证码，成功后默认立即失效。"""
 
     normalized = normalize_phone(phone)
     clean_code = re.sub(r"\D", "", code or "")
     if not re.fullmatch(r"\d{6}", clean_code):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请输入 6 位短信验证码")
 
-    record = verification_cache.get(_cache_key(normalized))
+    record = verification_cache.get(_cache_key(scene, normalized))
     if not record:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="验证码已过期，请重新获取")
 
@@ -174,7 +174,7 @@ def verify_register_code(phone: str, code: str, consume: bool = True) -> str:
     expires_at = int(record.get("expires_at") or 0)
     remaining_ttl = expires_at - _now()
     if remaining_ttl <= 0:
-        verification_cache.invalidate(_cache_key(normalized))
+        verification_cache.invalidate(_cache_key(scene, normalized))
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="验证码已过期，请重新获取")
 
     attempts = int(record.get("attempts") or 0) + 1
@@ -182,12 +182,20 @@ def verify_register_code(phone: str, code: str, consume: bool = True) -> str:
     actual = _code_digest(normalized, clean_code)
     if not hmac.compare_digest(expected, actual):
         if attempts >= max_attempts:
-            verification_cache.invalidate(_cache_key(normalized))
+            verification_cache.invalidate(_cache_key(scene, normalized))
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="验证码错误次数过多，请重新获取")
         record["attempts"] = attempts
-        verification_cache.set(_cache_key(normalized), record, ttl=remaining_ttl)
+        verification_cache.set(_cache_key(scene, normalized), record, ttl=remaining_ttl)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="验证码错误")
 
     if consume:
-        verification_cache.invalidate(_cache_key(normalized))
+        verification_cache.invalidate(_cache_key(scene, normalized))
     return normalized
+
+
+def send_register_code(phone: str, client_ip: str = "") -> Dict[str, object]:
+    return send_verification_code(phone, client_ip, scene="register")
+
+
+def verify_register_code(phone: str, code: str, consume: bool = True) -> str:
+    return verify_verification_code(phone, code, scene="register", consume=consume)

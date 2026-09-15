@@ -3,7 +3,12 @@ import unittest
 
 from fastapi import HTTPException
 
-from service.phone_verification_service import send_register_code, verify_register_code
+from service.phone_verification_service import (
+    send_register_code,
+    send_verification_code,
+    verify_register_code,
+    verify_verification_code,
+)
 
 
 class PhoneVerificationServiceTest(unittest.TestCase):
@@ -29,6 +34,21 @@ class PhoneVerificationServiceTest(unittest.TestCase):
     def test_invalid_phone_rejected(self):
         with self.assertRaises(HTTPException):
             send_register_code("12345", client_ip="127.0.0.1")
+
+    def test_register_and_reset_codes_do_not_interfere(self):
+        """同一个手机号同时有一个未用的注册码和一个未用的重置码，互相校验不通过、互不消费。"""
+        phone = "13921810002"
+        register_result = send_verification_code(phone, client_ip="127.0.0.1", scene="register")
+        reset_result = send_verification_code(phone, client_ip="127.0.0.1", scene="reset")
+
+        with self.assertRaises(HTTPException):
+            verify_verification_code(phone, reset_result["dev_code"], scene="register")
+        with self.assertRaises(HTTPException):
+            verify_verification_code(phone, register_result["dev_code"], scene="reset")
+
+        # 用对场景才能通过，且两个验证码依然独立有效
+        self.assertEqual(verify_verification_code(phone, register_result["dev_code"], scene="register"), phone)
+        self.assertEqual(verify_verification_code(phone, reset_result["dev_code"], scene="reset"), phone)
 
 
 if __name__ == "__main__":

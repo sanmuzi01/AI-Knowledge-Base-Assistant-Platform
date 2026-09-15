@@ -62,6 +62,21 @@ class ConfigValidationTest(unittest.TestCase):
             result = validate_runtime_config()
             self.assertFalse(result["ok"])
 
+    def test_production_config_rejects_known_demo_secrets(self):
+        """docker-compose.yml 里为了让 `docker compose up` 零配置跑通写死的公开演示密钥，
+        即使格式合法（尤其 LLM_ENCRYPTION_KEY 是一把能用的 Fernet key），生产环境也必须拒绝。"""
+        env = _valid_env()
+        env["JWT_SECRET_KEY"] = "dev-only-not-a-secret-change-me"
+        env["LLM_ENCRYPTION_KEY"] = "LG5sThiGcVsg9jRbbN_fezONjfKdo3E72yQPYIUwZHQ="
+        with patch.dict(os.environ, env, clear=True):
+            result = validate_runtime_config()
+            self.assertFalse(result["ok"])
+            error_names = {item["name"] for item in result["checks"] if item["level"] == "error"}
+            self.assertIn("JWT_SECRET_KEY", error_names)
+            self.assertIn("LLM_ENCRYPTION_KEY", error_names)
+            with self.assertRaises(RuntimeError):
+                assert_runtime_config()
+
     def test_development_config_allows_missing_redis(self):
         env = _valid_env()
         env["APP_ENV"] = "development"

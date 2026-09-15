@@ -4,6 +4,7 @@ import httpx
 import requests
 
 from service.llm.base import BaseLLM
+from service.llm.usage import from_openai_usage
 from service.http_resilience import async_request_with_retry, request_with_retry, stream_request_with_circuit
 from utils.logger_handler import get_logger
 
@@ -66,6 +67,7 @@ class OpenAICompatibleClient(BaseLLM):
             )
             response.raise_for_status()
             result = response.json()
+            self.last_usage = from_openai_usage(result.get("usage"))
             return result["choices"][0]["message"]["content"] or ""
         except requests.exceptions.RequestException as e:
             detail = getattr(e.response, "text", "")[:500] if getattr(e, "response", None) else str(e)
@@ -100,6 +102,7 @@ class OpenAICompatibleClient(BaseLLM):
             )
             response.raise_for_status()
             result = response.json()
+            self.last_usage = from_openai_usage(result.get("usage"))
             return result["choices"][0]["message"]["content"] or ""
         except httpx.HTTPStatusError as e:
             detail = e.response.text[:500] if e.response is not None else str(e)

@@ -366,6 +366,43 @@ class KnowledgeChunk(Base):
     vector_id = Column(String(100),nullable=False)#向量数据库
     token_count =Column(Integer,default=0)
     created_at = Column(DateTime,default=utcnow, nullable=False)
+
+
+class EvalSet(Base):
+    """固定评估集：一份可重复回归跑的问题集（question + 期望命中/答案），
+    绑定某个 Agent 私有库或某个知识库空间。之前评估只能"这次请求带 cases 现算现返回"，
+    没有地方沉淀，改完东西也没法知道效果是变好还是变差了。"""
+    __tablename__ = "eval_set"
+    __table_args__ = (
+        Index("idx_eval_set_user_created", "user_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_eval_set_user"), nullable=False)
+    agent_id = Column(Integer, ForeignKey("agent.id", name="fk_eval_set_agent"), nullable=True)
+    space_id = Column(Integer, ForeignKey("knowledge_spaces.id", name="fk_eval_set_space"), nullable=True)
+    name = Column(String(120), nullable=False)
+    cases_json = Column(Text, nullable=False)      # 问题集本体：[{question, expected_*, answer, knowledge_id}, ...]
+    settings_json = Column(Text, nullable=True)    # 跑评估时用的 top_k / rerank / 阈值等参数
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class EvalRun(Base):
+    """评估集的一次运行结果快照，用于和上一轮自动比较（回归/变好了哪些问题）。"""
+    __tablename__ = "eval_run"
+    __table_args__ = (
+        Index("idx_eval_run_set_created", "eval_set_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    eval_set_id = Column(Integer, ForeignKey("eval_set.id", name="fk_eval_run_set"), nullable=False)
+    hit_rate = Column(Float, nullable=True)
+    recall = Column(Float, nullable=True)
+    precision_at_k = Column(Float, nullable=True)
+    mrr = Column(Float, nullable=True)
+    faithfulness = Column(Float, nullable=True)
+    report_json = Column(Text, nullable=False)     # 完整 report（含每条 case 明细），用于和上一轮 diff
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 # Agent运行记录表（每次用户发消息=一次Run）
 class AgentRun(Base):
     __tablename__ = "agent_run"

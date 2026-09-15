@@ -133,7 +133,10 @@ async def chat_stream(
             async for event in generator:
                 yield event
         finally:
-            lease_guard.__exit__(None, None, None)
+            try:
+                await generator.aclose()
+            finally:
+                lease_guard.__exit__(None, None, None)
 
     return StreamingResponse(
         limited_generator(),

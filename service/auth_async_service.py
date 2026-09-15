@@ -18,7 +18,7 @@ from models.user_async_dao import (
 from service.admin_service import current_user_payload, role_names
 from service.auth import create_access_token
 from service.auth_service import hash_password, password_matches
-from service.phone_verification_service import verify_register_code
+from service.phone_verification_service import verify_register_code, verify_verification_code
 from utils.logger_handler import logger, log_user_behavior
 
 
@@ -131,3 +131,21 @@ async def change_password(db, user, old_password: str, new_password: str):
     await update_user_password_async(db, user.id, hashed)
     logger.info(f"修改密码成功: user_id={user.id}")
     return {"message": "修改成功"}
+
+
+async def reset_password_with_phone(db, phone: str, sms_code: str, new_password: str):
+    """忘记密码：凭注册手机号 + 短信验证码直接重置密码，无需登录态。"""
+
+    start = time.time()
+    normalized_phone = await run_in_threadpool(verify_verification_code, phone, sms_code, "reset", False)
+    user = await get_user_by_phone_async(db, normalized_phone)
+    if not user:
+        # 校验码本身已确认手机号格式和归属，这里理论上不会出现；仍按未知手机号处理，不泄露账号存在与否。
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="手机号或验证码不正确")
+
+    hashed = await run_in_threadpool(hash_password, new_password)
+    await update_user_password_async(db, user.id, hashed)
+    await run_in_threadpool(verify_verification_code, phone, sms_code, "reset", True)
+    logger.info(f"重置密码成功: user_id={user.id}")
+    log_user_behavior(user.id, "reset_password", "success", start)
+    return {"message": "密码已重置，请使用新密码登录"}

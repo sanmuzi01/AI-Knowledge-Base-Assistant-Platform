@@ -371,11 +371,11 @@ class AsyncDepsParityTest(unittest.TestCase):
         self._seed_finished_runs(agent_sync, 9)
         self._seed_finished_runs(agent_async, 9)
 
-        async def _fake_async_chat(**kw):
-            return canned
+        async def _fake_async_chat_with_usage(**kw):
+            return canned, {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
         with patch("service.llm.llm_service.chat", return_value=canned), \
-             patch("service.llm.llm_service.async_chat", side_effect=_fake_async_chat), \
+             patch("service.llm.llm_service.async_chat_with_usage", side_effect=_fake_async_chat_with_usage), \
              patch("service.user_profile_service.infer_user_profile_from_summary", return_value=None), \
              patch("service.user_profile_async_service.infer_user_profile_from_summary_async",
                    new=AsyncMock(return_value=None)):
@@ -383,14 +383,20 @@ class AsyncDepsParityTest(unittest.TestCase):
                 sync_ret = summarize_and_save(s, self.user["id"], agent_sync, "glm-4")
                 s.commit()
 
+            usage_sink: list = []
+
             async def _do(a):
-                r = await summarize_and_save_async(a, self.user["id"], agent_async, "glm-4")
+                r = await summarize_and_save_async(
+                    a, self.user["id"], agent_async, "glm-4", usage_sink=usage_sink,
+                )
                 await a.commit()
                 return r
             async_ret = _run(_with_async_session(_do))
 
         self.assertEqual(sync_ret, async_ret)
         self.assertEqual(sync_ret, canned)
+        # usage_sink 收到了这次总结调用的用量，供 agent_runtime 把它并进 run 的 total_tokens
+        self.assertEqual(usage_sink, [{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}])
         with SessionLocal() as s:
             for aid in (agent_sync, agent_async):
                 mems = (s.query(Memory)
