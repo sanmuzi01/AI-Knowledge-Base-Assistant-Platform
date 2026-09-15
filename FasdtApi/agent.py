@@ -275,3 +275,81 @@ def select_agent(
     return agent_service.select(
         db,current_user,agent_id
     )
+
+
+# ============================================================================
+# 企业接口连接器：给这个 Agent 配一个真实的企业 HTTP 接口，运行时当工具用。
+# URL/认证/请求方式用户在这里配好，LLM 运行时只填参数——不能碰 URL 和认证信息。
+# ============================================================================
+from service.tools import http_connector_service
+
+
+class ApiConnectorCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=64)
+    description: str = Field(min_length=1, max_length=500)
+    url: str = Field(min_length=1, max_length=1000)
+    method: str = Field(default="GET")
+    headers: Optional[dict] = None
+    param_schema: Optional[dict] = None
+    static_query: Optional[dict] = None
+
+
+@router.post("/{agent_id}/api-connectors", summary="给 Agent 配一个企业接口工具")
+def create_api_connector(
+        agent_id: int,
+        data: ApiConnectorCreate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    if agent_service.get_agent(db, current_user, agent_id) is None:
+        raise NotFound("智能体不存在或无权限")
+    try:
+        return http_connector_service.create_connector(
+            db, current_user.id, agent_id,
+            name=data.name, description=data.description, url=data.url,
+            method=data.method, headers=data.headers,
+            param_schema=data.param_schema, static_query=data.static_query,
+        )
+    except ValueError as e:
+        raise InvalidInput(str(e))
+
+
+@router.get("/{agent_id}/api-connectors", summary="列出 Agent 配的企业接口工具")
+def list_api_connectors(
+        agent_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    if agent_service.get_agent(db, current_user, agent_id) is None:
+        raise NotFound("智能体不存在或无权限")
+    return http_connector_service.list_connectors(db, current_user.id, agent_id)
+
+
+class ApiConnectorEnabledUpdate(BaseModel):
+    is_enabled: bool
+
+
+@router.patch("/api-connectors/{connector_id}", summary="启用/停用一个企业接口工具")
+def update_api_connector_enabled(
+        connector_id: int,
+        data: ApiConnectorEnabledUpdate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    try:
+        return http_connector_service.set_connector_enabled(db, current_user.id, connector_id, data.is_enabled)
+    except ValueError as e:
+        raise NotFound(str(e))
+
+
+@router.delete("/api-connectors/{connector_id}", summary="删除一个企业接口工具")
+def delete_api_connector(
+        connector_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    try:
+        http_connector_service.delete_connector(db, current_user.id, connector_id)
+    except ValueError as e:
+        raise NotFound(str(e))
+    return {"message": "删除成功"}

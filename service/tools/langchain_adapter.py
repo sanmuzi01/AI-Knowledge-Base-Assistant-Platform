@@ -27,7 +27,7 @@ def _json_type_to_python(json_type: Optional[str]) -> type:
     if not json_type:
         return str
     return _JSON_TYPE_MAP.get(json_type, str)
-def _create_args_schema(parameters: dict) -> Optional[Type[BaseModel]]:
+def create_args_schema(parameters: dict) -> Optional[Type[BaseModel]]:
     """从自定义工具的 parameters(JSON Schema) 动态创建 Pydantic Model
     LangChain BaseTool 需要 args_schema 来告诉 LLM 工具接受什么参数
     """
@@ -54,7 +54,7 @@ def adapt_tool(custom_tool: BaseTool, ctx: Optional[ToolContext] = None) -> LCBa
     :param ctx: 工具上下文(requires_context=True 的工具需要)
                 传 None 则只适配无状态工具(requires_context=False)
     :return: LangChain BaseTool 实例"""
-    args_schema = _create_args_schema(custom_tool.parameters)
+    args_schema = create_args_schema(custom_tool.parameters)
     tool_name = custom_tool.name
     tool_desc = custom_tool.description
     # 如果工具需要上下文，但没传 ctx → 报错(防止后续执行时崩溃)

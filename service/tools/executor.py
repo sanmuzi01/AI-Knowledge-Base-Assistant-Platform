@@ -74,11 +74,27 @@ class ToolExecutor:
             self.lc_tools = []
             logger.warning(f"Agent {agent_id} 未绑定任何Skill，将无工具可用")
 
+        # 7. 加上这个 Agent 自己配的企业接口连接器（和 Skill 工具子集是两条独立的路子：
+        # 每个连接器的 URL/参数都不一样，没法用 ToolRegistry 那套按名字注册的静态工具描述，
+        # 只能按连接器动态现建）
+        self._load_api_connector_tools(db, agent_id)
+
         logger.info(
             f"ToolExecutor初始化完成: user={user_id}, agent={agent_id}, "
             f"model={model_name}, skills={self.skill_config.get('skill_names')}, "
             f"tools={len(self.lc_tools)}个"
         )
+
+    def _load_api_connector_tools(self, db, agent_id: int) -> None:
+        from models.agent_api_connector_dao import list_connectors_by_agent
+        from service.tools.http_connector_tool import build_http_connector_tool
+
+        connectors = list_connectors_by_agent(db, agent_id, enabled_only=True)
+        for connector in connectors:
+            try:
+                self.lc_tools.append(build_http_connector_tool(connector))
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"加载企业接口工具失败: connector_id={connector.id}, error={e}")
     def create_engine(self, max_iterations=5, step_callback=None) -> ReActEngine:
         engine = ReActEngine(
             llm=self.llm,

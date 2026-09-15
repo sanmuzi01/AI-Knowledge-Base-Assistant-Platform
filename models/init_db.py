@@ -368,6 +368,28 @@ class KnowledgeChunk(Base):
     created_at = Column(DateTime,default=utcnow, nullable=False)
 
 
+class AgentApiConnector(Base):
+    """Agent 可调用的企业 HTTP 接口：地址/认证/请求方式由用户预先配置好，
+    Agent 运行时只把 LLM 填的参数发过去——URL 和认证信息完全不受 LLM 控制，
+    从架构上避免"提示词注入诱导访问任意地址/泄露认证信息"的风险。"""
+    __tablename__ = "agent_api_connector"
+    __table_args__ = (
+        Index("idx_agent_api_connector_agent", "agent_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_api_connector_user"), nullable=False)
+    agent_id = Column(Integer, ForeignKey("agent.id", name="fk_api_connector_agent"), nullable=False)
+    name = Column(String(64), nullable=False)           # 工具名，会原样传给 LLM，需是合法标识符
+    description = Column(String(500), nullable=False)   # 告诉 LLM 什么时候用、参数含义
+    url = Column(String(1000), nullable=False)
+    method = Column(String(10), nullable=False, default="GET")
+    headers_encrypted = Column(Text, nullable=True)      # Fernet 加密（可能含 Authorization）
+    param_schema_json = Column(Text, nullable=False)     # JSON Schema，同 BaseTool.get_parameters() 格式
+    static_query_json = Column(Text, nullable=True)      # 固定附加的查询参数/请求体字段（不暴露给 LLM）
+    is_enabled = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 class EvalSet(Base):
     """固定评估集：一份可重复回归跑的问题集（question + 期望命中/答案），
     绑定某个 Agent 私有库或某个知识库空间。之前评估只能"这次请求带 cases 现算现返回"，
