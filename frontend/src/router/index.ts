@@ -105,6 +105,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/agents/:agentId/tools',
+      name: 'AgentApiConnectors',
+      component: () => import('../views/AgentApiConnectors.vue'),
+      props: true,
+    },
+    {
       path: '/agents/:agentId/debug',
       name: 'AgentDebug',
       component: () => import('../views/AgentDebug.vue'),

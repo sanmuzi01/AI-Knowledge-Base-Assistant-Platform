@@ -42,7 +42,7 @@ import { RouterLink, useRouter } from 'vue-router'
 defineProps<{
   agentId: number | string
   agentName?: string
-  active: 'chat' | 'knowledge' | 'memory' | 'debug'
+  active: 'chat' | 'knowledge' | 'memory' | 'debug' | 'tools'
 }>()
 
 const router = useRouter()
@@ -51,6 +51,7 @@ const tabs = [
   { key: 'chat', label: '聊天' },
   { key: 'knowledge', label: '知识库' },
   { key: 'memory', label: '记忆' },
+  { key: 'tools', label: '接口工具' },
   { key: 'debug', label: '运行检查' },
 ] as const
 </script>
