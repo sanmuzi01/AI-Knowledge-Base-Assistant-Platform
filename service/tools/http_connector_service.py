@@ -9,6 +9,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from models import agent_api_connector_dao as dao
+from service.exceptions import InvalidInput, NotFound
 from service.web_crawler_service import CrawlerError, validate_crawl_url
 from utils.crypto import encrypt
 
@@ -18,18 +19,18 @@ _ALLOWED_METHODS = {"GET", "POST"}
 
 def _validate(name: str, description: str, url: str, method: str, param_schema: Dict[str, Any]) -> None:
     if not _NAME_RE.match(name or ""):
-        raise ValueError("工具名只能是字母/数字/下划线，且不能以数字开头（会原样传给大模型当函数名用）")
+        raise InvalidInput("工具名只能是字母/数字/下划线，且不能以数字开头（会原样传给大模型当函数名用）")
     if not description or not description.strip():
-        raise ValueError("必须填写接口说明，否则大模型不知道什么时候该用这个工具")
+        raise InvalidInput("必须填写接口说明，否则大模型不知道什么时候该用这个工具")
     try:
         validate_crawl_url(url)
     except CrawlerError as e:
-        raise ValueError(f"接口地址不允许访问：{e}")
+        raise InvalidInput(f"接口地址不允许访问：{e}")
     if (method or "").upper() not in _ALLOWED_METHODS:
-        raise ValueError("请求方式只支持 GET 或 POST")
+        raise InvalidInput("请求方式只支持 GET 或 POST")
     if param_schema is not None:
         if not isinstance(param_schema, dict) or param_schema.get("type") not in (None, "object"):
-            raise ValueError("参数说明必须是 JSON Schema 的 object 类型")
+            raise InvalidInput("参数说明必须是 JSON Schema 的 object 类型")
 
 
 def _to_dict(row) -> Dict[str, Any]:
@@ -78,7 +79,7 @@ def list_connectors(db, user_id: int, agent_id: int) -> List[Dict[str, Any]]:
 def set_connector_enabled(db, user_id: int, connector_id: int, enabled: bool) -> Dict[str, Any]:
     row = dao.get_owned_connector(db, user_id, connector_id)
     if not row:
-        raise ValueError("连接器不存在或无权限")
+        raise NotFound("连接器不存在或无权限")
     row.is_enabled = 1 if enabled else 0
     db.commit()
     return _to_dict(row)
@@ -87,6 +88,6 @@ def set_connector_enabled(db, user_id: int, connector_id: int, enabled: bool) ->
 def delete_connector(db, user_id: int, connector_id: int) -> None:
     row = dao.get_owned_connector(db, user_id, connector_id)
     if not row:
-        raise ValueError("连接器不存在或无权限")
+        raise NotFound("连接器不存在或无权限")
     dao.delete_connector(db, row)
     db.commit()

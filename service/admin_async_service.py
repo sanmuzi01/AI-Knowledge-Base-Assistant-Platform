@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from service.exceptions import InvalidInput, NotFound
+from service.exceptions import Conflict, InvalidInput, NotFound
 
 from models.init_db import (
     Agent,
@@ -118,16 +118,18 @@ async def list_users(db, limit: int = 50, offset: int = 0, search: str = None) -
     skill_counts = await _count_by_user(db, Skill, user_ids)
     knowledge_counts = await _count_by_user(db, Knowledge, user_ids)
     task_counts = await _count_by_user(db, BackgroundTask, user_ids)
-    items = [
-        _user_admin_payload(
+    plan_names = await _plan_names_by_user(db, user_ids)
+    items = []
+    for user in users:
+        item = _user_admin_payload(
             user,
             agent_count=agent_counts.get(user.id, 0),
             skill_count=skill_counts.get(user.id, 0),
             knowledge_count=knowledge_counts.get(user.id, 0),
             task_count=task_counts.get(user.id, 0),
         )
-        for user in users
-    ]
+        item["plan_name"] = plan_names.get(user.id)
+        items.append(item)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -429,6 +431,177 @@ async def admin_update_space(db, admin_user_id: int, space_id: int, patch: Dict)
         "id": space.id, "name": space.name, "is_enabled": bool(space.is_enabled),
         "status": space.status,
     }
+
+
+def _plan_payload(plan) -> Dict:
+    return {
+        "id": plan.id,
+        "name": plan.name,
+        "display_name": plan.display_name,
+        "monthly_token_limit": plan.monthly_token_limit,
+        "price_desc": plan.price_desc,
+        "is_default": bool(plan.is_default),
+        "is_enabled": bool(plan.is_enabled),
+        "created_at": _format_dt(plan.created_at),
+        "updated_at": _format_dt(plan.updated_at),
+    }
+
+
+async def _plan_names_by_user(db, user_ids: List[int]) -> Dict[int, str]:
+    """批量查一批用户当前生效的套餐名——有订阅用订阅的，没有则算默认套餐。"""
+    from models.init_db import Plan, UserSubscription
+
+    if not user_ids:
+        return {}
+    sub_rows = await db.execute(
+        select(UserSubscription.user_id, Plan.name)
+        .join(Plan, UserSubscription.plan_id == Plan.id)
+        .where(UserSubscription.user_id.in_(user_ids))
+    )
+    names = {uid: name for uid, name in sub_rows.all()}
+    missing = [uid for uid in user_ids if uid not in names]
+    if missing:
+        from models.plan_async_dao import get_default_plan_async
+        default_plan = await get_default_plan_async(db)
+        if default_plan:
+            for uid in missing:
+                names[uid] = default_plan.name
+    return names
+
+
+async def list_plans(db) -> List[Dict]:
+    from models.plan_async_dao import list_plans_async
+    plans = await list_plans_async(db)
+    return [_plan_payload(p) for p in plans]
+
+
+async def create_plan(db, admin_user_id: int, data: Dict) -> Dict:
+    from models.init_db import Plan
+
+    name = (data.get("name") or "").strip()
+    display_name = (data.get("display_name") or "").strip()
+    if not name or not display_name:
+        raise InvalidInput("套餐标识和展示名不能为空")
+    existing = await db.execute(select(Plan).where(Plan.name == name))
+    if existing.scalars().first():
+        raise InvalidInput(f"套餐标识「{name}」已存在")
+
+    monthly_token_limit = int(data.get("monthly_token_limit") or 0)
+    is_default = bool(data.get("is_default"))
+    plan = Plan(
+        name=name, display_name=display_name,
+        monthly_token_limit=max(0, monthly_token_limit),
+        price_desc=(data.get("price_desc") or None),
+        is_default=1 if is_default else 0,
+        is_enabled=1,
+    )
+    db.add(plan)
+    await db.flush()
+    if is_default:
+        await db.execute(
+            Plan.__table__.update().where(Plan.id != plan.id).values(is_default=0)
+        )
+    await db.commit()
+    try:
+        from models import kb_audit_dao
+        await kb_audit_dao.record_async(
+            db, admin_user_id, "admin.plan.create",
+            target_type="plan", target_id=plan.id, detail={"name": name},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return _plan_payload(plan)
+
+
+async def update_plan(db, admin_user_id: int, plan_id: int, patch: Dict) -> Dict:
+    from models.init_db import Plan
+    from models.plan_async_dao import get_plan_async
+
+    plan = await get_plan_async(db, plan_id)
+    if not plan:
+        raise NotFound("套餐不存在")
+
+    fields: Dict = {}
+    if "display_name" in patch and (patch["display_name"] or "").strip():
+        fields["display_name"] = patch["display_name"].strip()
+    if "monthly_token_limit" in patch and patch["monthly_token_limit"] is not None:
+        fields["monthly_token_limit"] = max(0, int(patch["monthly_token_limit"]))
+    if "price_desc" in patch:
+        fields["price_desc"] = patch["price_desc"] or None
+    if "is_enabled" in patch and patch["is_enabled"] is not None:
+        fields["is_enabled"] = 1 if patch["is_enabled"] else 0
+    make_default = bool(patch.get("is_default"))
+    if not fields and not make_default:
+        raise InvalidInput("没有需要更新的内容")
+
+    for key, value in fields.items():
+        setattr(plan, key, value)
+    if make_default:
+        await db.execute(
+            Plan.__table__.update().where(Plan.id != plan.id).values(is_default=0)
+        )
+        plan.is_default = 1
+    await db.flush()
+    await db.commit()
+    try:
+        from models import kb_audit_dao
+        await kb_audit_dao.record_async(
+            db, admin_user_id, "admin.plan.update",
+            target_type="plan", target_id=plan.id,
+            detail={"fields": sorted(fields.keys()), "is_default": make_default},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return _plan_payload(plan)
+
+
+async def delete_plan(db, admin_user_id: int, plan_id: int) -> Dict:
+    from models.plan_async_dao import count_subscriptions_for_plan_async, get_plan_async
+
+    plan = await get_plan_async(db, plan_id)
+    if not plan:
+        raise NotFound("套餐不存在")
+    if plan.is_default:
+        raise InvalidInput("不能删除默认套餐，请先把另一个套餐设为默认")
+    in_use = await count_subscriptions_for_plan_async(db, plan_id)
+    if in_use:
+        raise Conflict(f"还有 {in_use} 个用户订阅了这个套餐，请先把他们迁移到其它套餐")
+
+    await db.delete(plan)
+    await db.commit()
+    try:
+        from models import kb_audit_dao
+        await kb_audit_dao.record_async(
+            db, admin_user_id, "admin.plan.delete",
+            target_type="plan", target_id=plan_id, detail={"name": plan.name},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return {"message": "套餐已删除", "id": plan_id}
+
+
+async def assign_user_plan(db, admin_user_id: int, user_id: int, plan_id: int) -> Dict:
+    from models.plan_async_dao import get_plan_async, set_user_plan_async
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    if not user_result.scalars().first():
+        raise NotFound("用户不存在")
+    plan = await get_plan_async(db, plan_id)
+    if not plan:
+        raise NotFound("套餐不存在")
+    if not plan.is_enabled:
+        raise InvalidInput("这个套餐已停用，不能再分配给用户")
+
+    await set_user_plan_async(db, user_id, plan_id)
+    try:
+        from models import kb_audit_dao
+        await kb_audit_dao.record_async(
+            db, admin_user_id, "admin.user.plan_assign",
+            target_type="user", target_id=user_id, detail={"plan_id": plan_id, "plan_name": plan.name},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return {"user_id": user_id, "plan_id": plan_id, "plan_name": plan.name}
 
 
 async def delete_user(user_id: int, operator_id: int) -> Dict:

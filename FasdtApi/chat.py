@@ -19,7 +19,7 @@ from typing import Optional
 from models.async_db import get_async_db
 from models.init_db import User
 from service.dependencies import get_current_user_async
-from service import chat_async_service, chat_service
+from service import chat_async_service, chat_service, quota_service
 from fastapi.responses import StreamingResponse
 from service.runtime.sse_events import SSE_HEADERS
 from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
@@ -64,6 +64,7 @@ async def chat(
         )
     except LimitExceeded as e:
         raise _limit_error(e)
+    quota_before = await quota_service.enforce_quota_async(db, current_user.id)
     try:
         with concurrency_guard(
             key=f"agent_run:user:{current_user.id}",
@@ -86,6 +87,7 @@ async def chat(
         raise PermissionDenied(str(e))
     if "message" in result and "answer" not in result:
         raise InvalidInput(result["message"])
+    await quota_service.check_and_notify_threshold_async(db, current_user.id, quota_before["used_tokens"])
     return result
 
 @router.post("/{agent_id}/stream", summary="发送对话（SSE流式）")
@@ -108,6 +110,10 @@ async def chat_stream(
             default_window=60,
             label="聊天请求",
         )
+    except LimitExceeded as e:
+        raise _limit_error(e)
+    quota_before = await quota_service.enforce_quota_async(db, current_user.id)
+    try:
         lease_guard = concurrency_guard(
             key=f"agent_run:user:{current_user.id}",
             limit_env="USER_MAX_CONCURRENT_AGENT_RUNS",
@@ -137,6 +143,7 @@ async def chat_stream(
                 await generator.aclose()
             finally:
                 lease_guard.__exit__(None, None, None)
+            await quota_service.check_and_notify_threshold_async(db, current_user.id, quota_before["used_tokens"])
 
     return StreamingResponse(
         limited_generator(),

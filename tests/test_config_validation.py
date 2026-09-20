@@ -86,6 +86,27 @@ class ConfigValidationTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertGreaterEqual(result["warning_count"], 1)
 
+    def test_aliyun_sms_requires_credentials_and_system_template(self):
+        env = _valid_env()
+        env["SMS_PROVIDER"] = "aliyun"
+        env.pop("SMS_WEBHOOK_URL")
+        env.pop("SMS_WEBHOOK_TOKEN")
+        with patch.dict(os.environ, env, clear=True):
+            result = validate_runtime_config()
+            missing = {item["name"] for item in result["checks"] if item["level"] == "error"}
+            self.assertEqual(missing, {
+                "ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+                "SMS_ALIYUN_SIGN_NAME", "SMS_ALIYUN_TEMPLATE_CODE",
+            })
+        env.update({
+            "ALIBABA_CLOUD_ACCESS_KEY_ID": "test-key-id",
+            "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "test-key-secret",
+            "SMS_ALIYUN_SIGN_NAME": "system-sign",
+            "SMS_ALIYUN_TEMPLATE_CODE": "100001",
+        })
+        with patch.dict(os.environ, env, clear=True):
+            assert_runtime_config()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,9 +24,6 @@ export interface Task {
   next_run_at: string | null
 }
 
-/** 兼容旧名（Knowledge.vue 等在用） */
-export type BackgroundTask = Task
-
 /** retry/cancel 接口的后端包装 */
 interface TaskActionResponse {
   code: number

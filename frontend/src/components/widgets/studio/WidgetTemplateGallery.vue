@@ -103,7 +103,7 @@
           <button
             @click="onCreate"
             :disabled="!!busy || !draft"
-            class="sci-primary inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            class="ui-primary inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
           >
             <Check :size="14" />{{ busy === 'create' ? '创建中…' : '确认创建' }}
           </button>

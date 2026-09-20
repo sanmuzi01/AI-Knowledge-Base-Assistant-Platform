@@ -1,32 +1,30 @@
 <template>
-  <div class="h-screen flex flex-col bg-transparent">
-    <header class="min-h-16 border-b border-sky-200/70 bg-white/78 px-5 py-3 text-slate-900 shadow-lg shadow-sky-900/8 backdrop-blur-xl lg:flex lg:items-center lg:justify-between">
+  <div class="flex h-screen flex-col bg-transparent">
+    <header class="ui-glass relative z-10 shrink-0 border-b px-5 py-4 lg:flex lg:items-end lg:justify-between lg:px-10 lg:pb-3.5 lg:pt-6">
       <div class="min-w-0">
-        <h1 class="text-base font-semibold text-slate-950">工作台</h1>
-        <p class="truncate text-xs text-slate-500">{{ workspaceSummary }}</p>
+        <h1 class="text-[30px] font-bold leading-tight tracking-[-0.032em] text-slate-900">工作台</h1>
+        <p class="mt-0.5 truncate text-[14px] text-slate-500">{{ workspaceSummary }}</p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="mt-3 flex flex-wrap items-center gap-2 lg:mt-0">
         <button
           @click="openCreateDialog"
-          class="sci-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
+          class="ui-primary inline-flex h-9 items-center gap-1.5 px-4 text-[13px] font-medium"
         >
-          <Plus :size="15" />
+          <Plus :size="15" :stroke-width="2" />
           新建助手
         </button>
-        <div class="ml-3 flex items-center gap-2 border-l border-sky-200 pl-3">
-          <span class="max-w-28 truncate text-sm text-slate-600">{{ userStore.user?.name }}</span>
-          <button
-            @click="userStore.logout"
-            class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-            title="退出登录"
-          >
-            <LogOut :size="15" />
-          </button>
-        </div>
+        <button
+          @click="userStore.logout"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/[.05] text-slate-500 hover:bg-black/[.09] hover:text-slate-900 md:hidden"
+          title="退出登录"
+          aria-label="退出登录"
+        >
+          <LogOut :size="15" />
+        </button>
       </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto p-5 lg:p-6">
+    <main class="flex-1 overflow-y-auto px-5 py-6 lg:px-10">
       <div class="mx-auto max-w-7xl">
         <div v-if="loading" class="py-20 text-center text-sm text-slate-500">加载中...</div>
 
@@ -40,49 +38,65 @@
         </div>
 
         <div v-else class="space-y-5">
-          <section class="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <article class="sci-panel rounded-lg p-4">
+          <section class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <article class="ui-card rounded-lg p-4">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium text-slate-500">系统健康</span>
-                  <Activity :size="16" class="text-sky-500" />
+                  <Activity :size="16" class="text-slate-400" />
                 </div>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">{{ dashboard?.status.health_score ?? setupProgress }}</p>
+                <p class="mt-3 text-[34px] font-semibold leading-none tracking-[-0.032em] tabular-nums text-slate-900">{{ dashboard?.status.health_score ?? setupProgress }}</p>
                 <p class="mt-1 text-xs text-slate-500">{{ healthText }}</p>
                 <div class="mt-3 h-1.5 rounded bg-sky-100">
                   <div class="h-1.5 rounded bg-sky-500 transition-all" :style="{ width: `${dashboard?.status.health_score ?? setupProgress}%` }"></div>
                 </div>
               </article>
 
-              <article class="sci-panel rounded-lg p-4">
+              <article class="ui-card rounded-lg p-4">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium text-slate-500">可用助手</span>
-                  <Bot :size="16" class="text-cyan-500" />
+                  <Bot :size="16" class="text-slate-400" />
                 </div>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">{{ dashboard?.counts.ready_agents ?? readyAgentCount }}</p>
+                <p class="mt-3 text-[34px] font-semibold leading-none tracking-[-0.032em] tabular-nums text-slate-900">{{ dashboard?.counts.ready_agents ?? readyAgentCount }}</p>
                 <p class="mt-1 text-xs text-slate-500">共 {{ dashboard?.counts.agents ?? agents.length }} 个助手</p>
               </article>
 
-              <article class="sci-panel rounded-lg p-4">
+              <article class="ui-card rounded-lg p-4">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-medium text-slate-500">知识库文档</span>
-                  <Database :size="16" class="text-emerald-500" />
+                  <Database :size="16" class="text-slate-400" />
                 </div>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">{{ dashboard?.counts.knowledge_done ?? 0 }}</p>
+                <p class="mt-3 text-[34px] font-semibold leading-none tracking-[-0.032em] tabular-nums text-slate-900">{{ dashboard?.counts.knowledge_done ?? 0 }}</p>
                 <p class="mt-1 text-xs text-slate-500">已入库 / 共 {{ dashboard?.counts.knowledge_docs ?? 0 }} 份</p>
               </article>
 
-              <article class="sci-panel rounded-lg p-4">
+              <article class="ui-card rounded-lg p-4">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-medium text-slate-500">累计消耗</span>
-                  <Gauge :size="16" class="text-violet-500" />
+                  <span class="text-xs font-medium text-slate-500">{{ quota && !quota.unlimited ? '本月用量' : '累计消耗' }}</span>
+                  <Gauge :size="16" class="text-slate-400" />
                 </div>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">{{ formatNumber(dashboard?.counts.tokens ?? 0) }}</p>
-                <p class="mt-1 text-xs text-slate-500">按模型调用记录累计</p>
+                <p class="mt-3 text-[34px] font-semibold leading-none tracking-[-0.032em] tabular-nums text-slate-900">
+                  {{ quota && !quota.unlimited ? formatNumber(quota.used_tokens) : formatNumber(dashboard?.counts.tokens ?? 0) }}
+                </p>
+                <p v-if="quota && !quota.unlimited" class="mt-1 text-xs text-slate-500">
+                  {{ quota.plan_display_name }} · 配额 {{ formatNumber(quota.monthly_token_limit) }}
+                  <button @click="exportUsageReport" class="ml-1 text-[var(--accent)] hover:underline">导出</button>
+                </p>
+                <p v-else class="mt-1 text-xs text-slate-500">
+                  {{ quota ? `${quota.plan_display_name} · 不限量` : '按模型调用记录累计' }}
+                  <button v-if="quota" @click="exportUsageReport" class="ml-1 text-[var(--accent)] hover:underline">导出</button>
+                </p>
+                <div v-if="quota && !quota.unlimited" class="mt-3 h-1.5 rounded-full bg-slate-100">
+                  <div
+                    class="h-1.5 rounded transition-all"
+                    :class="quotaUsagePercent >= 90 ? 'bg-red-500' : quotaUsagePercent >= 70 ? 'bg-amber-500' : 'bg-[var(--accent)]'"
+                    :style="{ width: `${quotaUsagePercent}%` }"
+                  ></div>
+                </div>
               </article>
             </div>
 
-            <aside class="sci-panel rounded-lg p-4">
+            <aside class="ui-card rounded-lg p-4">
               <div class="flex items-center justify-between">
                 <div>
                   <h2 class="text-sm font-semibold text-slate-950">下一步建议</h2>
@@ -95,7 +109,7 @@
                   v-for="item in dashboard.recommendations"
                   :key="item.key"
                   @click="router.push(item.action_path)"
-                  class="w-full rounded-lg border bg-white/76 p-3 text-left transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-50"
+                  class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] w-full rounded-lg border bg-white/76 p-3 text-left transition hover:-translate-y-0.5 hover:bg-sky-50"
                   :class="recommendationClass(item.level)"
                 >
                   <div class="flex items-center justify-between gap-3">
@@ -133,12 +147,12 @@
                 添加 / 隐藏
               </button>
             </div>
-            <div v-if="visibleFeatureModules.length" class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div v-if="visibleFeatureModules.length" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
               <button
                 v-for="module in visibleFeatureModules"
                 :key="module.key"
                 @click="router.push(module.path)"
-                class="sci-panel rounded-lg p-4 text-left transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-900/8"
+                class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] ui-card rounded-lg p-4 text-left transition hover:-translate-y-0.5"
               >
                 <div class="flex items-center justify-between gap-3">
                   <span class="inline-flex h-9 w-9 items-center justify-center rounded bg-white text-sky-600 shadow-sm">
@@ -163,11 +177,11 @@
                 <p class="mt-1 text-xs text-slate-500">把高频操作和监控信息放在工作台首页</p>
               </div>
             </div>
-            <div v-if="visibleWorkspaceWidgets.length" class="grid gap-4 lg:grid-cols-2">
+            <div v-if="visibleWorkspaceWidgets.length" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <article
                 v-for="widget in visibleWorkspaceWidgets"
                 :key="widget.id"
-                class="sci-panel rounded-lg p-4"
+                class="ui-card rounded-lg p-4"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div>
@@ -229,18 +243,18 @@
             </div>
           </details>
 
-          <section v-if="setupProgress < 100" class="sci-glass sci-orbit-border rounded-lg p-5">
+          <section v-if="setupProgress < 100" class="ui-card p-6">
             <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
               <div>
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p class="text-xs font-medium text-sky-600">AI 工作流星图</p>
+                    <p class="text-xs font-medium text-[var(--accent)]">开始使用</p>
                     <h2 class="mt-1 text-2xl font-semibold text-slate-950">{{ setupTitle }}</h2>
                     <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{{ setupDescription }}</p>
                   </div>
                   <button
                     @click="runPrimaryAction"
-                    class="sci-primary inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded px-4 text-sm font-medium text-white"
+                    class="ui-primary inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded px-4 text-sm font-medium text-white"
                   >
                     <component :is="primaryActionIcon" :size="16" />
                     {{ primaryActionText }}
@@ -252,7 +266,7 @@
                     v-for="item in setupItems"
                     :key="item.key"
                     @click="item.action"
-                    class="flex items-start gap-3 rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:border-sky-300 hover:bg-sky-50/80 hover:shadow-md hover:shadow-sky-900/8"
+                    class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] flex items-start gap-3 rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:bg-sky-50/80"
                     :class="item.done ? 'border-emerald-200 bg-emerald-50/75' : item.active ? 'border-sky-300 bg-sky-50/85' : 'border-slate-200 bg-white/72'"
                   >
                     <span :class="item.done ? 'text-emerald-700' : item.active ? 'text-sky-700' : 'text-slate-500'" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-white shadow-sm">
@@ -271,32 +285,37 @@
                 </div>
               </div>
 
-              <aside class="sci-orbit-visual">
-                <span class="sci-orbit-core"></span>
-                <span class="sci-orbit-particle left-[48%] top-[18%]"></span>
-                <span class="sci-orbit-particle left-[62%] top-[25%] [animation-delay:1.2s]"></span>
-                <span class="sci-orbit-particle left-[35%] top-[31%] [animation-delay:2.1s]"></span>
-                <div class="absolute inset-x-4 bottom-4 rounded-lg border border-white/70 bg-white/72 p-4 backdrop-blur">
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-semibold text-slate-900">完成度</span>
-                    <span class="text-sm font-semibold text-sky-700">{{ setupProgress }}%</span>
+              <aside class="flex flex-col justify-between rounded-[20px] bg-slate-50 p-5">
+                <div class="flex items-center gap-4">
+                  <div class="relative h-[84px] w-[84px] shrink-0">
+                    <svg viewBox="0 0 100 100" class="h-full w-full -rotate-90">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke-width="9" class="[stroke:var(--sunken)]" />
+                      <circle
+                        cx="50" cy="50" r="42" fill="none" stroke-width="9" stroke-linecap="round"
+                        class="[stroke:var(--accent)] transition-all duration-700"
+                        stroke-dasharray="263.9"
+                        :stroke-dashoffset="263.9 * (1 - setupProgress / 100)"
+                      />
+                    </svg>
+                    <span class="absolute inset-0 flex items-center justify-center text-[22px] font-semibold tracking-[-0.03em] tabular-nums">{{ setupProgress }}%</span>
                   </div>
-                  <div class="mt-3 h-2 rounded bg-sky-100">
-                    <div class="h-2 rounded bg-sky-500 transition-all" :style="{ width: `${setupProgress}%` }"></div>
+                  <div>
+                    <p class="text-sm font-semibold text-slate-900">完成度</p>
+                    <p class="mt-0.5 text-xs leading-5 text-slate-500">完成下面几步，助手就能正常工作。</p>
                   </div>
-                  <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
-                    <span class="rounded bg-white/80 px-2 py-1 text-slate-500">模型 {{ hasChatKey ? '已连接' : '未连接' }}</span>
-                    <span class="rounded bg-white/80 px-2 py-1 text-slate-500">助手 {{ agents.length }}</span>
-                    <span class="rounded bg-white/80 px-2 py-1 text-slate-500">默认 {{ selectedAgentName || '未设' }}</span>
-                    <span class="rounded bg-white/80 px-2 py-1 text-slate-500">资料 {{ hasEmbeddingKey ? '可用' : '待配置' }}</span>
-                  </div>
+                </div>
+                <div class="mt-5 grid grid-cols-2 gap-2 text-xs">
+                  <span class="rounded-lg bg-white px-2.5 py-1.5 text-slate-500 shadow-[var(--sh-1)]">模型 {{ hasChatKey ? '已连接' : '未连接' }}</span>
+                  <span class="rounded-lg bg-white px-2.5 py-1.5 text-slate-500 shadow-[var(--sh-1)]">助手 {{ agents.length }}</span>
+                  <span class="rounded-lg bg-white px-2.5 py-1.5 text-slate-500 shadow-[var(--sh-1)]">默认 {{ selectedAgentName || '未设' }}</span>
+                  <span class="rounded-lg bg-white px-2.5 py-1.5 text-slate-500 shadow-[var(--sh-1)]">资料 {{ hasEmbeddingKey ? '可用' : '待配置' }}</span>
                 </div>
               </aside>
             </div>
           </section>
 
-          <section class="grid gap-4 lg:grid-cols-2">
-            <article class="sci-panel rounded-lg p-4">
+          <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <article class="ui-card rounded-lg p-4">
               <div class="mb-3 flex items-center justify-between">
                 <div>
                   <h2 class="text-sm font-semibold text-slate-950">最近运行</h2>
@@ -327,7 +346,7 @@
               </div>
             </article>
 
-            <article class="sci-panel rounded-lg p-4">
+            <article class="ui-card rounded-lg p-4">
               <div class="mb-3 flex items-center justify-between">
                 <div>
                   <h2 class="text-sm font-semibold text-slate-950">后台任务</h2>
@@ -377,7 +396,7 @@
           <article
             v-for="agent in floatingAgentList"
             :key="agent.id"
-            class="sci-panel rounded-lg p-4 transition hover:border-cyan-300/45 hover:shadow-xl hover:shadow-cyan-950/20"
+            class="ui-card p-5 transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)]"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
@@ -554,7 +573,7 @@
               <textarea
                 v-model="workspaceCommand"
                 rows="3"
-                class="sci-field mt-3 w-full resize-none rounded px-3 py-2 text-sm outline-none"
+                class="ui-field mt-3 w-full resize-none rounded px-3 py-2 text-sm outline-none"
                 placeholder="写下你想要的工作台变化"
               />
               <div v-if="workspaceCommandActions.length" class="mt-3 space-y-1">
@@ -599,8 +618,8 @@
           <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
             <h4 class="text-sm font-semibold text-slate-900">添加自定义小窗口</h4>
             <div class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
-              <input v-model="newWidgetTitle" class="sci-field h-10 rounded px-3 text-sm outline-none" placeholder="例如 我的数据监控" />
-              <select v-model="newWidgetType" class="sci-field h-10 rounded px-3 text-sm outline-none">
+              <input v-model="newWidgetTitle" class="ui-field h-10 rounded px-3 text-sm outline-none" placeholder="例如 我的数据监控" />
+              <select v-model="newWidgetType" class="ui-field h-10 rounded px-3 text-sm outline-none">
                 <option value="custom">空白窗口</option>
                 <option value="quick-actions">快捷操作</option>
                 <option value="web-monitor">网页监控</option>
@@ -624,7 +643,7 @@
           </button>
           <button
             @click="showCustomizePanel = false"
-            class="sci-primary rounded px-4 py-2 text-sm font-medium text-white"
+            class="ui-primary rounded px-4 py-2 text-sm font-medium text-white"
           >
             完成
           </button>
@@ -647,8 +666,9 @@ import type { AgentInfo } from '../api/agent'
 import * as llmConfigApi from '../api/llmConfig'
 import type { LlmConfig } from '../api/llmConfig'
 import * as skillApi from '../api/skill'
-import { getUserDashboard } from '../api/userDashboard'
-import type { DashboardLevel, UserDashboard } from '../api/userDashboard'
+import { getUserDashboard, getUserQuota } from '../api/userDashboard'
+import type { DashboardLevel, UserDashboard, UserQuotaStatus } from '../api/userDashboard'
+import { downloadFile } from '../utils/download'
 import * as workspaceApi from '../api/workspace'
 import type { WorkspaceWidget } from '../api/workspace'
 import AgentCreateDialog from '../components/AgentCreateDialog.vue'
@@ -663,6 +683,7 @@ const agents = ref<AgentInfo[]>([])
 const availableSkills = ref<any[]>([])
 const configs = ref<LlmConfig[]>([])
 const dashboard = ref<UserDashboard | null>(null)
+const quota = ref<UserQuotaStatus | null>(null)
 const showCreateDialog = ref(false)
 const showCustomizePanel = ref(false)
 const editingAgent = ref<AgentInfo | null>(null)
@@ -710,6 +731,10 @@ const healthText = computed(() => {
   if (score >= 70) return '核心能力可用，仍有优化项'
   if (score >= 45) return '建议先补齐模型、资料或能力'
   return '关键配置不足，先按建议逐项处理'
+})
+const quotaUsagePercent = computed(() => {
+  if (!quota.value || quota.value.unlimited || quota.value.monthly_token_limit <= 0) return 0
+  return Math.min(100, Math.round((quota.value.used_tokens / quota.value.monthly_token_limit) * 100))
 })
 const featureModules = computed(() => {
   const counts = dashboard.value?.counts
@@ -1072,17 +1097,27 @@ const reload = async () => {
 
 const loadSecondaryData = async () => {
   try {
-    const [userSkills, publicSkills, dashboardData] = await Promise.all([
+    const [userSkills, publicSkills, dashboardData, quotaData] = await Promise.all([
       skillApi.listUserSkills(),
       skillApi.listPublicSkills(),
       getUserDashboard(),
+      getUserQuota(),
     ])
     dashboard.value = dashboardData
+    quota.value = quotaData
     const merged = new Map<number, any>()
     ;[...userSkills, ...publicSkills].forEach((s: any) => merged.set(s.id, s))
     availableSkills.value = [...merged.values()]
   } catch (e: any) {
     console.warn('加载工作台扩展数据失败:', e)
+  }
+}
+
+const exportUsageReport = async () => {
+  try {
+    await downloadFile('/user/usage/export', undefined, 'my_usage_report.csv')
+  } catch (e: any) {
+    toastError(getErrorMessage(e, '导出失败'))
   }
 }
 

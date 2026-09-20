@@ -1,71 +1,67 @@
 <template>
   <div class="h-screen flex bg-transparent">
     <!-- 左侧会话栏 -->
-    <aside class="w-72 border-r border-sky-200/70 bg-white/78 text-slate-900 shadow-2xl shadow-sky-900/10 backdrop-blur-xl flex flex-col">
+    <Transition name="fade">
+      <div v-if="convDrawer" class="fixed inset-0 z-30 bg-black/30 backdrop-blur-[2px] md:hidden" @click="convDrawer = false"></div>
+    </Transition>
+    <aside
+      :class="[
+        'ui-glass fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] shrink-0 flex-col border-r transition-transform duration-500 ease-[var(--ease)] md:static md:z-auto md:max-w-none md:translate-x-0',
+        convDrawer ? 'translate-x-0' : '-translate-x-full',
+      ]"
+    >
       <!-- 助手信息 -->
-      <div class="p-4 border-b border-sky-200/70">
+      <div class="px-4 pb-1 pt-4">
         <button
           @click="$router.push('/agents')"
-          class="text-sm text-sky-600 hover:text-sky-800 mb-2 inline-flex items-center gap-1"
+          class="-ml-1 inline-flex items-center text-[13px] text-[var(--accent)] hover:opacity-80"
         >
-          ← 返回工作台
+          <ChevronLeft :size="18" :stroke-width="2" />
+          工作台
         </button>
-        <h2 class="font-semibold text-slate-900 truncate">{{ currentAgent?.name || '加载中...' }}</h2>
+        <h2 class="mt-1 truncate text-[19px] font-bold tracking-[-0.024em] text-slate-900">{{ currentAgent?.name || '加载中...' }}</h2>
       </div>
 
-            <!-- 新建会话按钮 + 知识库管理 -->
-      <div class="px-3 py-3 space-y-2 border-b border-sky-100">
-        <!-- 新建会话（主按钮：蓝底 + hover 深一点 + 柔和阴影） -->
-                <!-- 新建会话（主按钮：淡蓝色 + 柔和蓝色） -->
+      <div class="space-y-1.5 px-3 pb-3 pt-2">
         <button
           @click="createNewConversation"
           :disabled="loading"
-          class="group w-full h-10 px-3 flex items-center gap-2 rounded-lg
-                 bg-blue-50 border border-blue-100 text-blue-700 text-sm font-medium
-                 hover:bg-blue-100 hover:border-blue-200 hover:shadow-sm
-                 active:translate-y-px transition-all duration-200
-                 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex h-9 w-full items-center gap-2 rounded-[10px] bg-[var(--accent-soft)] px-3 text-[14px] font-medium text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <!-- 图标方块：主色当视觉锚点 -->
-          <span class="w-5 h-5 shrink-0 rounded bg-blue-500 text-white flex items-center justify-center group-hover:bg-blue-600 transition-colors">
-            <PlusCircle :size="13" :stroke-width="2.25" />
-          </span>
+          <PlusCircle :size="16" :stroke-width="2" />
           <span>新建会话</span>
-          <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 font-normal">Ctrl N</span>
+          <span class="ml-auto text-[11px] font-medium opacity-70">Ctrl N</span>
         </button>
-
-        <!-- 知识库管理（次按钮：白底 + 绿色文字边框，点击感略低于主按钮） -->
         <button
           @click="router.push(`/agents/${agentId}/knowledge`)"
-          class="w-full h-9 px-3 flex items-center gap-2 rounded-lg
-                 border border-emerald-200 bg-emerald-50/60 text-emerald-700 text-sm
-                 hover:border-emerald-300 hover:bg-emerald-50
-                 active:translate-y-px transition-all duration-200"
+          class="flex h-9 w-full items-center gap-2 rounded-[10px] px-3 text-[14px] font-medium text-slate-700 hover:bg-black/[.045]"
         >
-          <span class="w-5 h-5 shrink-0 rounded bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-            <BookOpen :size="13" :stroke-width="2" />
-          </span>
+          <BookOpen :size="16" :stroke-width="1.8" class="text-slate-500" />
           <span>个人资料</span>
         </button>
       </div>
 
-      <div class="border-b border-gray-100 px-3 py-3">
+      <div class="space-y-2 px-3 pb-2">
         <div class="relative">
-          <Search class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" :size="14" />
+          <Search class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" :size="14" />
           <input
             v-model="conversationQuery"
             type="text"
-            class="h-9 w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 text-sm text-gray-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            class="h-9 w-full rounded-[10px] bg-slate-100 pl-8 pr-3 text-[14px] text-slate-800 outline-none transition-shadow placeholder:text-slate-400 focus:bg-white focus:shadow-[0_0_0_4px_var(--accent-soft)]"
             placeholder="搜索会话"
           />
         </div>
-        <div class="mt-2 grid grid-cols-3 gap-1 rounded-lg bg-gray-100 p-1 text-xs">
+        <div class="relative grid grid-cols-3 rounded-[10px] bg-slate-100 p-[3px] text-xs">
+          <span
+            class="absolute bottom-[3px] left-[3px] top-[3px] w-[calc(33.333%-2px)] rounded-[8px] bg-white shadow-[0_1px_3px_rgba(0,0,0,.14),0_0_0_.5px_rgba(0,0,0,.04)] transition-transform duration-500 ease-[var(--spring)]"
+            :style="{ transform: `translateX(${filterIndex * 100}%)` }"
+          ></span>
           <button
             v-for="item in conversationFilters"
             :key="item.value"
             @click="conversationFilter = item.value"
-            :class="conversationFilter === item.value ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-            class="h-7 rounded-md transition"
+            :class="conversationFilter === item.value ? 'text-slate-900' : 'text-slate-500'"
+            class="relative z-10 h-7 font-medium"
           >
             {{ item.label }}
           </button>
@@ -83,10 +79,10 @@
           <div
             @click="selectConversation(c.id)"
             :class="[
-              'flex items-center h-9 px-2 cursor-pointer text-sm transition-colors',
+              'flex h-10 items-center rounded-[10px] px-2 cursor-pointer text-[14px] transition-colors',
               currentConversationId === c.id
-                ? 'bg-blue-50 text-blue-700 font-medium rounded-lg'
-                : 'text-gray-700 hover:bg-gray-100 rounded-lg'
+                ? 'bg-[var(--accent)] text-white font-medium'
+                : 'text-slate-800 hover:bg-black/[.045]'
             ]"
           >
             <!-- 固定/归档 图标（锚点前预留图标） -->
@@ -113,7 +109,7 @@
               :class="[
                 'w-6 h-6 shrink-0 rounded flex items-center justify-center transition-opacity',
                 currentConversationId === c.id
-                  ? 'opacity-100 text-blue-600 hover:bg-blue-100'
+                  ? 'opacity-100 text-white/80 hover:bg-white/20'
                   : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600'
               ]"
               title="更多"
@@ -176,25 +172,33 @@
     </aside>
 
     <!-- 右侧聊天区 -->
-    <section class="flex-1 flex flex-col min-w-0">
-      <div class="border-b border-sky-100 bg-white/70 px-6 py-2">
-        <AgentSubnav :agent-id="agentId" :agent-name="currentAgent?.name" active="chat" />
+    <section class="relative flex min-w-0 flex-1 flex-col">
+      <div class="ui-glass flex items-start gap-1 border-b px-3 py-2 md:items-center md:px-6">
+        <button
+          type="button"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-black/[.06] md:hidden"
+          aria-label="会话列表"
+          @click="convDrawer = true"
+        >
+          <PanelLeft :size="19" :stroke-width="1.8" />
+        </button>
+        <AgentSubnav class="min-w-0 flex-1" :agent-id="agentId" :agent-name="currentAgent?.name" active="chat" />
       </div>
       <!-- 消息区域 -->
-      <div ref="messageListRef" class="flex-1 overflow-y-auto px-8 pb-28 pt-6 space-y-5">
-        <div class="mx-auto max-w-4xl rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <div ref="messageListRef" class="flex-1 space-y-6 overflow-y-auto px-4 pb-48 pt-6 md:px-8">
+        <div class="mx-auto w-full max-w-3xl px-1">
           <div class="flex flex-wrap items-center gap-2 text-xs">
             <span class="font-medium text-slate-700">{{ currentAgent?.name || '当前助手' }}</span>
-            <span :class="hasCurrentModelKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'" class="rounded px-2 py-1">
+            <span :class="hasCurrentModelKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'" class="rounded-full px-2.5 py-1 font-medium">
               模型 {{ hasCurrentModelKey ? '已配置' : '缺密钥' }}
             </span>
-            <span :class="currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700') : 'bg-slate-100 text-slate-500'" class="rounded px-2 py-1">
+            <span :class="currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700') : 'bg-slate-100 text-slate-500'" class="rounded-full px-2.5 py-1 font-medium">
               资料 {{ currentAgent?.rag_enabled === 1 ? (hasEmbeddingKey ? '可用' : '缺密钥') : '关闭' }}
             </span>
-            <span :class="currentAgent?.memory_enabled === 1 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'" class="rounded px-2 py-1">
+            <span :class="currentAgent?.memory_enabled === 1 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'" class="rounded-full px-2.5 py-1 font-medium">
               记忆 {{ currentAgent?.memory_enabled === 1 ? '开启' : '关闭' }}
             </span>
-            <span v-if="currentAgent?.skills?.length" class="rounded bg-violet-50 px-2 py-1 text-violet-700">
+            <span v-if="currentAgent?.skills?.length" class="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
               能力 {{ currentAgent.skills.length }} 个
             </span>
           </div>
@@ -207,15 +211,15 @@
         <div
           v-for="(msg, idx) in messages"
           :key="idx"
-          :class="['flex', msg.role === 'user' ? 'justify-end' : 'justify-start']"
+          :class="['mx-auto flex w-full max-w-3xl', msg.role === 'user' ? 'justify-end' : 'justify-start']"
         >
-          <div class="max-w-2xl">
+          <div :class="msg.role === 'user' ? 'max-w-[78%]' : 'w-full'">
             <div
               :class="[
-                'px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
+                'text-[15.5px] leading-[1.7] tracking-[-0.008em]',
                 msg.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-br-md'
-                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                  ? 'whitespace-pre-wrap rounded-[20px] rounded-br-md bg-[var(--accent)] px-4 py-2.5 text-white'
+                  : 'md-body text-slate-900'
               ]"
               @click="msg.role === 'assistant' && onAnswerClick($event, msg)"
             >
@@ -235,7 +239,7 @@
         </div>
 
         <!-- 思考/工具调用事件展示 -->
-        <div v-for="(evt, i) in eventTraces" :key="'evt-'+i" class="flex justify-start">
+        <div v-for="(evt, i) in eventTraces" :key="'evt-'+i" class="mx-auto flex w-full max-w-3xl justify-start">
           <div class="max-w-2xl w-full px-4 py-2 rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-500 font-mono space-y-1">
             <div v-if="evt.type === 'thinking'">
               <span class="text-purple-500 font-semibold">🤔 思考</span>
@@ -261,8 +265,8 @@
           </div>
         </div>
 
-        <div v-if="loading" class="flex justify-start">
-          <div class="px-4 py-3 rounded-2xl bg-white border border-gray-200 rounded-bl-md">
+        <div v-if="loading" class="mx-auto flex w-full max-w-3xl justify-start">
+          <div class="rounded-2xl bg-white px-4 py-3 shadow-[var(--sh-1)]">
             <div class="flex gap-1">
               <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
               <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></span>
@@ -272,12 +276,12 @@
         </div>
       </div>
 
-      <!-- 输入框 -->
-      <div class="p-4 border-t border-gray-200 bg-white">
-        <div class="max-w-4xl mx-auto flex gap-3 items-end">
+      <!-- 输入框：悬浮的液态玻璃 -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[var(--bg)] from-40% to-transparent px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-12 md:px-6">
+        <div class="pointer-events-auto mx-auto max-w-3xl">
           <div
             v-if="!chatReady"
-            class="mb-2 flex w-full items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+            class="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 shadow-[var(--sh-1)]"
           >
             <div class="flex min-w-0 items-center gap-2">
               <AlertTriangle :size="16" class="shrink-0" />
@@ -285,48 +289,50 @@
             </div>
             <button
               @click="router.push('/llm-configs')"
-              class="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 hover:bg-amber-100"
+              class="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
             >
               连接模型
             </button>
           </div>
-        </div>
-        <div class="max-w-4xl mx-auto flex gap-3 items-end">
-          <textarea
-            v-model="inputText"
-            :disabled="loading || !chatReady"
-            rows="1"
-            @keydown.enter.exact.prevent="sendMessage"
-            :placeholder="chatReady ? '输入消息，Enter 发送，Shift+Enter 换行' : chatBlockedReason"
-            class="flex-1 resize-none px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          ></textarea>
-          <button
-            v-if="loading"
-            @click="stopGenerating"
-            class="px-4 py-3 border border-slate-200 text-slate-600 text-sm font-medium rounded-xl hover:bg-slate-50 transition-colors"
-          >
-            停止
-          </button>
-          <button
-            @click="sendMessage"
-            :disabled="loading || !inputText.trim() || !chatReady"
-            class="px-5 py-3 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:bg-blue-300 transition-colors"
-          >
-            发送
-          </button>
+          <div class="ui-glass-float flex items-end gap-2 rounded-[27px] p-2">
+            <textarea
+              ref="inputRef"
+              v-model="inputText"
+              :disabled="loading || !chatReady"
+              rows="1"
+              @keydown.enter.exact.prevent="sendMessage"
+              :placeholder="chatReady ? '输入消息…' : chatBlockedReason"
+              class="relative max-h-40 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15.5px] leading-6 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+            ></textarea>
+            <button
+              v-if="loading"
+              @click="stopGenerating"
+              class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-700 hover:bg-slate-300"
+              aria-label="停止生成"
+              title="停止"
+            >
+              <Square :size="13" fill="currentColor" />
+            </button>
+            <button
+              @click="sendMessage"
+              :disabled="loading || !inputText.trim() || !chatReady"
+              class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:cursor-default disabled:bg-slate-200 disabled:text-slate-400"
+              aria-label="发送"
+              title="发送（Enter）"
+            >
+              <ArrowUp :size="19" :stroke-width="2.2" />
+            </button>
+          </div>
         </div>
       </div>
     </section>
           <!-- 右下角：运行轨迹浮动按钮（仅本轮对话有 run 时可用） -->
-    <div class="fixed bottom-24 right-6 z-30 flex flex-col items-end gap-2">
+    <div class="fixed bottom-32 right-6 z-30 flex flex-col items-end gap-2">
       <!-- 当前会话下产生的 run 数徽标 -->
       <button
         @click="showTraceDrawer = true"
         :disabled="runs.length === 0"
-        class="group relative flex items-center gap-2 h-10 pl-3 pr-4 rounded-full
-               bg-white border border-gray-200 shadow-sm
-               hover:shadow hover:border-gray-300
-               disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        class="ui-glass-float group relative flex h-10 items-center gap-2 rounded-full pl-3 pr-4 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span class="w-6 h-6 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
           <GitBranch :size="14" :stroke-width="2" />
@@ -517,7 +523,7 @@ import RagSavingsBar from '../components/knowledge/RagSavingsBar.vue'
 import AgentSubnav from '../components/agent/AgentSubnav.vue'
 import {
   BookOpen, PlusCircle, MoreHorizontal, Pencil, Trash2, Pin, Archive,
-  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search
+  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search, ChevronLeft, ArrowUp, Square, PanelLeft
 } from 'lucide-vue-next'
 import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
@@ -533,6 +539,15 @@ const conversationFilter = ref<'all' | 'active' | 'archived'>('active')
 const currentConversationId = ref<number | null>(null)
 const messages = ref<any[]>([])
 const inputText = ref('')
+const convDrawer = ref(false)
+const inputRef = ref<HTMLTextAreaElement | null>(null)
+const autoGrow = () => {
+  const el = inputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+}
+watch(inputText, () => nextTick(autoGrow))
 const loading = ref(false)
 const abortController = ref<AbortController | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
@@ -636,6 +651,7 @@ const conversationFilters: Array<{ label: string; value: 'all' | 'active' | 'arc
   { label: '全部', value: 'all' },
   { label: '归档', value: 'archived' },
 ]
+const filterIndex = computed(() => Math.max(0, conversationFilters.findIndex((i) => i.value === conversationFilter.value)))
 const filteredConversations = computed(() => {
   const query = conversationQuery.value.trim().toLowerCase()
   return conversations.value.filter((conversation) => {
@@ -962,7 +978,7 @@ watch(agentId, async () => {
 .slide-enter-active, .slide-leave-active { transition: transform .24s ease; }
 /* 回答正文里的 【来源N】 标记（v-html 注入，用 :deep 命中） */
 :deep(.cite-ref) {
-  color: #2563eb;
+  color: var(--accent);
   cursor: pointer;
   font-size: 0.85em;
   white-space: nowrap;

@@ -24,7 +24,7 @@
     <main class="flex-1 overflow-y-auto px-5 py-6 lg:px-8">
       <div class="mx-auto grid max-w-6xl gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section class="space-y-5">
-          <section class="sci-panel rounded-lg p-5">
+          <section class="ui-card rounded-lg p-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p class="text-xs font-medium text-sky-700">快速开始</p>
@@ -42,23 +42,23 @@
                 :key="provider.key"
                 @click="selectProvider(provider.key)"
                 class="rounded-lg border p-4 text-left transition"
-                :class="selectedProvider === provider.key ? 'border-slate-950 bg-slate-950 text-white shadow-md' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'"
+                :class="selectedProvider === provider.key ? 'border-transparent bg-[var(--accent-soft)] ring-2 ring-[var(--accent)]' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="text-base font-semibold">{{ provider.label }}</p>
-                    <p class="mt-1 text-sm leading-6" :class="selectedProvider === provider.key ? 'text-slate-300' : 'text-slate-600'">
+                    <p class="mt-1 text-sm leading-6" :class="'text-slate-600'">
                       {{ provider.description }}
                     </p>
                   </div>
-                  <CheckCircle2 v-if="selectedProvider === provider.key" :size="18" />
+                  <CheckCircle2 v-if="selectedProvider === provider.key" :size="18" class="text-[var(--accent)]" />
                 </div>
                 <div class="mt-3 flex flex-wrap gap-1.5">
                   <span
                     v-for="tag in provider.tags"
                     :key="tag"
                     class="rounded px-2 py-1 text-xs"
-                    :class="selectedProvider === provider.key ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-500'"
+                    :class="selectedProvider === provider.key ? 'bg-white text-[var(--accent)]' : 'bg-slate-100 text-slate-500'"
                   >
                     {{ tag }}
                   </span>
@@ -88,7 +88,7 @@
                   <div class="grid gap-3 border-t border-slate-200 p-3 md:grid-cols-2">
                     <label class="block">
                       <span class="mb-1 block text-xs font-medium text-slate-600">回答方案</span>
-                      <select v-model="selectedChatModel" class="sci-field h-10 w-full rounded px-3 text-sm outline-none">
+                      <select v-model="selectedChatModel" class="ui-field h-10 w-full rounded px-3 text-sm outline-none">
                         <option v-for="model in chatModelOptions" :key="model.model_name" :value="model.model_name">
                           {{ modelLabel(model.model_name) }}
                         </option>
@@ -96,7 +96,7 @@
                     </label>
                     <label class="block">
                       <span class="mb-1 block text-xs font-medium text-slate-600">资料读取方案</span>
-                      <select v-model="selectedEmbeddingModel" class="sci-field h-10 w-full rounded px-3 text-sm outline-none" :disabled="!embeddingModelOptions.length">
+                      <select v-model="selectedEmbeddingModel" class="ui-field h-10 w-full rounded px-3 text-sm outline-none" :disabled="!embeddingModelOptions.length">
                         <option v-if="!embeddingModelOptions.length" value="">该平台暂不支持资料读取</option>
                         <option v-for="model in embeddingModelOptions" :key="model.model_name" :value="model.model_name">
                           {{ modelLabel(model.model_name) }}
@@ -115,7 +115,7 @@
                   <input
                     v-model="apiKey"
                     :type="showKey ? 'text' : 'password'"
-                    class="sci-field h-11 w-full rounded pl-10 pr-16 text-sm outline-none"
+                    class="ui-field h-11 w-full rounded pl-10 pr-16 text-sm outline-none"
                     :placeholder="`粘贴 ${selectedProviderMeta.label} 的访问密钥`"
                   />
                   <button type="button" @click="showKey = !showKey" class="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
@@ -135,7 +135,7 @@
                 <button
                   @click="saveQuickConnect"
                   :disabled="!canQuickSave || submitting"
-                  class="sci-primary mt-4 h-11 w-full rounded text-sm font-semibold text-white disabled:bg-slate-300 disabled:shadow-none"
+                  class="ui-primary mt-4 h-11 w-full rounded text-sm font-semibold text-white disabled:bg-slate-300 disabled:shadow-none"
                 >
                   {{ submitting ? '正在连接...' : quickSaveText }}
                 </button>
@@ -145,7 +145,7 @@
         </section>
 
         <aside class="space-y-5">
-          <section class="sci-panel rounded-lg p-5 xl:sticky xl:top-6">
+          <section class="ui-card rounded-lg p-5 xl:sticky xl:top-6">
             <div class="flex items-center justify-between">
               <h2 class="text-base font-semibold text-slate-950">当前能力</h2>
               <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-500">{{ configs.length }} 项</span>

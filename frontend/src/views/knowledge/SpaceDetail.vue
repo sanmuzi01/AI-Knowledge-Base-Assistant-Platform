@@ -5,7 +5,7 @@
         <div class="flex items-start gap-3">
           <button
             @click="router.push('/knowledge-spaces')"
-            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
             title="返回知识库中心"
           >
             <ArrowLeft :size="16" />
@@ -57,12 +57,12 @@
             ]"
             class="mt-3 rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors"
           >
-            <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.txt,.md" class="hidden" @change="onPick" />
+            <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.txt,.md,.xlsx,.jpg,.jpeg,.png" class="hidden" @change="onPick" />
             <UploadCloud :size="24" class="mx-auto mb-2 text-slate-400" />
             <p class="text-xs font-medium text-slate-600">
               {{ uploading ? '上传中…' : '把文件拖到这里，或点击选择' }}
             </p>
-            <p class="mt-0.5 text-[11px] text-slate-400">PDF / Word / TXT / Markdown，可多选</p>
+            <p class="mt-0.5 text-[11px] text-slate-400">PDF / Word / Excel / TXT / Markdown / 图片，可多选。扫描件和图片需要先配置视觉模型（GLM-4V / GPT-4o）才能识别文字</p>
           </div>
           <p v-if="uploadMsg" class="mt-2 text-xs" :class="uploadMsg.err ? 'text-red-600' : 'text-emerald-600'">{{ uploadMsg.text }}</p>
         </div>
@@ -72,7 +72,7 @@
           <textarea v-model="urlText" rows="3" placeholder="https://example.com/policy"
             class="mt-3 w-full resize-none rounded border border-sky-200 px-2 py-1.5 text-xs outline-none focus:border-sky-400"></textarea>
           <button @click="onCrawl" :disabled="crawling || !urlText.trim()"
-            class="sci-primary mt-2 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            class="ui-primary mt-2 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
             {{ crawling ? '抓取中…' : '抓取并入库' }}
           </button>
           <p v-if="crawlMsg" class="mt-2 text-xs" :class="crawlMsg.err ? 'text-red-600' : 'text-emerald-600'">{{ crawlMsg.text }}</p>
@@ -191,7 +191,7 @@ const crawlMsg = ref<{ text: string; err: boolean } | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragOver = ref(false)
 const uploading = ref(false)
-const ACCEPT_EXT = ['.pdf', '.docx', '.txt', '.md']
+const ACCEPT_EXT = ['.pdf', '.docx', '.txt', '.md', '.xlsx', '.jpg', '.jpeg', '.png']
 
 async function reloadSpace() {
   try {

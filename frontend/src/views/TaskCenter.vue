@@ -1,6 +1,6 @@
 <template>
   <div class="h-screen flex flex-col bg-transparent">
-    <header class="min-h-16 border-b border-sky-200/70 bg-white/78 px-5 py-3 shadow-lg shadow-sky-900/8 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <header class="min-h-16 border-b border-sky-200/70 ui-glass px-5 py-3 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-center gap-3">
         <button @click="$router.push('/agents')" class="inline-flex h-8 items-center rounded border border-sky-200 bg-white/80 px-3 text-sm text-slate-600 hover:bg-sky-50">
           返回工作台
@@ -84,7 +84,7 @@
           <div
             v-for="task in tasks"
             :key="task.id"
-            class="sci-panel rounded-lg p-4 transition hover:border-sky-300 hover:shadow-xl hover:shadow-sky-900/8"
+            class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] ui-card rounded-lg p-4 transition"
             :class="statusBorder(task.status)"
           >
             <div class="flex items-start justify-between gap-3">

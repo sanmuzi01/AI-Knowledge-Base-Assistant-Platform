@@ -47,6 +47,15 @@ def create_langchain_llm(
 
     provider = _detect_provider(model_name)
     base_url = api_url or api_config.get("api_url") or PROVIDER_BASE_URLS.get(provider)
+    # model_catalog.CHAT_MODELS[...]["api_url"]（api_config 的来源）存的是完整的
+    # chat/completions 端点 URL——GLMClient/OpenAICompatibleClient 直接拿去用没问题，
+    # 但 LangChain 的 ChatOpenAI(base_url=...) 认的是"API 根路径"，自己会再拼一次
+    # /chat/completions，不去掉这个后缀就会拼成 .../chat/completions/chat/completions，
+    # 请求 404——所有绑了工具/技能、走 ReAct 引擎的智谱模型 Agent 之前都会撞上这个。
+    if base_url:
+        stripped = base_url.rstrip("/")
+        if stripped.endswith("/chat/completions"):
+            base_url = stripped[: -len("/chat/completions")]
     llm_kwargs = {
         "model": model_name,
         "api_key": api_config["api_key"],

@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent text-slate-950">
-    <header class="border-b border-sky-200/70 bg-white/78 px-5 py-3 shadow-sm backdrop-blur-xl lg:px-8">
+    <header class="border-b border-sky-200/70 ui-glass px-5 py-3 shadow-sm backdrop-blur-xl lg:px-8">
       <AgentSubnav :agent-id="agentId" :agent-name="agent?.name" active="knowledge" />
     </header>
 
@@ -22,7 +22,7 @@
             v-for="s in boundSpaces"
             :key="s.id"
             @click="router.push(`/knowledge-spaces/${s.id}`)"
-            class="flex w-full items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 text-left text-sm hover:border-sky-300"
+            class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] flex w-full items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 text-left text-sm"
           >
             <span class="min-w-0">
               <span class="block truncate font-medium text-slate-800">{{ s.name }}</span>
@@ -55,7 +55,7 @@
           />
           <button
             @click="runTest" :disabled="testing || !query.trim()"
-            class="sci-primary h-9 rounded px-3 text-sm font-medium text-white disabled:opacity-40"
+            class="ui-primary h-9 rounded px-3 text-sm font-medium text-white disabled:opacity-40"
           >{{ testing ? '检索中…' : '试一下' }}</button>
         </div>
         <p v-if="testErr" class="mt-2 text-xs text-red-600">{{ testErr }}</p>

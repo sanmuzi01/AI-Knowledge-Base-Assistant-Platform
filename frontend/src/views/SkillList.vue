@@ -1,10 +1,10 @@
 <template>
   <div class="h-screen flex flex-col bg-transparent">
-    <header class="min-h-16 border-b border-sky-200/70 bg-white/78 px-5 py-3 text-slate-900 shadow-lg shadow-sky-900/8 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <header class="min-h-16 border-b border-sky-200/70 ui-glass px-5 py-3 text-slate-900 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-center gap-3">
         <button
           @click="router.push('/agents')"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="返回工作台"
         >
           <ArrowLeft :size="16" />
@@ -32,7 +32,7 @@
         </button>
         <button
           @click="openCreate"
-          class="sci-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
+          class="ui-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
         >
           <Plus :size="15" />
           新建能力
@@ -58,7 +58,7 @@
             <article
               v-for="template in templates"
               :key="template.filename"
-              class="sci-panel rounded-lg p-4"
+              class="ui-card rounded-lg p-4"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -127,7 +127,7 @@
           <article
             v-for="skill in shownSkills"
             :key="skill.id"
-            class="sci-panel rounded-lg p-4 transition hover:border-cyan-300/45 hover:shadow-xl hover:shadow-cyan-950/20"
+            class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] ui-card rounded-lg p-4 transition"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">

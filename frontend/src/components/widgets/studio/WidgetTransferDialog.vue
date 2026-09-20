@@ -8,7 +8,7 @@
         class="mt-3 w-full resize-none rounded border border-sky-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700 outline-none"></textarea>
       <div class="mt-3 flex justify-end gap-2">
         <button @click="emit('close')" class="rounded border border-sky-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-sky-50">关闭</button>
-        <button @click="copy" class="sci-primary inline-flex items-center gap-1 rounded px-3 py-1.5 text-xs font-medium text-white">
+        <button @click="copy" class="ui-primary inline-flex items-center gap-1 rounded px-3 py-1.5 text-xs font-medium text-white">
           <Copy :size="13" />{{ copied ? '已复制' : '复制' }}
         </button>
       </div>
@@ -26,7 +26,7 @@
       <div class="mt-3 flex justify-end gap-2">
         <button @click="emit('close')" class="rounded border border-sky-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-sky-50">取消</button>
         <button @click="doImport" :disabled="importing || !text.trim()"
-          class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+          class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
           {{ importing ? '导入中…' : '导入' }}
         </button>
       </div>

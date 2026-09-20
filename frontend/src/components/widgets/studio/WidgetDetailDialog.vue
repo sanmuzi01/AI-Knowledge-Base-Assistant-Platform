@@ -50,7 +50,7 @@
 
       <div class="flex justify-end gap-2 border-t border-sky-100 px-5 py-3">
         <button @click="emit('run')" class="rounded border border-sky-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-sky-50">立即刷新</button>
-        <button @click="emit('close')" class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white">关闭</button>
+        <button @click="emit('close')" class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white">关闭</button>
       </div>
     </div>
   </div>

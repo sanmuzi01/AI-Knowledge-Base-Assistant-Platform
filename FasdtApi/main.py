@@ -34,6 +34,8 @@ from FasdtApi.admin import router as admin_router
 from FasdtApi.evaluation import router as evaluation_router
 from FasdtApi.web_monitor import router as web_monitor_router
 from FasdtApi.user_widget import router as user_widget_router
+from FasdtApi.notification_channel import router as notification_channel_router
+from FasdtApi.agent_pipeline import router as agent_pipeline_router
 from models.async_db import async_engine
 from models.init_db import SessionLocal, engine, bootstrap_database, User
 from service.operation_log_middleware import OperationLogMiddleware
@@ -109,6 +111,8 @@ app.include_router(admin_router)
 app.include_router(evaluation_router)
 app.include_router(web_monitor_router)
 app.include_router(user_widget_router)
+app.include_router(notification_channel_router)
+app.include_router(agent_pipeline_router)
 
 _error_logger = get_logger("app_error")
 
@@ -163,11 +167,17 @@ async def _build_health_payload() -> dict:
         else ("连接正常" if config_cache_stats.get("redis_ok") or skill_cache_stats.get("redis_ok") or verification_cache_stats.get("redis_ok") else "Redis 不可用，已回退内存缓存"),
     )
     sms_provider = os.getenv("SMS_PROVIDER", "console").strip().lower()
+    sms_configured = (
+        (sms_provider == "webhook" and bool(os.getenv("SMS_WEBHOOK_URL")))
+        or (sms_provider == "aliyun" and all(os.getenv(name) for name in (
+            "ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+            "SMS_ALIYUN_SIGN_NAME", "SMS_ALIYUN_TEMPLATE_CODE",
+        )))
+    )
     add_check(
         "sms",
-        sms_provider != "webhook" or bool(os.getenv("SMS_WEBHOOK_URL")),
-        "生产短信 Webhook 已配置" if sms_provider == "webhook" and os.getenv("SMS_WEBHOOK_URL")
-        else ("本地日志验证码模式" if sms_provider == "console" else "缺少 SMS_WEBHOOK_URL"),
+        sms_provider == "console" or sms_configured,
+        "本地日志验证码模式" if sms_provider == "console" else ("短信服务已配置" if sms_configured else "短信服务配置不完整"),
     )
 
     def check_database():
@@ -201,12 +211,14 @@ async def _build_health_payload() -> dict:
                 except Exception:
                     pool_stats[field] = None
 
-    for name, path in {
+    required_paths = {
         "static": BASE_DIR / "static",
         "knowledge_files": BASE_DIR / "knowledge_files",
-        "vector_db": BASE_DIR / "vector_db",
         "skills": BASE_DIR / "skills",
-    }.items():
+    }
+    if not os.getenv("CHROMA_SERVER_HOST"):
+        required_paths["vector_db"] = BASE_DIR / "vector_db"
+    for name, path in required_paths.items():
         add_check(name, path.exists(), str(path))
 
     cache_payload = {

@@ -1,71 +1,96 @@
 <template>
-  <div class="h-screen min-w-0 bg-slate-100 text-slate-900">
+  <div class="app-canvas h-dvh min-w-0">
     <div class="flex h-full min-w-0">
-      <aside class="hidden w-56 shrink-0 border-r border-slate-200 bg-white md:flex md:flex-col">
-      <div class="flex h-14 items-center gap-2 border-b border-slate-200 px-4">
-        <span class="flex h-8 w-8 items-center justify-center rounded bg-slate-900 text-white">
-          <ShieldCheck :size="17" />
-        </span>
-        <div class="min-w-0">
-          <p class="truncate text-sm font-semibold text-slate-900">管理后台</p>
-          <p class="truncate text-xs text-slate-500">{{ userStore.user?.name || '管理员' }}</p>
+      <Transition name="fade">
+        <div v-if="navOpen" class="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] md:hidden" @click="navOpen = false"></div>
+      </Transition>
+      <aside
+        :class="[
+          'ui-glass fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] shrink-0 flex-col border-r px-2.5 pb-4 pt-[max(1rem,env(safe-area-inset-top))] transition-transform duration-500 ease-[var(--ease)] md:static md:z-auto md:w-62 md:max-w-none md:translate-x-0 md:py-4',
+          navOpen ? 'translate-x-0' : '-translate-x-full',
+        ]"
+      >
+        <div class="mb-3 flex items-center gap-2.5 px-2">
+          <span class="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-gradient-to-b from-[#3d3d40] to-[#0e0e10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.26),0_2px_6px_rgba(0,0,0,.25)]">
+            <ShieldCheck :size="15" :stroke-width="1.9" />
+          </span>
+          <div class="min-w-0">
+            <p class="truncate text-[14px] font-semibold tracking-[-0.012em]">管理后台</p>
+            <p class="truncate text-[12px] text-slate-500">{{ userStore.user?.name || '管理员' }}</p>
+          </div>
         </div>
+
+        <nav class="flex-1 space-y-0.5 overflow-y-auto">
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.path"
+            :to="item.path"
+            :class="navClass(isActive(item.path))"
+          >
+            <component :is="item.icon" :size="18" :stroke-width="1.7" :class="isActive(item.path) ? 'text-[var(--accent)]' : 'text-slate-500'" />
+            <span>{{ item.label }}</span>
+          </RouterLink>
+        </nav>
+
+        <div class="border-t border-black/[.08] pt-2">
+          <button
+            @click="logout"
+            class="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] font-medium text-slate-600 hover:bg-black/[.045] hover:text-slate-900"
+          >
+            <LogOut :size="18" :stroke-width="1.7" class="text-slate-500" />
+            <span>退出登录</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- 主体 -->
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header class="ui-glass relative z-10 flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between border-b px-3 pt-[env(safe-area-inset-top)] md:h-14 md:px-6 md:pt-0 lg:px-10">
+          <div class="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 hover:bg-black/[.06] md:hidden"
+              aria-label="打开导航"
+              @click="navOpen = true"
+            >
+              <Menu :size="20" :stroke-width="1.8" />
+            </button>
+            <h1 class="truncate text-[17px] font-semibold tracking-[-0.018em]">{{ currentTitle }}</h1>
+          </div>
+          <div class="flex items-center gap-2.5 text-[13px] text-slate-500">
+            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">管理员</span>
+            <span class="hidden sm:inline">{{ userStore.user?.name }}</span>
+            <ThemeToggle />
+          </div>
+        </header>
+
+        <main class="min-h-0 flex-1 overflow-y-auto">
+          <RouterView v-slot="{ Component, route: r }">
+            <Transition name="page" mode="out-in">
+              <component :is="Component" :key="String(r.name ?? r.path)" />
+            </Transition>
+          </RouterView>
+        </main>
       </div>
-
-      <nav class="flex-1 space-y-1 overflow-y-auto px-2 py-3">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          :class="navClass($route.path === item.path || (item.path === '/admin/overview' && $route.path === '/admin'))"
-        >
-          <component :is="item.icon" :size="16" />
-          <span>{{ item.label }}</span>
-        </RouterLink>
-      </nav>
-
-      <div class="border-t border-slate-200 p-2">
-        <button
-          @click="logout"
-          class="flex h-10 w-full items-center gap-2 rounded px-3 text-sm text-slate-600 hover:bg-red-50 hover:text-red-600"
-        >
-          <LogOut :size="16" />
-          <span>退出登录</span>
-        </button>
-      </div>
-    </aside>
-
-    <!-- 主体 -->
-    <div class="flex min-w-0 flex-1 flex-col">
-      <header class="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
-        <div class="flex items-center gap-3">
-          <h1 class="text-base font-semibold text-slate-900">{{ currentTitle }}</h1>
-        </div>
-        <div class="flex items-center gap-3 text-sm text-slate-500">
-          <span class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">管理员</span>
-          <span>{{ userStore.user?.name }}</span>
-        </div>
-      </header>
-
-      <main class="flex-1 overflow-y-auto">
-        <RouterView />
-      </main>
-    </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
 import {
   LayoutDashboard, Users, ListChecks, BarChart3, ScrollText,
-  Stethoscope, ShieldCheck, LogOut, Library,
+  Stethoscope, ShieldCheck, LogOut, Library, Wallet, Menu,
 } from 'lucide-vue-next'
 import { useUserStore } from '../../stores/user'
+import ThemeToggle from '../../components/ThemeToggle.vue'
 
 const route = useRoute()
 const userStore = useUserStore()
+
+const navOpen = ref(false)
+watch(() => route.fullPath, () => { navOpen.value = false })
 
 const navItems = [
   { path: '/admin/overview', label: '系统概览', icon: LayoutDashboard },
@@ -74,6 +99,7 @@ const navItems = [
   { path: '/admin/usage', label: '使用情况', icon: BarChart3 },
   { path: '/admin/logs', label: '操作日志', icon: ScrollText },
   { path: '/admin/knowledge-spaces', label: '企业知识库', icon: Library },
+  { path: '/admin/plans', label: '套餐配额', icon: Wallet },
   { path: '/admin/diagnose', label: '系统诊断', icon: Stethoscope },
 ]
 
@@ -84,9 +110,11 @@ const currentTitle = computed(() => {
   return '管理后台'
 })
 
+const isActive = (path: string) => route.path === path || (path === '/admin/overview' && route.path === '/admin')
+
 const navClass = (active: boolean) => [
-  'flex h-10 items-center gap-2 rounded px-3 text-sm transition-colors',
-  active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+  'flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] font-medium tracking-[-0.006em] transition-colors',
+  active ? 'bg-black/[.07] text-slate-900' : 'text-slate-900 hover:bg-black/[.045]',
 ]
 
 const logout = () => {

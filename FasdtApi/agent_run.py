@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from service.exceptions import NotFound
 from models.async_db import get_async_db
 from models.init_db import User
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/run", tags=["Agent运行轨迹"])
 @router.get("/{agent_id}/list", summary="查看Agent运行历史（支持按会话过滤）")
 async def list_runs(
         agent_id: int,
-        limit: int = 20,
+        limit: int = Query(default=20, ge=1, le=200),
         conversation_id: Optional[int] = None,
         async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),

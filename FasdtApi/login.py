@@ -13,6 +13,7 @@ from models.init_db import User
 from service.admin_service import current_user_payload
 from utils.rate_limit import LimitExceeded, require_limit
 from service.user_dashboard_async_service import get_user_dashboard as get_user_dashboard_async
+from service.quota_service import get_quota_status_async, list_monthly_runs_async
 from service.user_workspace_async_service import (
     apply_workspace_command,
     get_user_workspace as get_user_workspace_async,
@@ -208,6 +209,45 @@ async def get_dashboard(
         current_user: User = Depends(get_current_user_async),
 ):
     return await get_user_dashboard_async(async_db, current_user.id)
+
+
+@router.get("/quota", summary="查询当前用户的套餐与本月配额用量")
+async def get_quota(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    return await get_quota_status_async(async_db, current_user.id)
+
+
+@router.get("/usage/export", summary="导出本月用量报表（CSV）")
+async def export_usage(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    from utils.csv_export import csv_response, rows_to_csv
+    from utils.timeutil import utcnow
+
+    quota = await get_quota_status_async(async_db, current_user.id)
+    runs = await list_monthly_runs_async(async_db, current_user.id)
+    lines = [
+        f"本月用量报表，导出于 {utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+        "",
+        "套餐概况",
+        rows_to_csv(
+            ["套餐", "本月已用Token", "月度配额", "是否不限量"],
+            [[quota["plan_display_name"], quota["used_tokens"],
+              quota["monthly_token_limit"] if not quota["unlimited"] else "-",
+              "是" if quota["unlimited"] else "否"]],
+        ),
+        "",
+        "本月运行明细",
+        rows_to_csv(
+            ["时间", "助手", "状态", "步数", "Token消耗"],
+            [[r["started_at"], r["agent_name"], r["status"], r["total_steps"], r["total_tokens"]] for r in runs],
+        ),
+    ]
+    filename = f"my_usage_report_{utcnow().strftime('%Y%m%d')}.csv"
+    return csv_response(filename, "\n".join(lines))
 
 
 @router.get("/workspace", summary="读取当前用户工作台配置")

@@ -8,8 +8,11 @@ import json
 from typing import Any, Dict, List, Optional
 
 from service.exceptions import InvalidInput, NotFound, PermissionDenied
+from service.rag.rag_service import SUPPORTED_FILE_TYPES
 
-ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
+# 单一事实来源是 rag_service.SUPPORTED_FILE_TYPES（解析器注册表），不要在这里
+# 再维护一份独立列表，否则新增类型要改两处、容易漏改。
+ALLOWED_TYPES = set(SUPPORTED_FILE_TYPES)
 _STATUS_LABEL = {"pending": "待处理", "processing": "解析中", "done": "已入库", "failed": "失败"}
 
 

@@ -4,7 +4,7 @@
       <div class="mx-auto flex max-w-6xl items-center gap-3">
         <button
           @click="router.push(`/knowledge-spaces/${spaceId}`)"
-          class="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="返回空间详情"
         >
           <ArrowLeft :size="16" />
@@ -53,7 +53,7 @@
 
           <button
             @click="run" :disabled="running || !query.trim() || (withAnswer && !modelName)"
-            class="sci-primary mt-3 w-full rounded px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+            class="ui-primary mt-3 w-full rounded px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             {{ running ? '检索中…' : '跑一次' }}
           </button>

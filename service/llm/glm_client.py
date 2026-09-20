@@ -12,7 +12,15 @@ class GLMClient(BaseLLM):
     DEFAULT_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
     def __init__(self,api_key,api_url=None,model_name="glm-4"):
         super().__init__(api_key, api_url, model_name)
-        self.api_url = api_url or self.DEFAULT_API_URL
+        raw_url = api_url or self.DEFAULT_API_URL
+        # api_url 可能是用户在「模型连接」里自填的自定义端点——出站前必须做和其它
+        # 用户可控 URL（Webhook、企业接口连接器、组件 HTTP 数据源）同样的 SSRF 校验，
+        # 否则模型的回答会把内网/云元数据接口的响应原样"读"给用户，等于一条数据泄露通道。
+        from service.web_crawler_service import CrawlerError, validate_crawl_url
+        try:
+            self.api_url = validate_crawl_url(raw_url)
+        except CrawlerError as exc:
+            raise ValueError(f"模型端点地址不合法或不允许访问: {exc}") from exc
     async def achat(self, messages, temperature=0.5, web_search: bool = False) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",  # API Key 认证

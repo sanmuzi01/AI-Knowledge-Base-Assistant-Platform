@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from service.exceptions import NotFound
@@ -9,6 +9,8 @@ from models.async_db import get_async_db
 from service import admin_async_service, admin_service
 from service.dependencies import get_current_admin_user_async
 from service import operation_log_async_service
+from utils.csv_export import csv_response, rows_to_csv
+from utils.timeutil import utcnow
 
 router = APIRouter(prefix="/admin", tags=["管理员后台"])
 
@@ -129,6 +131,66 @@ async def admin_usage(
     return await admin_async_service.usage_stats(async_db, days=days)
 
 
+@router.get("/usage/export", summary="导出使用情况报表（CSV）")
+async def admin_export_usage(
+        days: int = Query(default=14, ge=1, le=90),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    data = await admin_async_service.usage_stats(async_db, days=days)
+    lines = [
+        f"用量报表，最近 {days} 天，导出于 {utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+        "",
+        "汇总",
+        rows_to_csv(
+            ["总运行数", "成功数", "失败数", "成功率(%)", "总Token", "总消息数"],
+            [[data["summary"]["total_runs"], data["summary"]["finished_runs"],
+              data["summary"]["failed_runs"], data["summary"]["success_rate"],
+              data["summary"]["total_tokens"], data["summary"]["total_messages"]]],
+        ),
+        "",
+        "每日明细",
+        rows_to_csv(
+            ["日期", "运行数", "Token消耗", "消息数"],
+            [[d["date"], d["runs"], d["tokens"], d["messages"]] for d in data["daily"]],
+        ),
+        "",
+        "Top用户",
+        rows_to_csv(
+            ["用户ID", "用户名", "运行数", "Token消耗"],
+            [[u["user_id"], u["name"], u["run_count"], u["tokens"]] for u in data["top_users"]],
+        ),
+    ]
+    filename = f"usage_report_{utcnow().strftime('%Y%m%d')}.csv"
+    return csv_response(filename, "\n".join(lines))
+
+
+@router.get("/logs/export", summary="导出操作日志（CSV，最多导出当前筛选条件下最近 500 条）")
+async def admin_export_logs(
+        days: int = Query(default=7, ge=1, le=90),
+        keyword: str = Query(default=None),
+        method: str = Query(default=None),
+        status_group: str = Query(default=None),
+        user_id: int = Query(default=None),
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    data = await operation_log_async_service.list_operation_logs(
+        async_db, limit=500, offset=0, keyword=keyword, method=method,
+        status_group=status_group, user_id=user_id, days=days,
+    )
+    content = rows_to_csv(
+        ["ID", "用户", "方法", "路径", "状态码", "耗时(ms)", "客户端IP", "错误信息", "时间"],
+        [[
+            item["id"], item["username"] or item["user_id"] or "", item["method"], item["path"],
+            item["status_code"], item["latency_ms"], item["client_ip"] or "",
+            (item["error_msg"] or "")[:200], item["created_at"],
+        ] for item in data["items"]],
+    )
+    filename = f"operation_logs_{utcnow().strftime('%Y%m%d')}.csv"
+    return csv_response(filename, content)
+
+
 @router.get("/knowledge-spaces", summary="企业知识库空间总览")
 async def admin_knowledge_spaces(
         limit: int = Query(default=50, ge=1, le=200),
@@ -154,6 +216,72 @@ async def admin_update_knowledge_space(
     return await admin_async_service.admin_update_space(
         async_db, current_user.id, space_id, data.model_dump(exclude_unset=True),
     )
+
+
+class PlanCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    display_name: str = Field(min_length=1, max_length=100)
+    monthly_token_limit: int = Field(default=0, ge=0)
+    price_desc: Optional[str] = None
+    is_default: bool = False
+
+
+class PlanUpdate(BaseModel):
+    display_name: Optional[str] = None
+    monthly_token_limit: Optional[int] = Field(default=None, ge=0)
+    price_desc: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_enabled: Optional[bool] = None
+
+
+class UserPlanAssign(BaseModel):
+    plan_id: int
+
+
+@router.get("/plans", summary="查询套餐列表")
+async def admin_list_plans(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.list_plans(async_db)
+
+
+@router.post("/plans", summary="新建套餐")
+async def admin_create_plan(
+        data: PlanCreate,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.create_plan(async_db, current_user.id, data.model_dump())
+
+
+@router.patch("/plans/{plan_id}", summary="更新套餐")
+async def admin_update_plan(
+        plan_id: int,
+        data: PlanUpdate,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.update_plan(async_db, current_user.id, plan_id, data.model_dump(exclude_unset=True))
+
+
+@router.delete("/plans/{plan_id}", summary="删除套餐")
+async def admin_delete_plan(
+        plan_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.delete_plan(async_db, current_user.id, plan_id)
+
+
+@router.patch("/users/{user_id}/plan", summary="给用户分配套餐")
+async def admin_assign_user_plan(
+        user_id: int,
+        data: UserPlanAssign,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    return await admin_async_service.assign_user_plan(async_db, current_user.id, user_id, data.plan_id)
 
 
 @router.get("/logs", summary="查询操作日志")

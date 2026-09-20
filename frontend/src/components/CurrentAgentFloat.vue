@@ -1,29 +1,27 @@
 <template>
-  <section ref="floatRoot" class="group fixed right-4 top-20 z-[9999] flex items-start justify-end md:right-5">
+  <section ref="floatRoot" class="group fixed bottom-5 right-4 z-[9999] flex items-end justify-end max-md:hidden md:right-5">
     <div class="relative">
       <button
         type="button"
         @click="go('chat')"
-        class="relative inline-flex h-14 w-14 items-center justify-center rounded-xl border border-sky-200 bg-white text-sky-700 shadow-2xl shadow-sky-950/18 ring-4 ring-sky-100/70 transition hover:-translate-y-0.5 hover:bg-sky-50"
+        class="ui-glass-float relative inline-flex h-12 w-12 items-center justify-center rounded-full text-[var(--accent)] transition-transform duration-500 ease-[var(--spring)] hover:-translate-y-0.5"
         :title="activeAgent ? `当前助手：${activeAgent.name}` : '选择当前助手'"
+        :aria-label="activeAgent ? `当前助手：${activeAgent.name}` : '选择当前助手'"
       >
-        <Bot :size="24" />
-        <span class="absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-white bg-emerald-500"></span>
+        <Bot :size="22" :stroke-width="1.7" class="relative" />
+        <span class="absolute right-0.5 top-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"></span>
       </button>
-      <div class="mt-1 rounded bg-sky-600 px-2 py-0.5 text-center text-[10px] font-medium text-white shadow-lg">
-        当前助手
-      </div>
     </div>
 
     <aside
       :class="[
-        'absolute right-0 top-16 w-[min(calc(100vw-2rem),21rem)] translate-y-1 rounded-lg border border-sky-200/80 bg-white/96 p-3 text-slate-900 opacity-0 shadow-2xl shadow-sky-950/18 backdrop-blur-xl transition group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100',
+        'absolute bottom-14 right-0 w-[min(calc(100vw-2rem),21rem)] translate-y-1 rounded-[20px] bg-[var(--glass)] p-3.5 text-slate-900 opacity-0 shadow-[var(--sh-glass)] backdrop-blur-2xl backdrop-saturate-150 transition group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100',
         chooserOpen ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none',
       ]"
     >
       <template v-if="activeAgent">
         <div class="flex items-start gap-3">
-          <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+          <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] bg-slate-100 text-slate-700">
             <Bot :size="18" />
           </span>
           <div class="min-w-0 flex-1">
@@ -37,13 +35,13 @@
         </div>
 
         <div class="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-          <span class="rounded border border-slate-100 bg-slate-50 px-2 py-1 text-slate-600">
+          <span class="rounded bg-slate-100 px-2 py-1 text-slate-600">
             温度 {{ activeAgent.temperature ?? '-' }}
           </span>
-          <span :class="activeAgent.rag_enabled === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'" class="rounded border border-slate-100 px-2 py-1">
+          <span :class="activeAgent.rag_enabled === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'" class="rounded-lg bg-slate-100 px-2 py-1">
             知识 {{ activeAgent.rag_enabled === 1 ? '开' : '关' }}
           </span>
-          <span :class="activeAgent.memory_enabled === 1 ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-500'" class="rounded border border-slate-100 px-2 py-1">
+          <span :class="activeAgent.memory_enabled === 1 ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-500'" class="rounded-lg bg-slate-100 px-2 py-1">
             记忆 {{ activeAgent.memory_enabled === 1 ? '开' : '关' }}
           </span>
         </div>
@@ -79,7 +77,7 @@
             <span class="mb-1 block text-[11px] text-slate-500">当前助手模型</span>
             <input
               v-model="chatModelName"
-              class="sci-field h-9 w-full rounded px-2 text-xs outline-none"
+              class="ui-field h-9 w-full rounded px-2 text-xs outline-none"
               placeholder="例如 glm-4、deepseek-chat、gpt-4o-mini"
             />
           </label>
@@ -90,7 +88,7 @@
               <input
                 v-model="apiKey"
                 :type="showKey ? 'text' : 'password'"
-                class="sci-field h-9 w-full rounded px-2 pr-14 text-xs outline-none"
+                class="ui-field h-9 w-full rounded px-2 pr-14 text-xs outline-none"
                 placeholder="粘贴 API Key"
               />
               <button type="button" @click.stop="showKey = !showKey" class="absolute right-1 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-white">
@@ -116,7 +114,7 @@
             <button
               @click.stop="saveKeySettings"
               :disabled="keySaving || !canSaveKey"
-              class="sci-primary h-8 flex-1 rounded text-xs font-semibold text-white disabled:bg-slate-300 disabled:shadow-none"
+              class="ui-primary h-8 flex-1 rounded text-xs font-semibold text-white disabled:bg-slate-300 disabled:shadow-none"
             >
               {{ keySaving ? '保存中...' : '保存 Key' }}
             </button>
@@ -331,14 +329,13 @@ watch(routeAgentId, loadActiveAgent)
   height: 2rem;
   align-items: center;
   justify-content: center;
-  border-radius: 0.375rem;
-  border: 1px solid rgb(224 242 254);
-  background: rgb(255 255 255 / 0.86);
-  color: rgb(71 85 105);
+  border-radius: 0.625rem;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-2);
 }
 
 .float-action:hover {
-  background: rgb(240 249 255);
-  color: rgb(2 132 199);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 </style>

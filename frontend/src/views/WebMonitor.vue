@@ -10,7 +10,7 @@
           <p class="text-sm text-slate-500">添加网页、公告或实时数据地址，手动检查变化；后续可接入定时任务和通知。</p>
           <button
             @click="showCreate = true"
-            class="sci-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
+            class="ui-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
           >
             <Plus :size="16" />
             添加监控
@@ -32,7 +32,7 @@
         </div>
 
         <div v-else class="grid gap-4 lg:grid-cols-2">
-          <article v-for="item in monitors" :key="item.id" class="sci-panel rounded-lg p-4">
+          <article v-for="item in monitors" :key="item.id" class="ui-card rounded-lg p-4">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <h2 class="truncate text-sm font-semibold text-slate-950">{{ item.name }}</h2>
@@ -90,15 +90,15 @@
         <div class="mt-4 space-y-3">
           <label class="block">
             <span class="mb-1 block text-xs font-medium text-slate-600">名称</span>
-            <input v-model="form.name" class="sci-field h-10 w-full rounded px-3 text-sm outline-none" placeholder="例如 招聘页面、价格页、公告页" />
+            <input v-model="form.name" class="ui-field h-10 w-full rounded px-3 text-sm outline-none" placeholder="例如 招聘页面、价格页、公告页" />
           </label>
           <label class="block">
             <span class="mb-1 block text-xs font-medium text-slate-600">网页地址</span>
-            <input v-model="form.url" class="sci-field h-10 w-full rounded px-3 text-sm outline-none" placeholder="https://example.com/page" />
+            <input v-model="form.url" class="ui-field h-10 w-full rounded px-3 text-sm outline-none" placeholder="https://example.com/page" />
           </label>
           <label class="block">
             <span class="mb-1 block text-xs font-medium text-slate-600">检查频率</span>
-            <select v-model.number="form.interval_minutes" class="sci-field h-10 w-full rounded px-3 text-sm outline-none">
+            <select v-model.number="form.interval_minutes" class="ui-field h-10 w-full rounded px-3 text-sm outline-none">
               <option :value="5">每 5 分钟</option>
               <option :value="15">每 15 分钟</option>
               <option :value="30">每 30 分钟</option>
@@ -110,7 +110,7 @@
         </div>
         <div class="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
           <button @click="showCreate = false" class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
-          <button @click="submit" :disabled="submitting || !form.url.trim()" class="sci-primary rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300">
+          <button @click="submit" :disabled="submitting || !form.url.trim()" class="ui-primary rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300">
             {{ submitting ? '保存中...' : '保存' }}
           </button>
         </div>

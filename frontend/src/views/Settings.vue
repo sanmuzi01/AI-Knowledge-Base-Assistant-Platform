@@ -22,7 +22,7 @@
         ]" />
       </header>
 
-      <section class="sci-panel mb-5 overflow-hidden rounded-lg p-5">
+      <section class="ui-card mb-5 overflow-hidden rounded-lg p-5">
         <div class="mb-4 flex items-start justify-between gap-4">
           <div class="flex items-center gap-3">
             <span class="flex h-10 w-10 items-center justify-center rounded bg-sky-50 text-sky-700">
@@ -43,13 +43,13 @@
             <span class="text-xs font-medium text-slate-600">你的身份/职业</span>
             <input
               v-model="profileForm.occupation"
-              class="sci-field h-10 w-full rounded px-3 text-sm outline-none"
+              class="ui-field h-10 w-full rounded px-3 text-sm outline-none"
               placeholder="例如：大学生、后端工程师、产品经理"
             />
           </label>
           <label class="space-y-1">
             <span class="text-xs font-medium text-slate-600">希望 AI 的人格</span>
-            <select v-model="profileForm.persona" class="sci-field h-10 w-full rounded px-3 text-sm outline-none">
+            <select v-model="profileForm.persona" class="ui-field h-10 w-full rounded px-3 text-sm outline-none">
               <option value="professional">专业助理</option>
               <option value="coach">成长教练</option>
               <option value="teacher">耐心老师</option>
@@ -59,7 +59,7 @@
           </label>
           <label class="space-y-1">
             <span class="text-xs font-medium text-slate-600">回答风格</span>
-            <select v-model="profileForm.communication_style" class="sci-field h-10 w-full rounded px-3 text-sm outline-none">
+            <select v-model="profileForm.communication_style" class="ui-field h-10 w-full rounded px-3 text-sm outline-none">
               <option value="balanced">清晰稳重</option>
               <option value="concise">简洁直接</option>
               <option value="teacher">老师型讲解</option>
@@ -71,7 +71,7 @@
             <span class="text-xs font-medium text-slate-600">技能背景</span>
             <input
               v-model="profileForm.skills"
-              class="sci-field h-10 w-full rounded px-3 text-sm outline-none"
+              class="ui-field h-10 w-full rounded px-3 text-sm outline-none"
               placeholder="例如：会 Python，正在学习前端和部署"
             />
           </label>
@@ -80,7 +80,7 @@
             <textarea
               v-model="profileForm.preferences"
               rows="3"
-              class="sci-field w-full resize-none rounded px-3 py-2 text-sm outline-none"
+              class="ui-field w-full resize-none rounded px-3 py-2 text-sm outline-none"
               placeholder="例如：先给结论，再给步骤；代码要有中文注释；解释时多举实际项目例子"
             />
           </label>
@@ -89,7 +89,7 @@
             <textarea
               v-model="profileForm.extra_info"
               rows="3"
-              class="sci-field w-full resize-none rounded px-3 py-2 text-sm outline-none"
+              class="ui-field w-full resize-none rounded px-3 py-2 text-sm outline-none"
               placeholder="例如：当前项目目标、常用技术栈、希望避免的回答方式"
             />
           </label>
@@ -102,7 +102,7 @@
           <button
             @click="saveProfile"
             :disabled="savingProfile || profileLoading"
-            class="sci-primary inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
+            class="ui-primary inline-flex items-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
           >
             <Save :size="15" />
             {{ savingProfile ? '保存中...' : '保存画像' }}
@@ -122,7 +122,7 @@
         </div>
       </section>
 
-      <section class="sci-panel mb-5 rounded-lg p-5">
+      <section class="ui-card mb-5 rounded-lg p-5">
         <div class="mb-4 flex items-center gap-3">
           <span class="flex h-10 w-10 items-center justify-center rounded bg-slate-100 text-slate-600">
             <KeyRound :size="18" />
@@ -136,19 +136,19 @@
           <input
             v-model="passwordForm.oldPassword"
             type="password"
-            class="sci-field h-10 rounded px-3 text-sm outline-none"
+            class="ui-field h-10 rounded px-3 text-sm outline-none"
             placeholder="当前密码"
           />
           <input
             v-model="passwordForm.newPassword"
             type="password"
-            class="sci-field h-10 rounded px-3 text-sm outline-none"
+            class="ui-field h-10 rounded px-3 text-sm outline-none"
             placeholder="新密码，至少6位"
           />
           <button
             @click="changePassword"
             :disabled="changingPassword || !passwordForm.oldPassword || passwordForm.newPassword.length < 6"
-            class="sci-primary rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
+            class="ui-primary rounded px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
           >
             {{ changingPassword ? '修改中...' : '确认修改' }}
           </button>
@@ -156,7 +156,97 @@
         <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
       </section>
 
-      <section class="sci-panel mb-5 rounded-lg p-5" :class="health?.ok ? 'border-emerald-200' : 'border-amber-200'">
+      <section class="ui-card mb-5 rounded-lg p-5">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="flex h-10 w-10 items-center justify-center rounded bg-amber-50 text-amber-700">
+              <BellRing :size="18" />
+            </span>
+            <div>
+              <h2 class="text-sm font-semibold text-slate-900">告警通知</h2>
+              <p class="text-xs text-slate-500">工作台组件触发阈值提醒/警报时，推一条到你的群机器人（飞书/钉钉/企业微信/Slack Webhook）。</p>
+            </div>
+          </div>
+          <button
+            @click="showAddChannel = !showAddChannel"
+            class="inline-flex items-center gap-2 rounded border border-amber-200 bg-white px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-50"
+          >
+            <Plus :size="14" />
+            添加通道
+          </button>
+        </div>
+
+        <div v-if="showAddChannel" class="mb-4 grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/40 p-3 md:grid-cols-[1fr_2fr_auto]">
+          <input
+            v-model="newChannel.name"
+            placeholder="通道名称，如「飞书群机器人」"
+            class="ui-field h-9 rounded px-3 text-sm outline-none"
+          />
+          <input
+            v-model="newChannel.webhookUrl"
+            placeholder="Webhook 地址（https://...）"
+            class="ui-field h-9 rounded px-3 text-sm outline-none"
+          />
+          <button
+            @click="addChannel"
+            :disabled="addingChannel || !newChannel.name || !newChannel.webhookUrl"
+            class="ui-primary rounded px-4 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
+          >
+            保存
+          </button>
+        </div>
+        <p v-if="channelError" class="mb-3 text-sm text-red-600">{{ channelError }}</p>
+
+        <div v-if="!channels.length" class="rounded border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400">
+          还没有配置告警通道，添加一个 Webhook 地址就能把组件告警推到群里。
+        </div>
+        <ul v-else class="space-y-2">
+          <li
+            v-for="c in channels"
+            :key="c.id"
+            class="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-100 p-3"
+          >
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-900">
+                {{ c.name }}
+                <span
+                  class="ml-1 rounded px-1.5 py-0.5 text-xs"
+                  :class="c.is_enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                >{{ c.is_enabled ? '启用中' : '已停用' }}</span>
+              </p>
+              <p class="truncate text-xs text-slate-400">{{ c.webhook_url }}</p>
+              <p v-if="c.last_error" class="mt-0.5 text-xs text-red-500">上次发送失败：{{ c.last_error }}</p>
+              <p v-else-if="c.last_sent_at" class="mt-0.5 text-xs text-slate-400">上次发送：{{ c.last_sent_at }}</p>
+            </div>
+            <div class="flex shrink-0 gap-1.5">
+              <button
+                @click="testChannel(c)"
+                :disabled="actingChannelId === c.id"
+                class="rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+              >
+                测试
+              </button>
+              <button
+                @click="toggleChannel(c)"
+                :disabled="actingChannelId === c.id"
+                class="rounded border px-2.5 py-1 text-xs transition-colors"
+                :class="c.is_enabled ? 'border-red-200 text-red-700 hover:bg-red-50' : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'"
+              >
+                {{ c.is_enabled ? '停用' : '启用' }}
+              </button>
+              <button
+                @click="removeChannel(c)"
+                :disabled="actingChannelId === c.id"
+                class="rounded border border-red-200 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50"
+              >
+                删除
+              </button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="ui-card mb-5 rounded-lg p-5" :class="health?.ok ? 'border-emerald-200' : 'border-amber-200'">
         <div class="flex items-center gap-3">
           <span :class="health?.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'" class="flex h-10 w-10 items-center justify-center rounded">
             <component :is="health?.ok ? CheckCircle2 : AlertTriangle" :size="20" />
@@ -176,7 +266,7 @@
         <article
           v-for="item in health?.checks || []"
           :key="item.name"
-          class="sci-panel rounded-lg p-4"
+          class="ui-card rounded-lg p-4"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -190,7 +280,7 @@
         </article>
       </div>
 
-      <section class="sci-panel mt-5 rounded-lg p-5">
+      <section class="ui-card mt-5 rounded-lg p-5">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-900">缓存状态</h2>
           <span class="text-xs text-slate-400">来自 /system/diagnose</span>
@@ -213,7 +303,7 @@
         </div>
       </section>
 
-      <section class="sci-panel mt-5 rounded-lg p-5">
+      <section class="ui-card mt-5 rounded-lg p-5">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-900">访问管控</h2>
           <span class="text-xs text-slate-400">限流与并发</span>
@@ -236,7 +326,7 @@
         </div>
       </section>
 
-      <section class="sci-panel mt-5 rounded-lg p-5">
+      <section class="ui-card mt-5 rounded-lg p-5">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-900">后台任务</h2>
           <span
@@ -256,12 +346,14 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { AlertTriangle, CheckCircle2, KeyRound, RefreshCcw, Save, UserRound } from 'lucide-vue-next'
+import { AlertTriangle, BellRing, CheckCircle2, KeyRound, Plus, RefreshCcw, Save, UserRound } from 'lucide-vue-next'
 import SectionTabs from '../components/SectionTabs.vue'
 import * as systemApi from '../api/system'
 import type { HealthStatus } from '../api/system'
 import { defaultProfile, getUserProfile, saveUserProfile } from '../api/userProfile'
 import type { UserProfile } from '../api/userProfile'
+import * as notificationApi from '../api/notification'
+import type { NotificationChannel } from '../api/notification'
 import { getErrorMessage } from '../utils/request'
 import { useUserStore } from '../stores/user'
 import { toastSuccess } from '../utils/toast'
@@ -280,6 +372,13 @@ const profileForm = reactive<UserProfile>({ ...defaultProfile })
 const profileLoading = ref(false)
 const savingProfile = ref(false)
 const profileError = ref('')
+
+const channels = ref<NotificationChannel[]>([])
+const channelError = ref('')
+const showAddChannel = ref(false)
+const addingChannel = ref(false)
+const actingChannelId = ref<number | null>(null)
+const newChannel = ref({ name: '', webhookUrl: '' })
 
 const loadHealth = async () => {
   loading.value = true
@@ -333,6 +432,72 @@ const saveProfile = async () => {
   }
 }
 
+const loadChannels = async () => {
+  channelError.value = ''
+  try {
+    channels.value = await notificationApi.listNotificationChannels()
+  } catch (e: any) {
+    channelError.value = getErrorMessage(e, '加载告警通道失败')
+  }
+}
+
+const addChannel = async () => {
+  addingChannel.value = true
+  channelError.value = ''
+  try {
+    await notificationApi.createNotificationChannel(newChannel.value.name.trim(), newChannel.value.webhookUrl.trim())
+    newChannel.value = { name: '', webhookUrl: '' }
+    showAddChannel.value = false
+    await loadChannels()
+  } catch (e: any) {
+    channelError.value = getErrorMessage(e, '添加告警通道失败')
+  } finally {
+    addingChannel.value = false
+  }
+}
+
+const toggleChannel = async (c: NotificationChannel) => {
+  actingChannelId.value = c.id
+  channelError.value = ''
+  try {
+    await notificationApi.updateNotificationChannel(c.id, { is_enabled: !c.is_enabled })
+    await loadChannels()
+  } catch (e: any) {
+    channelError.value = getErrorMessage(e, '操作失败')
+  } finally {
+    actingChannelId.value = null
+  }
+}
+
+const removeChannel = async (c: NotificationChannel) => {
+  if (!confirm(`确认删除告警通道「${c.name}」？`)) return
+  actingChannelId.value = c.id
+  channelError.value = ''
+  try {
+    await notificationApi.deleteNotificationChannel(c.id)
+    await loadChannels()
+  } catch (e: any) {
+    channelError.value = getErrorMessage(e, '删除失败')
+  } finally {
+    actingChannelId.value = null
+  }
+}
+
+const testChannel = async (c: NotificationChannel) => {
+  actingChannelId.value = c.id
+  channelError.value = ''
+  try {
+    const result = await notificationApi.testNotificationChannel(c.id)
+    toastSuccess(result.message || '已发送测试通知')
+    await loadChannels()
+  } catch (e: any) {
+    channelError.value = getErrorMessage(e, '测试发送失败')
+    await loadChannels()
+  } finally {
+    actingChannelId.value = null
+  }
+}
+
 const formatTime = (value: string) => new Date(value).toLocaleString()
 
 const checkLabel = (name: string) => ({
@@ -351,5 +516,6 @@ const checkLabel = (name: string) => ({
 onMounted(() => {
   loadHealth()
   loadProfile()
+  loadChannels()
 })
 </script>

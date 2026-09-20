@@ -80,6 +80,39 @@ def _send_by_webhook(phone: str, code: str, ttl_seconds: int, scene: str = "regi
             raise RuntimeError(f"短信服务返回异常状态: {resp.status}")
 
 
+def _send_by_aliyun(phone: str, code: str, ttl_seconds: int) -> None:
+    """使用号码认证服务发送项目生成的验证码，校验仍由本项目完成。"""
+
+    from alibabacloud_dypnsapi20170525.client import Client
+    from alibabacloud_dypnsapi20170525 import models as sms_models
+    from alibabacloud_tea_openapi import models as open_api_models
+    from alibabacloud_tea_util import models as util_models
+
+    config = open_api_models.Config(
+        access_key_id=os.environ["ALIBABA_CLOUD_ACCESS_KEY_ID"],
+        access_key_secret=os.environ["ALIBABA_CLOUD_ACCESS_KEY_SECRET"],
+        endpoint="dypnsapi.aliyuncs.com",
+    )
+    request = sms_models.SendSmsVerifyCodeRequest(
+        phone_number=phone,
+        sign_name=os.environ["SMS_ALIYUN_SIGN_NAME"],
+        template_code=os.environ["SMS_ALIYUN_TEMPLATE_CODE"],
+        template_param=json.dumps({"code": code, "min": str((ttl_seconds + 59) // 60)}),
+        valid_time=ttl_seconds,
+        return_verify_code=False,
+    )
+    try:
+        response = Client(config).send_sms_verify_code_with_options(
+            request, util_models.RuntimeOptions(connect_timeout=3000, read_timeout=5000)
+        )
+    except Exception as exc:
+        logger.error("阿里云短信认证请求失败: %s", type(exc).__name__)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="短信发送失败，请稍后重试") from None
+    if not response.body or response.body.code != "OK" or not response.body.success:
+        logger.error("阿里云短信认证返回失败: code=%s", getattr(response.body, "code", None))
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="短信发送失败，请稍后重试")
+
+
 def _send_sms(phone: str, code: str, ttl_seconds: int, scene: str) -> Dict[str, Optional[str]]:
     """发送验证码。
 
@@ -90,6 +123,9 @@ def _send_sms(phone: str, code: str, ttl_seconds: int, scene: str) -> Dict[str, 
     if provider == "webhook":
         _send_by_webhook(phone, code, ttl_seconds, scene)
         return {"provider": "webhook", "dev_code": None}
+    if provider == "aliyun":
+        _send_by_aliyun(phone, code, ttl_seconds)
+        return {"provider": "aliyun", "dev_code": None}
 
     logger.info(f"短信验证码[{scene}]: phone={phone}, code={code}, ttl={ttl_seconds}s")
     dev_code = code if os.getenv("SMS_EXPOSE_DEV_CODE", "0") == "1" else None

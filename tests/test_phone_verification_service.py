@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -9,6 +10,7 @@ from service.phone_verification_service import (
     verify_register_code,
     verify_verification_code,
 )
+from utils.cache import verification_cache
 
 
 class PhoneVerificationServiceTest(unittest.TestCase):
@@ -49,6 +51,24 @@ class PhoneVerificationServiceTest(unittest.TestCase):
         # 用对场景才能通过，且两个验证码依然独立有效
         self.assertEqual(verify_verification_code(phone, register_result["dev_code"], scene="register"), phone)
         self.assertEqual(verify_verification_code(phone, reset_result["dev_code"], scene="reset"), phone)
+
+    def test_aliyun_provider_uses_local_verification(self):
+        os.environ["SMS_PROVIDER"] = "aliyun"
+        phone = "13921810003"
+        with patch("service.phone_verification_service._send_by_aliyun") as send:
+            result = send_register_code(phone, client_ip="127.0.0.1")
+        code = send.call_args.args[1]
+        self.assertEqual(result["provider"], "aliyun")
+        self.assertIsNone(result["dev_code"])
+        self.assertEqual(verify_register_code(phone, code), phone)
+
+    def test_aliyun_failure_does_not_cache_code(self):
+        os.environ["SMS_PROVIDER"] = "aliyun"
+        phone = "13921810004"
+        with patch("service.phone_verification_service._send_by_aliyun", side_effect=RuntimeError("send failed")):
+            with self.assertRaises(RuntimeError):
+                send_register_code(phone, client_ip="127.0.0.1")
+        self.assertIsNone(verification_cache.get(("sms_register", phone)))
 
 
 if __name__ == "__main__":

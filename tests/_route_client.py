@@ -160,6 +160,7 @@ def _purge_users(where_users: str) -> int:
             f"DELETE FROM llm_config WHERE user_id IN {inc}",
             f"DELETE FROM user_profile WHERE user_id IN {inc}",
             f"DELETE FROM memory WHERE user_id IN {inc}",
+            f"DELETE FROM user_subscription WHERE user_id IN {inc}",
             f"DELETE FROM user_role WHERE user_id IN {inc}",
             f"DELETE FROM `user` WHERE id IN {inc}",
         ]

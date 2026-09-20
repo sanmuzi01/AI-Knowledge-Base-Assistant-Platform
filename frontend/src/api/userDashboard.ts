@@ -70,3 +70,19 @@ export async function getUserDashboard(): Promise<UserDashboard> {
   const { data } = await request.get<UserDashboard>('/user/dashboard')
   return data
 }
+
+export interface UserQuotaStatus {
+  plan_id: number | null
+  plan_name: string | null
+  plan_display_name: string
+  monthly_token_limit: number
+  used_tokens: number
+  remaining_tokens: number | null
+  unlimited: boolean
+  period_start: string
+}
+
+export async function getUserQuota(): Promise<UserQuotaStatus> {
+  const { data } = await request.get<UserQuotaStatus>('/user/quota')
+  return data
+}

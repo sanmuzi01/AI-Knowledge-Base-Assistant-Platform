@@ -4,7 +4,7 @@
       <div class="mx-auto flex max-w-5xl items-center gap-3">
         <button
           @click="router.push(`/knowledge-spaces/${spaceId}`)"
-          class="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="返回空间详情"
         >
           <ArrowLeft :size="16" />
@@ -78,7 +78,7 @@
               >{{ savingSet ? '保存中…' : '存成固定评估集' }}</button>
               <button
                 @click="runEval" :disabled="evalRunning"
-                class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >{{ evalRunning ? '评估中…' : '跑一次' }}</button>
             </div>
           </div>
@@ -113,10 +113,16 @@
                   <p class="truncate text-sm font-medium text-slate-800">{{ s.name }}</p>
                   <p class="text-xs text-slate-400">{{ s.cases.length }} 条用例</p>
                 </div>
-                <button
-                  @click="runFixedSet(s)" :disabled="runningSetId === s.id"
-                  class="sci-primary shrink-0 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
-                >{{ runningSetId === s.id ? '跑一次…' : '重新跑一次' }}</button>
+                <div class="flex shrink-0 gap-1.5">
+                  <button
+                    @click="runFixedSet(s)" :disabled="runningSetId === s.id"
+                    class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+                  >{{ runningSetId === s.id ? '跑一次…' : '重新跑一次' }}</button>
+                  <button
+                    @click="removeEvalSet(s)" :disabled="runningSetId === s.id"
+                    class="rounded border border-red-200 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-40"
+                  >删除</button>
+                </div>
               </div>
               <div v-if="runResults[s.id]" class="mt-2 border-t border-slate-100 pt-2">
                 <div class="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
@@ -153,7 +159,7 @@ import { ArrowLeft } from 'lucide-vue-next'
 import * as ksApi from '../../api/knowledgeSpace'
 import type { KnowledgeSpace, SpaceHealth } from '../../api/knowledgeSpace'
 import { exportRagEvalCases } from '../../api/ragDebug'
-import { evaluateSpaceRag, createEvalSet, listEvalSets, runEvalSet } from '../../api/evaluation'
+import { evaluateSpaceRag, createEvalSet, deleteEvalSet, listEvalSets, runEvalSet } from '../../api/evaluation'
 import type { RagEvalReport, EvalSet, EvalRunResult } from '../../api/evaluation'
 import { getErrorMessage } from '../../utils/request'
 
@@ -260,6 +266,17 @@ const runFixedSet = async (s: EvalSet) => {
     evalMsg.value = getErrorMessage(e, '运行失败')
   } finally {
     runningSetId.value = null
+  }
+}
+
+const removeEvalSet = async (s: EvalSet) => {
+  if (!confirm(`确认删除固定评估集「${s.name}」？历史运行记录也会一并删除。`)) return
+  try {
+    await deleteEvalSet(s.id)
+    await loadEvalSets()
+  } catch (e: any) {
+    evalErr.value = true
+    evalMsg.value = getErrorMessage(e, '删除失败')
   }
 }
 

@@ -14,6 +14,7 @@ from service import knowledge_async_service, knowledge_diagnostics_async_service
 from service.access_control import get_owned_agent, get_owned_knowledge
 from service.web_crawler_service import CrawlerError
 from service.web_crawler_async_service import async_crawl_url_to_markdown
+from service.rag.rag_service import SUPPORTED_FILE_TYPES
 from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
@@ -25,8 +26,9 @@ router = APIRouter(prefix="/knowledge", tags=["知识库管理"])
 # 领域异常：本文件的 404/400 已统一为 service.exceptions（500 兜底与 429 限流保留 HTTPException）。
 # 收口进度见 docs/sync-async-boundary.md。
 
-# 允许的文件类型
-ALLOWED_TYPES = {"txt", "md", "pdf", "docx"}
+# 允许的文件类型——单一事实来源是 rag_service.SUPPORTED_FILE_TYPES（解析器注册表），
+# 不要在这里再维护一份独立列表，否则新增类型要改两处、容易漏改。
+ALLOWED_TYPES = set(SUPPORTED_FILE_TYPES)
 
 
 class KnowledgeSearchRequest(BaseModel):

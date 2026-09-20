@@ -66,7 +66,7 @@ const html = computed<string>(() => {
 .prose-widget :deep(h3) {
   font-weight: 600;
   margin: 0.9em 0 0.4em;
-  color: #0f172a;
+  color: var(--ink);
 }
 .prose-widget :deep(h2) {
   font-size: 0.95em;
@@ -89,22 +89,22 @@ const html = computed<string>(() => {
   margin: 0.2em 0;
 }
 .prose-widget :deep(strong) {
-  color: #0f172a;
+  color: var(--ink);
 }
 .prose-widget :deep(blockquote) {
   border-left: 3px solid #fbbf24;
-  background: #fffbeb;
+  background: color-mix(in srgb, #fbbf24 14%, transparent);
   margin: 0.6em 0;
   padding: 0.3em 0.7em;
-  color: #92400e;
+  color: var(--ink);
   border-radius: 0 4px 4px 0;
 }
 .prose-widget :deep(a) {
-  color: #0284c7;
+  color: var(--accent);
   text-decoration: underline;
 }
 .prose-widget :deep(code) {
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--sunken);
   padding: 0 4px;
   border-radius: 4px;
 }
@@ -115,7 +115,7 @@ const html = computed<string>(() => {
 }
 .prose-widget :deep(th),
 .prose-widget :deep(td) {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line-2);
   padding: 3px 8px;
 }
 </style>

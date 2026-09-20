@@ -1,14 +1,14 @@
 <template>
   <div class="h-screen overflow-y-auto bg-transparent">
     <div class="mx-auto max-w-7xl px-4 py-5 lg:px-6">
-      <header class="mb-4 rounded-lg border border-sky-200/70 bg-white/70 px-3 py-2">
+      <header class="mb-4 rounded-lg border border-sky-200/70 ui-glass px-3 py-2">
         <AgentSubnav :agent-id="agentId" :agent-name="debug?.agent.name" active="debug">
           <template #actions>
             <button @click="runOneClickCheck" :disabled="dryRunLoading" class="inline-flex h-9 items-center gap-2 rounded border border-sky-200 bg-white px-3 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-60">
               <ClipboardCheck :size="15" />
               一键体检
             </button>
-            <button @click="loadDebug" :disabled="loading" class="sci-primary inline-flex h-9 items-center gap-2 rounded px-3 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none">
+            <button @click="loadDebug" :disabled="loading" class="ui-primary inline-flex h-9 items-center gap-2 rounded px-3 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none">
               <RefreshCcw :size="15" :class="loading ? 'animate-spin' : ''" />
               刷新
             </button>
@@ -36,7 +36,7 @@
         </section>
 
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_320px]">
-          <aside class="sci-panel rounded-lg p-2 xl:sticky xl:top-5 xl:self-start">
+          <aside class="ui-card rounded-lg p-2 xl:sticky xl:top-5 xl:self-start">
             <button
               v-for="item in workbenchTabs"
               :key="item.key"
@@ -50,7 +50,7 @@
           </aside>
 
           <main class="min-w-0 space-y-4">
-            <section v-if="activePanel === 'dry-run'" class="sci-panel rounded-lg">
+            <section v-if="activePanel === 'dry-run'" class="ui-card rounded-lg">
               <header class="border-b border-slate-200 px-4 py-3">
                 <h2 class="text-sm font-semibold text-slate-900">对话预检</h2>
                 <p class="mt-1 text-xs text-slate-500">只检查资料命中和消息组装，不调用大模型，也不写入聊天记录。</p>
@@ -59,14 +59,14 @@
                 <div class="flex flex-col gap-2 lg:flex-row">
                   <input
                     v-model="dryRunMessage"
-                    class="sci-field h-10 min-w-0 flex-1 rounded px-3 text-sm outline-none"
+                    class="ui-field h-10 min-w-0 flex-1 rounded px-3 text-sm outline-none"
                     placeholder="例如：根据我上传的资料，总结一下项目当前进度"
                     @keydown.enter="runDryRun"
                   />
                   <button
                     @click="runDryRun"
                     :disabled="dryRunLoading || !dryRunMessage.trim()"
-                    class="sci-primary inline-flex h-10 items-center justify-center rounded px-4 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
+                    class="ui-primary inline-flex h-10 items-center justify-center rounded px-4 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
                   >
                     {{ dryRunLoading ? '检查中...' : '运行检查' }}
                   </button>
@@ -108,7 +108,7 @@
               </div>
             </section>
 
-            <section v-if="activePanel === 'evaluation'" class="sci-panel rounded-lg">
+            <section v-if="activePanel === 'evaluation'" class="ui-card rounded-lg">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
                 <div>
                   <h2 class="text-sm font-semibold text-slate-900">RAG 评估</h2>
@@ -129,7 +129,7 @@
                   <textarea
                     v-model="evalCasesText"
                     rows="12"
-                    class="sci-field w-full rounded px-3 py-2 font-mono text-xs leading-relaxed outline-none"
+                    class="ui-field w-full rounded px-3 py-2 font-mono text-xs leading-relaxed outline-none"
                     placeholder="填写评估问题集"
                   ></textarea>
                 </label>
@@ -137,7 +137,7 @@
                 <div class="space-y-3">
                   <label class="block">
                     <span class="mb-1 block text-xs font-medium text-slate-600">Top K</span>
-                    <input v-model.number="evalTopK" type="number" min="1" max="20" class="sci-field h-10 w-full rounded px-3 text-sm outline-none" />
+                    <input v-model.number="evalTopK" type="number" min="1" max="20" class="ui-field h-10 w-full rounded px-3 text-sm outline-none" />
                   </label>
                   <label class="flex items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                     <span class="text-xs font-medium text-slate-700">启用 LLM Judge</span>
@@ -148,14 +148,14 @@
                     <input
                       v-model="evalJudgeModel"
                       :disabled="!evalUseJudge"
-                      class="sci-field h-10 w-full rounded px-3 text-sm outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                      class="ui-field h-10 w-full rounded px-3 text-sm outline-none disabled:bg-slate-100 disabled:text-slate-400"
                       placeholder="例如 gpt-4o-mini"
                     />
                   </label>
                   <button
                     @click="runRagEvaluation"
                     :disabled="evalLoading || !evalCasesText.trim()"
-                    class="sci-primary inline-flex h-10 w-full items-center justify-center gap-2 rounded px-4 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
+                    class="ui-primary inline-flex h-10 w-full items-center justify-center gap-2 rounded px-4 text-sm font-medium text-white disabled:bg-slate-300 disabled:shadow-none"
                   >
                     <BarChart3 :size="16" />
                     {{ evalLoading ? '评估中...' : '运行评估' }}
@@ -212,7 +212,7 @@
               </div>
             </section>
 
-            <section v-if="activePanel === 'prompt'" class="sci-panel rounded-lg">
+            <section v-if="activePanel === 'prompt'" class="ui-card rounded-lg">
               <header class="border-b border-slate-200 px-4 py-3">
                 <h2 class="text-sm font-semibold text-slate-900">指令与上下文</h2>
                 <p class="mt-1 text-xs text-slate-500">拆开查看助手设定、用户画像、能力规则和最终发送给模型的完整指令。</p>
@@ -232,7 +232,7 @@
               </div>
             </section>
 
-            <section v-if="activePanel === 'resources'" class="sci-panel rounded-lg">
+            <section v-if="activePanel === 'resources'" class="ui-card rounded-lg">
               <header class="border-b border-slate-200 px-4 py-3">
                 <h2 class="text-sm font-semibold text-slate-900">能力、权限与知识库</h2>
                 <p class="mt-1 text-xs text-slate-500">查看当前 Agent 能调用什么、能访问什么，以及有哪些资料可用于 RAG。</p>
@@ -300,7 +300,7 @@
             </section>
           </main>
 
-          <aside class="sci-panel rounded-lg xl:sticky xl:top-5 xl:self-start">
+          <aside class="ui-card rounded-lg xl:sticky xl:top-5 xl:self-start">
             <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div>
                 <h2 class="text-sm font-semibold text-slate-900">诊断结论</h2>

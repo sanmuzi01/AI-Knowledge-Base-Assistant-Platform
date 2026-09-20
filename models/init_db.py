@@ -332,6 +332,34 @@ class KbAuditLog(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
+class Plan(Base):
+    """套餐：管理员配置，用户订阅其一。MVP 只做「每自然月 Token 用量」这一种配额资源
+
+    （Agent 数 / 知识库空间数等其它维度的限额留作后续按需扩展）。
+    monthly_token_limit=0 表示不限量。
+    """
+    __tablename__ = "plan"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True)              # 程序标识，如 "free" / "pro"
+    display_name = Column(String(100), nullable=False)                  # 展示名
+    monthly_token_limit = Column(Integer, nullable=False, default=0)    # 0 = 不限量
+    price_desc = Column(String(200), nullable=True)                     # 纯展示用价格说明，不接支付
+    is_default = Column(Integer, nullable=False, default=0)             # 未订阅用户落到这个套餐（至多一条为 1）
+    is_enabled = Column(Integer, nullable=False, default=1)             # 0=停用，停用后不可再被新订阅
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class UserSubscription(Base):
+    """用户 ↔ 套餐 的当前绑定，一人一条。"""
+    __tablename__ = "user_subscription"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_subscription_user"), nullable=False, unique=True)
+    plan_id = Column(Integer, ForeignKey("plan.id", name="fk_subscription_plan"), nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class Organization(Base):
     """企业/组织（阶段6 预留：建表，暂不接入 user_space_ids 的可见性计算）。"""
     __tablename__ = "organizations"
@@ -653,6 +681,52 @@ class UserWidget(Base):
     last_run_at = Column(DateTime, nullable=True)
     last_status = Column(String(20), nullable=True)            # ok / error
     fail_count = Column(Integer, nullable=False, default=0)
+    last_alert_level = Column(String(10), nullable=True)        # ok/warn/alert，用于外部告警推送去重（只在等级变化时推）
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class NotificationChannel(Base):
+    """用户配置的外部告警推送通道。
+
+    目前只做通用 Webhook（飞书/钉钉/企业微信/Slack 自定义机器人、或用户自建接收端，
+    本质都是一个接受 JSON POST 的 URL），不做邮件/短信——那些需要额外的发信基础设施，
+    Webhook 零依赖就能覆盖国内最常用的群机器人场景，先把「组件阈值告警能推到群里」这个
+    最高频需求做完整。
+    """
+    __tablename__ = "notification_channel"
+    __table_args__ = (
+        Index("idx_notification_channel_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_notification_channel_user"), nullable=False)
+    name = Column(String(80), nullable=False)
+    kind = Column(String(20), nullable=False, default="webhook")   # 目前只有 webhook，预留扩展
+    webhook_url = Column(String(1000), nullable=False)
+    is_enabled = Column(Integer, nullable=False, default=1)
+    last_sent_at = Column(DateTime, nullable=True)
+    last_error = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class AgentPipeline(Base):
+    """Agent 流水线：把多个 Agent 串成一条固定顺序的处理链——上一步的回答自动作为
+
+    下一步的输入消息。范围有意收窄成「线性串行」，不做分支/条件/并行这些真正的
+    工作流引擎才需要的复杂度：多数人的诉求是"先用 A 处理一遍，再让 B 精加工"这种
+    简单串联，值不值得上完整 DAG 编排，等有真实需求信号再说。
+    """
+    __tablename__ = "agent_pipeline"
+    __table_args__ = (
+        Index("idx_agent_pipeline_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_pipeline_user"), nullable=False)
+    name = Column(String(120), nullable=False)
+    description = Column(String(500), nullable=True)
+    steps_json = Column(Text, nullable=False)   # [{"agent_id": 1, "label": "第一步"}, ...]
+    is_enabled = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -744,6 +818,8 @@ def _run_migrations():
          "ALTER TABLE agent ADD COLUMN kb_refuse_when_empty INT NOT NULL DEFAULT 1 COMMENT '无命中时拒答'"),
         ("knowledge", "chunk_size",
          "ALTER TABLE knowledge ADD COLUMN chunk_size INT NULL COMMENT '用户自选切块大小(字符)，NULL=用默认'"),
+        ("user_widgets", "last_alert_level",
+         "ALTER TABLE user_widgets ADD COLUMN last_alert_level VARCHAR(10) NULL COMMENT 'ok/warn/alert，外部告警推送去重用'"),
     ]
     with engine.connect() as conn:
         for table, col, ddl in migrations:
@@ -897,6 +973,34 @@ def _ensure_builtin_admin():
         db.close()
 
 
+def _ensure_default_plan():
+    """确保存在一个默认套餐，未订阅用户回退到它——避免"没有任何套餐配置"时
+
+    配额检查逻辑无所适从。默认套餐初始不限量（monthly_token_limit=0），
+    管理员可以在后台随时改成有限额的套餐，或新建套餐后把它设为默认。
+    """
+    db = SessionLocal()
+    try:
+        exists = db.query(Plan).filter(Plan.is_default == 1).first()
+        if exists:
+            return
+        plan = db.query(Plan).filter(Plan.name == "free").first()
+        if not plan:
+            plan = Plan(
+                name="free", display_name="免费版", monthly_token_limit=0,
+                price_desc="默认套餐", is_default=1, is_enabled=1,
+            )
+            db.add(plan)
+        else:
+            plan.is_default = 1
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[Seed] 默认套餐初始化失败: {e}")
+    finally:
+        db.close()
+
+
 _BOOTSTRAP_DONE = False
 _BOOTSTRAP_LOCK_NAME = "kb_bootstrap"
 
@@ -925,6 +1029,7 @@ def _run_bootstrap_steps(seed_admin: bool) -> None:
     _run_migrations()
     if seed_admin:
         _ensure_builtin_admin()
+        _ensure_default_plan()
 
 
 def bootstrap_database(*, seed_admin: bool = True, force: bool = False) -> None:

@@ -1,5 +1,5 @@
 <template>
-  <section class="sci-panel h-fit rounded-lg p-5">
+  <section class="ui-card h-fit rounded-lg p-5">
     <div class="flex items-center gap-2">
       <LayoutGrid :size="16" class="text-sky-500" />
       <h2 class="text-sm font-semibold text-slate-800">添加小窗口</h2>
@@ -30,7 +30,7 @@
     <button
       @click="onDesign"
       :disabled="designing || !prompt.trim()"
-      class="sci-primary mt-2 inline-flex w-full items-center justify-center gap-2 rounded px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+      class="ui-primary mt-2 inline-flex w-full items-center justify-center gap-2 rounded px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Wand2 :size="15" />
       {{ designing ? '正在生成…' : '生成预览' }}
@@ -68,7 +68,7 @@
         <button
           @click="onCreate"
           :disabled="creating"
-          class="sci-primary inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+          class="ui-primary inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
         >
           <Check :size="14" />{{ creating ? '创建中…' : '确认创建' }}
         </button>

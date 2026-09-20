@@ -8,7 +8,7 @@
       <input v-model="desc" class="mt-1 w-full rounded border border-sky-200 px-3 py-2 text-sm outline-none focus:border-sky-400" />
       <div class="mt-4 flex justify-end gap-2">
         <button @click="emit('close')" class="rounded border border-sky-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-sky-50">取消</button>
-        <button @click="save" :disabled="saving" class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+        <button @click="save" :disabled="saving" class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </div>

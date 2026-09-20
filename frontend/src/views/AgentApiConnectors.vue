@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent text-slate-950">
-    <header class="border-b border-sky-200/70 bg-white/78 px-5 py-3 shadow-sm backdrop-blur-xl lg:px-8">
+    <header class="border-b border-sky-200/70 ui-glass px-5 py-3 shadow-sm backdrop-blur-xl lg:px-8">
       <AgentSubnav :agent-id="agentId" :agent-name="agent?.name" active="tools" />
     </header>
 
@@ -142,7 +142,7 @@
 
         <button
           @click="submit" :disabled="submitting"
-          class="sci-primary mt-3 h-9 rounded px-4 text-sm font-medium text-white disabled:opacity-40"
+          class="ui-primary mt-3 h-9 rounded px-4 text-sm font-medium text-white disabled:opacity-40"
         >{{ submitting ? '创建中…' : '创建接口工具' }}</button>
       </section>
     </main>

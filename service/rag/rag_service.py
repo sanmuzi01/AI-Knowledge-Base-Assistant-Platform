@@ -15,6 +15,7 @@ RAG编排服务：把文档解析→切分→嵌入→向量存储→DB存储 �
 路由层不该关心"怎么切分文档""怎么调嵌入API"，
 这些业务逻辑封装在这里，路由层只调 upload_and_index() / search()。
 """
+import base64
 import os
 import re
 import uuid
@@ -30,7 +31,7 @@ from service.rag.embedding_service import aembed_query, aembed_query_async
 from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge,space_collection_key)
 # 导入 DAO（4层架构：Service层只调DAO，不直接碰 ORM）
 from models.knowledge_dao import (
-    create_knowledge,get_knowledge_by_id,
+    create_knowledge,get_knowledge_by_id,get_knowledge_by_ids,
     delete_knowledge as dao_delete_knowledge,
     update_knowledge_status)
 
@@ -83,19 +84,112 @@ def _get_rerank_client():
         logger.warning(f"创建Reranker失败: {e}，将跳过重排序")
         return None
 # ========== 文档解析（不同文件类型用不同库） ==========
-def _parse_pdf(file_path:str)->str:
+
+MAX_OCR_PAGES_PER_DOCUMENT = int(os.getenv("RAG_MAX_OCR_PAGES_PER_DOCUMENT", "30"))
+
+
+def _parse_pdf(file_path: str, db=None, user_id: int = None) -> str:
     """解析PDF成纯文本。每页前插一个 [第N页] 标记——纯文本层面最简单的定位手段：
     某个 chunk 切到哪页，标记会随着切块一起留在 chunk 内容里，引用展示时用户
-    一眼就知道这段话来自原 PDF 第几页，不用额外的页码字段/schema 改动。"""
+    一眼就知道这段话来自原 PDF 第几页，不用额外的页码字段/schema 改动。
+
+    扫描件/纯图片页提取不出文字时，如果调用方传了 db/user_id 且用户配置了视觉模型
+    （GLM-4V / GPT-4o），会尝试用视觉模型 OCR 出文字，标成 [第N页·OCR识别]；
+    没配视觉模型、或 OCR 失败，就沿用老行为跳过这页，不让整份文档处理失败。
+    单份文档最多 OCR MAX_OCR_PAGES_PER_DOCUMENT 页（默认30），避免超大扫描件
+    在后台任务里跑出几十上百次模型调用。
+    """
     from pypdf import PdfReader
+
     reader = PdfReader(file_path)
     parts = []
-    for page_no, page in enumerate(reader.pages, start=1):#当前 PDF 文件里面所有页面的列表，页码从1开始（人类习惯）
-        page_text = (page.extract_text() or "").strip()
-        if not page_text:
-            continue  # 扫描件/纯图片页提取不出文字，跳过，不留一个空页码占位
-        parts.append(f"[第{page_no}页]\n{page_text}")
+    vision_model = None
+    vision_resolved = False
+    render_doc = None
+    ocr_used = 0
+    try:
+        for page_no, page in enumerate(reader.pages, start=1):
+            page_text = (page.extract_text() or "").strip()
+            if page_text:
+                parts.append(f"[第{page_no}页]\n{page_text}")
+                continue
+            # 扫描件/纯图片页：没有 db/user_id（比如未来的非文档场景调用）就直接跳过
+            if db is None or user_id is None or ocr_used >= MAX_OCR_PAGES_PER_DOCUMENT:
+                continue
+            if not vision_resolved:
+                from service.llm.vision_ocr import resolve_vision_model
+                vision_model = resolve_vision_model(db, user_id)
+                vision_resolved = True
+            if not vision_model:
+                continue
+            try:
+                if render_doc is None:
+                    import pymupdf  # 未安装时跳过 OCR，不影响其它页的正常解析
+                    render_doc = pymupdf.open(file_path)
+                pixmap = render_doc[page_no - 1].get_pixmap(dpi=200)
+                image_b64 = base64.b64encode(pixmap.tobytes("png")).decode("ascii")
+                from service.llm.vision_ocr import ocr_image
+                model_name, api_key, api_url = vision_model
+                ocr_text = ocr_image(model_name, api_key, api_url, image_b64)
+                ocr_used += 1
+                if ocr_text:
+                    parts.append(f"[第{page_no}页·OCR识别]\n{ocr_text}")
+            except ImportError:
+                logger.warning("未安装 pymupdf，扫描件页无法 OCR，已跳过")
+                vision_model = None  # 后续页不用再试，省得重复触发同一个 ImportError
+            except Exception as e:  # noqa: BLE001 - OCR 失败只影响这一页，不影响整份文档
+                logger.warning(f"OCR 识别第{page_no}页失败，跳过: {e}")
+    finally:
+        if render_doc is not None:
+            render_doc.close()
     return "\n\n".join(parts)
+
+
+def _parse_xlsx(file_path: str, db=None, user_id: int = None) -> str:
+    """解析 Excel 成纯文本：每个工作表一段，每行用 | 分隔单元格，跳过完全空白的行。"""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(file_path, read_only=True, data_only=True)
+    try:
+        parts = []
+        for sheet in workbook.worksheets:
+            rows = []
+            for row in sheet.iter_rows(values_only=True):
+                cells = ["" if v is None else str(v).strip() for v in row]
+                if any(cells):
+                    rows.append(" | ".join(cells))
+            if rows:
+                parts.append(f"【{sheet.title}】\n" + "\n".join(rows))
+        return "\n\n".join(parts)
+    finally:
+        workbook.close()
+
+
+def _parse_image(file_path: str, db=None, user_id: int = None) -> str:
+    """纯图片文件：整张图交给视觉模型 OCR。
+
+    和扫描件 PDF 页不同——图片上传的全部意义就是里面的文字，没有"提取不到就跳过"
+    这个退路，没配视觉模型或识别失败都应该是明确的错误，而不是悄悄产出一份空文档。
+    """
+    if db is None or user_id is None:
+        raise ValueError("图片文件需要 OCR 识别，当前调用场景不支持")
+
+    from service.llm.vision_ocr import ocr_image, resolve_vision_model
+
+    vision_model = resolve_vision_model(db, user_id)
+    if not vision_model:
+        raise ValueError(
+            "识别图片文字需要先配置一个支持视觉的模型（智谱 GLM-4V 或 OpenAI GPT-4o/GPT-4o-mini），"
+            "请到「模型连接」页添加后重试。"
+        )
+    ext = os.path.splitext(file_path)[1].lstrip(".").lower()
+    mime_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext or 'png'}"
+    with open(file_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("ascii")
+    model_name, api_key, api_url = vision_model
+    return ocr_image(model_name, api_key, api_url, image_b64, mime_type=mime_type)
+
+
 
 
 def _iter_docx_block_items(doc):
@@ -136,7 +230,7 @@ def _table_to_text(table) -> str:
     return "【表格】\n" + "\n".join(rows)
 
 
-def _parse_docx(file_path:str)->str:
+def _parse_docx(file_path: str, db=None, user_id: int = None) -> str:
     """解析 Word(.docx) 成纯文本，段落和表格按文中原有顺序输出。"""
     import docx
     doc = docx.Document(file_path)
@@ -150,7 +244,7 @@ def _parse_docx(file_path:str)->str:
             if block.text.strip():
                 parts.append(block.text)
     return "\n".join(parts)
-def _parse_txt(file_path:str)->str:
+def _parse_txt(file_path: str, db=None, user_id: int = None) -> str:
     """解析纯文本 / Markdown"""
     for encoding in ("utf-8", "utf-8-sig", "gb18030"):
         try:
@@ -160,21 +254,34 @@ def _parse_txt(file_path:str)->str:
             continue
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         return f.read()
-def parse_document(file_path:str,file_type:str)->str:#文件在哪里 和 文件是什么类型
-    """根据文件类型选择解析器
+# 支持的文件类型 → 解析函数，单一事实来源。路由层的 ALLOWED_TYPES 应该从
+# SUPPORTED_FILE_TYPES 派生，不要各自维护一份硬编码列表（否则新增类型要改两处，
+# 之前 FasdtApi/knowledge.py 和 service/knowledge_space/document_service.py
+# 就各自维护了一份一模一样的 {"txt","md","pdf","docx"}，容易改漏）。
+_PARSERS = {
+    "pdf": _parse_pdf,
+    "docx": _parse_docx,
+    "txt": _parse_txt,
+    "md": _parse_txt,  # markdown 和纯文本解析方式一样
+    "xlsx": _parse_xlsx,
+    "jpg": _parse_image,
+    "jpeg": _parse_image,
+    "png": _parse_image,
+}
+SUPPORTED_FILE_TYPES = sorted(_PARSERS.keys())
+
+
+def parse_document(file_path: str, file_type: str, db=None, user_id: int = None) -> str:
+    """根据文件类型选择解析器。
       新增文件类型时只加一行 key-value，不用改 if 结构。
       而且抛错时能直接给出"不支持的类型"，不用写默认else。
+      db/user_id 是可选的——只有 PDF 扫描页 OCR 和纯图片 OCR 需要它们去查用户配置的
+      视觉模型，其它解析器直接忽略。
       """
-    parsers = {
-        "pdf": _parse_pdf,
-        "docx": _parse_docx,
-        "txt": _parse_txt,
-        "md": _parse_txt,  # markdown 和纯文本解析方式一
-    }
-    parser = parsers.get(file_type)
+    parser = _PARSERS.get(file_type)
     if parser is None:
-        raise ValueError(f"不支持的文件类型: {file_type}，支持: {list(parsers.keys())}")
-    return parser(file_path)
+        raise ValueError(f"不支持的文件类型: {file_type}，支持: {SUPPORTED_FILE_TYPES}")
+    return parser(file_path, db=db, user_id=user_id)
 # ========== 文本切分 ==========
 def _split_fixed_window(text: str, chunk_size: int, overlap: int) -> List[str]:
     """定长滑窗切分（旧算法）。只在单个自然段/表格本身就超过 chunk_size 时兜底用，
@@ -293,9 +400,9 @@ def index_existing_knowledge(db, user_id: int, agent_id: int, knowledge_id: int)
         update_knowledge_status(db,knowledge,"processing")#数据库，知识库文件记录，状态
         db.flush()
         # ---------- 第4步：解析文档 ----------
-        text = parse_document(knowledge.file_path, knowledge.file_type)#文件路径和文件类型
+        text = parse_document(knowledge.file_path, knowledge.file_type, db=db, user_id=user_id)
         if not text.strip():
-            raise ValueError("没读到文字内容。若是扫描件 / 图片版 PDF，请先用 OCR 转成可复制的文字再上传。")
+            raise ValueError("没读到文字内容——文档太短、全是空白/表格图片，或者是扫描件但没有配置视觉模型（智谱 GLM-4V / OpenAI GPT-4o）做 OCR 识别。")
         # ---------- 第5步：切分（按文档自选 chunk_size，没选用默认） ----------
         _cs, _ov = _effective_chunk_params(knowledge)
         chunks_text = split_text(text, chunk_size=_cs, overlap=_ov)
@@ -364,9 +471,9 @@ def reindex_knowledge(db, user_id: int, agent_id: int, knowledge_id: int) -> Dic
         db.flush()
 
         # ---- 先把新内容全部生成好，旧数据这时候还原封不动 ----
-        text = parse_document(knowledge.file_path, knowledge.file_type)
+        text = parse_document(knowledge.file_path, knowledge.file_type, db=db, user_id=user_id)
         if not text.strip():
-            raise ValueError("没读到文字内容。若是扫描件 / 图片版 PDF，请先用 OCR 转成可复制的文字再上传。")
+            raise ValueError("没读到文字内容——文档太短、全是空白/表格图片，或者是扫描件但没有配置视觉模型（智谱 GLM-4V / OpenAI GPT-4o）做 OCR 识别。")
         _cs, _ov = _effective_chunk_params(knowledge)
         chunks_text = split_text(text, chunk_size=_cs, overlap=_ov)
         if not chunks_text:
@@ -450,10 +557,7 @@ def _build_search_results(
     vector_ids = [r["id"] for r in results]
     chunks = get_chunks_by_vector_ids(db, vector_ids)
     knowledge_ids = {chunk.knowledge_id for chunk in chunks}
-    knowledge_map = {
-        kid: get_knowledge_by_id(db, kid)
-        for kid in knowledge_ids
-    }
+    knowledge_map = get_knowledge_by_ids(db, knowledge_ids)
     chunk_map = {c.vector_id: c for c in chunks}
     final = []
     for r in results:
@@ -536,7 +640,7 @@ async def _build_search_results_async(
     import asyncio
 
     from models.knowledge_async_dao import (
-        get_chunks_by_vector_ids_async, get_knowledge_by_id_async,
+        get_chunks_by_vector_ids_async, get_knowledge_by_ids_async,
     )
 
     if not query_vector:
@@ -555,7 +659,7 @@ async def _build_search_results_async(
     vector_ids = [r["id"] for r in results]
     chunks = await get_chunks_by_vector_ids_async(db, vector_ids)
     knowledge_ids = {chunk.knowledge_id for chunk in chunks}
-    knowledge_map = {kid: await get_knowledge_by_id_async(db, kid) for kid in knowledge_ids}
+    knowledge_map = await get_knowledge_by_ids_async(db, knowledge_ids)
     chunk_map = {c.vector_id: c for c in chunks}
     final = []
     for r in results:

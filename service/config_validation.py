@@ -80,13 +80,21 @@ def validate_runtime_config() -> Dict[str, object]:
         })
 
     sms_provider = os.getenv("SMS_PROVIDER", "console").strip().lower()
-    if production and sms_provider != "webhook":
-        checks.append({"name": "SMS_PROVIDER", "ok": False, "level": "error", "message": "生产环境必须使用 webhook 短信服务"})
+    if sms_provider not in {"console", "webhook", "aliyun"} or (production and sms_provider == "console"):
+        checks.append({"name": "SMS_PROVIDER", "ok": False, "level": "error", "message": "生产环境必须使用 webhook 或 aliyun 短信服务"})
     else:
         checks.append({"name": "SMS_PROVIDER", "ok": True, "level": "ok", "message": sms_provider or "console"})
-    if sms_provider == "webhook" or production:
+    if sms_provider == "webhook":
         _add_required(checks, "SMS_WEBHOOK_URL", os.getenv("SMS_WEBHOOK_URL", ""))
         _add_required(checks, "SMS_WEBHOOK_TOKEN", os.getenv("SMS_WEBHOOK_TOKEN", ""))
+    elif sms_provider == "aliyun":
+        for name in (
+            "ALIBABA_CLOUD_ACCESS_KEY_ID",
+            "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+            "SMS_ALIYUN_SIGN_NAME",
+            "SMS_ALIYUN_TEMPLATE_CODE",
+        ):
+            _add_required(checks, name, os.getenv(name, ""))
     if production and os.getenv("SMS_EXPOSE_DEV_CODE", "0") == "1":
         checks.append({"name": "SMS_EXPOSE_DEV_CODE", "ok": False, "level": "error", "message": "生产环境不能把验证码返回给前端"})
 

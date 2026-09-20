@@ -23,6 +23,7 @@ export interface AdminUser {
   knowledge_count: number
   task_count: number
   counts?: Record<string, number>
+  plan_name?: string | null
 }
 
 export interface AdminTask {
@@ -199,5 +200,54 @@ export async function updateAdminSpaceStatus(
   patch: { is_enabled?: boolean; status?: 'active' | 'archived' },
 ): Promise<{ id: number; name: string; is_enabled: boolean; status: string }> {
   const { data } = await request.patch(`/admin/knowledge-spaces/${spaceId}`, patch)
+  return data
+}
+
+export interface AdminPlan {
+  id: number
+  name: string
+  display_name: string
+  monthly_token_limit: number
+  price_desc: string | null
+  is_default: boolean
+  is_enabled: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export async function listAdminPlans(): Promise<AdminPlan[]> {
+  const { data } = await request.get('/admin/plans')
+  return data as AdminPlan[]
+}
+
+export async function createAdminPlan(data: {
+  name: string
+  display_name: string
+  monthly_token_limit?: number
+  price_desc?: string
+  is_default?: boolean
+}): Promise<AdminPlan> {
+  const { data: res } = await request.post('/admin/plans', data)
+  return res as AdminPlan
+}
+
+export async function updateAdminPlan(planId: number, patch: {
+  display_name?: string
+  monthly_token_limit?: number
+  price_desc?: string
+  is_default?: boolean
+  is_enabled?: boolean
+}): Promise<AdminPlan> {
+  const { data } = await request.patch(`/admin/plans/${planId}`, patch)
+  return data as AdminPlan
+}
+
+export async function deleteAdminPlan(planId: number) {
+  const { data } = await request.delete(`/admin/plans/${planId}`)
+  return data
+}
+
+export async function assignUserPlan(userId: number, planId: number) {
+  const { data } = await request.patch(`/admin/users/${userId}/plan`, { plan_id: planId })
   return data
 }

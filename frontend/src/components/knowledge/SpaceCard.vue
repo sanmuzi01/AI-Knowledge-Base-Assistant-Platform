@@ -1,6 +1,6 @@
 <template>
   <article
-    class="flex flex-col rounded-lg border border-sky-200 bg-white/80 p-4 shadow-sm transition hover:shadow-md"
+    class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] flex flex-col rounded-lg border border-sky-200 bg-white/80 p-4 shadow-sm transition"
     :class="{ 'opacity-60': space.status === 'archived' || !space.is_enabled }"
   >
     <div class="flex items-start justify-between gap-2">

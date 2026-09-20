@@ -46,6 +46,44 @@
   - 处理器：归一时序、字段挑选、聚合、JSON 取值、AI 摘要、阈值告警。
   - 到点自动调度：后台 Worker 乐观锁抢占，默认开启；失败指数退避、连续失败自动暂停；数据点保留策略。
   - 展示增强：时序/类目数据自动升级图表，创建前试运行，导出/导入配置，需关注标记。
+- 配额阈值提醒：每次聊天运行结束后（`service/quota_service.py::check_and_notify_threshold_async`），
+  如果本月用量因为这次运行跨过 80%/95%/100%，复用告警 Webhook 通道推一条提醒——只在
+  "上次检查还没到、这次跑完到了"那一刻推送一次，不会每条消息都刷屏。和硬拦截（超额 429）
+  是互补关系：提醒让用户在真被拦下来之前就有心理准备。
+- 计费/配额体系（MVP）：`plan` 套餐（每月 Token 配额，0=不限量）+ `user_subscription` 一人一订阅，
+  未订阅回退管理员配置的默认套餐。`service/quota_service.py::enforce_quota_async` 在
+  `/chat/{id}` 与 `/chat/{id}/stream` 真正调用 Agent/LLM 之前拦截超额请求（`QuotaExceeded` 429），
+  避免钱已经花出去了才发现超额。管理员后台「套餐配额」页做套餐 CRUD + 默认套餐切换，
+  「用户管理」列表内联下拉分配套餐；用户侧 `GET /user/quota` + 工作台「本月用量」卡片
+  （进度条按 70%/90% 变色）。范围有意收窄到「每月 Token」这一种资源，Agent 数/知识库空间数等
+  维度限额留作后续按需扩展。
+- 告警外部推送：`notification_channel` 表（用户可配多个 Webhook：飞书/钉钉/企业微信/Slack 自定义机器人
+  或自建接收端），出站 URL 复用 `web_crawler_service.validate_crawl_url` 做 SSRF 校验。组件的
+  `threshold_alert` 处理器给出 level=warn/alert 时（`service/widgets/runner.py::_maybe_dispatch_alert`），
+  只在等级**变化**那一刻推送（升级/降级/恢复正常），避免持续告警期间每次调度都刷屏；
+  `user_widgets.last_alert_level` 记录上次等级做去重。推送 best-effort，失败不影响组件运行本身。
+  用户侧「设置」页「告警通知」区块：增删通道、启停、发测试消息。
+- Agent 工具生态：内置工具从 4 个扩到 7 个——新增 `calculator`（AST 白名单沙箱，非 eval，
+  拒绝任意代码注入）、`datetime_calculator`（日期差/加减/星期几，默认北京时间）、
+  `unit_converter`（长度/重量/面积/体积/温度，不做汇率换算避免过期数据）。
+  `service/tools/` 目录零配置自动扫描注册（`@ToolRegistry.register`），新工具无需改
+  任何路由/Skill 校验代码即可在 Skill 创建页的工具选择器里直接可选。
+- 报表导出（CSV）：管理员「使用情况」「操作日志」页新增「导出 CSV」（日志导出按当前筛选条件，
+  上限最近 500 条）；用户工作台「本月用量」卡片新增「导出」，导出套餐概况 + 本月运行明细。
+  统一走 `utils/csv_export.py`（UTF-8 BOM，避免 Excel 中文乱码）；前端 `utils/download.ts`
+  用 axios（带鉴权头）+ blob 触发浏览器保存，不能用裸 `<a href>`（拿不到 Authorization 头）。
+  会话导出（markdown/json）此前已支持，不在本次范围内。
+- Agent 协作（流水线，MVP）：`agent_pipeline` 表把多个 Agent 串成固定顺序的处理链——
+  上一步的回答自动作为下一步的输入消息。范围有意收窄成"线性串行"，不做分支/条件/并行，
+  真正的 DAG 工作流引擎留到有明确需求信号再做。每一步都走和 `/chat/{id}` 完全一样的
+  `chat_service.chat_with_agent`，配额检查/Token 记账/会话历史全部免费复用——流水线
+  不能绕开配额限制。`/pipelines/{id}/run` 复用聊天的限流桶和并发守卫。某一步失败
+  （助手被删、配额用尽、模型报错）就停在那一步，返回已完成的部分结果，不整体报错。
+  **过程中顺手修了一个独立的、影响全部智能体聊天的生产 bug**：`create_langchain_llm`
+  给 LangChain 传的 `base_url` 之前会带上 `/chat/completions` 后缀，LangChain 自己又会拼
+  一次，导致所有绑了工具/技能、走 ReAct 引擎的智谱模型 Agent 每次对话都 404——这个 bug
+  在流水线做真实联调时才被发现，因为之前的会话大多是较早期的手工验证，没有真的跑完
+  一次绑了工具的智谱 Agent 全链路对话。
 - 长期记忆：按 Agent 管理长期记忆。
 - 缓存：Redis 优先、内存兜底。
 - 访问管控：聊天限流、知识库限流、并发控制、后台任务配额。
@@ -65,16 +103,29 @@
   `deploy/` 无残留容器主机名、组件调度已接入 Worker，再跑编译 + 单元测试 + 前端构建。
 - 备份恢复：部署文档给出本地 MySQL `mysqldump` 导出 / 恢复命令与应用文件目录清单。
 - 数据库迁移：已加入 Alembic 迁移骨架、基线版本和迁移文档，当前处于兼容过渡期。
-- 部署基础：不再使用 Docker/compose；进程管理器（systemd / nssm 等）常驻 uvicorn + worker，
-  Nginx 托管前端并反代 `/api`、`/health`、`/metrics`，`deploy/` 提供 nginx / prometheus / grafana 模板。
+- 部署基础：阿里云 ECS 上走 `docker-compose.prod.yml`（db / redis / chroma / api / worker 容器化，
+  MySQL 为自建容器、备份需自己负责）；前端 `npm run build` 后由宿主机 Nginx + certbot 托管并反代 `/api`、
+  `/health`、`/metrics`。原生方案（`deploy/systemd/*.service` 常驻 uvicorn + worker）保留为备选，
+  `deploy/` 提供 nginx / prometheus / grafana 模板。根目录 `docker-compose.yml` 仅用于本地演示。
+- 前端视觉：整体改为 Apple 风格（中性灰阶 + 唯一强调蓝 `#0071e3`、毛玻璃侧栏、悬浮液态玻璃输入框、
+  连续圆角、弹簧动效、大标题）。设计令牌与 Tailwind 色阶/圆角/阴影重映射集中在 `frontend/src/style.css`；
+  `sci-*` 星空/轨道/发光样式已删除，通用类为 `ui-card` / `ui-panel` / `ui-field` / `ui-primary` /
+  `ui-glass` / `ui-glass-float`。字体走系统字体栈，Inter 通过 `@fontsource-variable/inter` 自托管（不依赖外网）。
+  深色模式：`utils/theme.ts` 在 `<html>` 写 `data-theme`（首次跟随系统，手动切换后记住；`index.html` 首屏前先定主题防闪白），
+  做法是在 `style.css` 里翻转重映射过的色阶变量 + 少量写死 `bg-white` / `bg-black/[.xx]` 的覆盖；
+  切换按钮在侧栏底部、后台顶栏、登录页右上角。助手回答用 `.md-body` 排版（列表 / 代码 / 表格 / 引用）。
+  手机端（< 768px）：用户端与后台都是"顶栏 + 抽屉导航"；对话页会话栏变抽屉；后台任务 / 日志这类多列列表
+  横向滚动；右下角"当前助手"浮窗在手机上隐藏（换助手走工作台）；`viewport-fit=cover` + 安全区留白。
 
 ## 当前验证结果
 
 - `python -m compileall` 通过。
 - 前端 `npm run build`（含 vue-tsc 类型检查）通过。
 - FastAPI 应用导入与路由生成通过。
-- `python -m unittest`：334 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
-  quick_connect、chunk_size、RAG 节省统计、web_query 联网检索、工作台模板测试，需本地 / CI MySQL）。
+- `python -m unittest`：504 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
+  quick_connect、chunk_size、RAG 节省统计、web_query 联网检索、工作台模板、计费配额、
+  配额阈值提醒、告警推送、新增 Agent 工具、报表导出、知识库 OCR/Excel、LLM 客户端 SSRF
+  防护、Agent 流水线、LangChain base_url 拼接测试，需本地 / CI MySQL）。
 - `npm run release:check` 静态检查通过。
 
 ## 当前主要风险

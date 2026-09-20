@@ -105,6 +105,14 @@ def clone_knowledge_for_agent(db, source: Knowledge, target_agent_id: int) -> Kn
 def get_knowledge_by_id(db,knowledge_id:int)->Optional[Knowledge]:
     """根据ID查询知识库文档"""
     return (db.query(Knowledge).filter(Knowledge.id == knowledge_id).first())
+
+def get_knowledge_by_ids(db, knowledge_ids) -> dict:
+    """按一批 id 批量查询，返回 {id: Knowledge}——检索热路径用，避免一个文档发一条 SELECT。"""
+    ids = list({i for i in knowledge_ids if i is not None})
+    if not ids:
+        return {}
+    rows = db.query(Knowledge).filter(Knowledge.id.in_(ids)).all()
+    return {k.id: k for k in rows}
 def list_knowledge_by_agent(db,agent_id:int)->List[Knowledge]:
     """查询某个Agent下的所有文档（按上传时间倒序）"""
     return (db.query(Knowledge).

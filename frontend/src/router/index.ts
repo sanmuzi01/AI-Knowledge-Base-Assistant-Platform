@@ -38,6 +38,7 @@ const router = createRouter({
         { path: 'usage', name: 'AdminUsage', component: () => import('../views/admin/AdminUsage.vue') },
         { path: 'logs', name: 'AdminLogs', component: () => import('../views/admin/AdminLogs.vue') },
         { path: 'knowledge-spaces', name: 'AdminKnowledgeSpaces', component: () => import('../views/admin/AdminKnowledgeSpaces.vue') },
+        { path: 'plans', name: 'AdminPlans', component: () => import('../views/admin/AdminPlans.vue') },
         { path: 'diagnose', name: 'AdminDiagnose', component: () => import('../views/admin/AdminDiagnose.vue') },
       ],
     },
@@ -60,6 +61,11 @@ const router = createRouter({
       path: '/widgets',
       name: 'WidgetStudio',
       component: () => import('../views/WidgetStudio.vue'),
+    },
+    {
+      path: '/pipelines',
+      name: 'AgentPipelines',
+      component: () => import('../views/AgentPipelines.vue'),
     },
     {
       path: '/knowledge-spaces',

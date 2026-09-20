@@ -191,20 +191,6 @@ export async function listSpaceDocs(spaceId: number, filter: DocFilter = {}): Pr
   return data
 }
 
-export async function uploadSpaceDoc(
-  spaceId: number,
-  file: File,
-  meta: { category?: string; version?: string } = {},
-): Promise<any> {
-  const form = new FormData()
-  form.append('file', file)
-  const { data } = await request.post(`/knowledge-spaces/${spaceId}/documents`, form, {
-    params: meta,
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-  return data
-}
-
 export async function uploadSpaceDocsBatch(spaceId: number, files: File[]): Promise<{
   message: string
   count: number

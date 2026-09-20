@@ -56,15 +56,15 @@
       </div>
     </section>
 
-    <section class="rounded-lg border border-slate-200 bg-white">
-      <div class="grid grid-cols-[1fr_120px_110px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+    <section class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div class="grid min-w-[720px] grid-cols-[1fr_120px_110px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
         <span>任务</span>
         <span>进度</span>
         <span>状态</span>
         <span>操作</span>
       </div>
 
-      <div class="divide-y divide-slate-100">
+      <div class="min-w-[720px] divide-y divide-slate-100">
         <article v-for="task in filteredTasks" :key="task.id" class="grid grid-cols-[1fr_120px_110px_120px] gap-3 px-4 py-3 text-sm hover:bg-slate-50/60">
           <div class="min-w-0">
             <div class="flex min-w-0 items-center gap-2">

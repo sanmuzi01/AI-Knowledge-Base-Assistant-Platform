@@ -303,15 +303,12 @@ def create_api_connector(
 ):
     if agent_service.get_agent(db, current_user, agent_id) is None:
         raise NotFound("智能体不存在或无权限")
-    try:
-        return http_connector_service.create_connector(
-            db, current_user.id, agent_id,
-            name=data.name, description=data.description, url=data.url,
-            method=data.method, headers=data.headers,
-            param_schema=data.param_schema, static_query=data.static_query,
-        )
-    except ValueError as e:
-        raise InvalidInput(str(e))
+    return http_connector_service.create_connector(
+        db, current_user.id, agent_id,
+        name=data.name, description=data.description, url=data.url,
+        method=data.method, headers=data.headers,
+        param_schema=data.param_schema, static_query=data.static_query,
+    )
 
 
 @router.get("/{agent_id}/api-connectors", summary="列出 Agent 配的企业接口工具")
@@ -336,10 +333,7 @@ def update_api_connector_enabled(
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
 ):
-    try:
-        return http_connector_service.set_connector_enabled(db, current_user.id, connector_id, data.is_enabled)
-    except ValueError as e:
-        raise NotFound(str(e))
+    return http_connector_service.set_connector_enabled(db, current_user.id, connector_id, data.is_enabled)
 
 
 @router.delete("/api-connectors/{connector_id}", summary="删除一个企业接口工具")
@@ -348,8 +342,5 @@ def delete_api_connector(
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
 ):
-    try:
-        http_connector_service.delete_connector(db, current_user.id, connector_id)
-    except ValueError as e:
-        raise NotFound(str(e))
+    http_connector_service.delete_connector(db, current_user.id, connector_id)
     return {"message": "删除成功"}

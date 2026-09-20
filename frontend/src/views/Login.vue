@@ -1,372 +1,302 @@
 <template>
-  <div class="app-starry flex min-h-screen items-center justify-center px-4 py-8">
-    <main class="grid w-full max-w-6xl overflow-hidden rounded-lg border border-sky-200/70 bg-white/72 shadow-2xl shadow-sky-900/12 backdrop-blur-xl lg:grid-cols-[minmax(0,1fr)_440px]">
-      <section class="relative hidden min-h-[660px] overflow-hidden p-10 text-slate-900 lg:flex lg:flex-col lg:justify-between">
-        <div class="pointer-events-none absolute inset-0 opacity-80">
-          <span class="absolute left-12 top-28 h-1.5 w-1.5 rounded-full bg-sky-400 shadow-[0_0_18px_rgba(14,165,233,0.8)]"></span>
-          <span class="absolute right-24 top-20 h-1 w-1 rounded-full bg-cyan-400 shadow-[0_0_16px_rgba(34,211,238,0.8)]"></span>
-          <span class="absolute bottom-28 left-1/3 h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_18px_rgba(139,92,246,0.7)]"></span>
-          <span class="sci-login-orbit"></span>
-        </div>
-        <div>
-          <div class="mb-8 flex items-center gap-3">
-            <span class="flex h-10 w-10 items-center justify-center rounded bg-sky-100 text-sky-700 ring-1 ring-sky-200">
-              <Bot :size="20" />
-            </span>
-            <div>
-              <h1 class="text-lg font-semibold">AI 助手工作台</h1>
-              <p class="text-xs text-slate-500">连接模型、创建助手、添加资料、开始对话</p>
-            </div>
-          </div>
-          <h2 class="max-w-lg text-4xl font-semibold leading-tight text-slate-950">一个账号，进入你的私人 AI 控制台</h2>
-          <p class="mt-4 max-w-lg text-sm leading-6 text-slate-600">
-            普通用户进入工作台配置模型、助手、资料和能力；管理员账号会自动进入后台管控页面。
-          </p>
-        </div>
-        <div class="relative">
-          <div class="mb-5 grid max-w-xl grid-cols-2 gap-3">
-            <div
-              v-for="item in capabilityCards"
-              :key="item.title"
-              class="rounded border border-sky-200/70 bg-white/62 p-4 backdrop-blur"
-            >
-              <component :is="item.icon" :size="18" class="text-sky-600" />
-              <p class="mt-3 text-sm font-semibold text-slate-900">{{ item.title }}</p>
-              <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.desc }}</p>
-            </div>
-          </div>
-          <div class="rounded-lg border border-sky-200/70 bg-white/68 p-4 backdrop-blur">
-            <div class="flex items-center gap-2">
-              <Sparkles :size="16" class="text-sky-600" />
-              <span class="text-sm font-semibold text-slate-900">首次使用建议</span>
-            </div>
-            <div class="mt-3 grid grid-cols-4 gap-2 text-xs">
-              <span
-                v-for="step in onboardingSteps"
-                :key="step"
-                class="rounded border border-sky-100 bg-sky-50/70 px-2 py-2 text-center text-slate-600"
-              >
-                {{ step }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
+  <div class="app-canvas min-h-screen overflow-y-auto">
+    <div class="absolute right-4 top-4 z-10"><ThemeToggle /></div>
+    <main class="mx-auto flex w-full max-w-[392px] flex-col items-center px-5 pb-10 pt-[clamp(28px,8vh,88px)]">
+      <span
+        class="flex h-[76px] w-[76px] items-center justify-center rounded-[22px] bg-gradient-to-b from-[#3d3d40] to-[#0e0e10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.26),0_8px_24px_rgba(0,0,0,.22),0_1px_3px_rgba(0,0,0,.3)]"
+      >
+        <Sparkles :size="36" :stroke-width="1.6" />
+      </span>
+      <h1 class="mt-6 text-center text-[clamp(26px,5vw,34px)] font-semibold leading-tight tracking-[-0.03em] [text-wrap:balance]">
+        {{ heading }}
+      </h1>
+      <p class="mt-2 text-center text-[15px] leading-6 text-slate-500">{{ lead }}</p>
 
-      <section class="bg-white/95 p-6 text-slate-900 backdrop-blur sm:p-8">
-        <div class="mb-6 lg:hidden">
-          <div class="mb-3 flex items-center gap-3">
-            <span class="flex h-9 w-9 items-center justify-center rounded bg-sky-100 text-sky-700">
-              <Bot :size="18" />
-            </span>
-            <div>
-              <h1 class="text-base font-semibold text-slate-900">AI 助手工作台</h1>
-              <p class="text-xs text-slate-500">登录后开始使用</p>
-            </div>
-          </div>
-        </div>
+      <div
+        v-if="!isResetMode"
+        class="relative mt-6 grid w-full grid-cols-2 rounded-[10px] bg-slate-100 p-[3px]"
+        role="tablist"
+        aria-label="登录或注册"
+      >
+        <span
+          class="absolute bottom-[3px] left-[3px] top-[3px] w-[calc(50%-3px)] rounded-[8px] bg-white shadow-[0_1px_3px_rgba(0,0,0,.14),0_0_0_.5px_rgba(0,0,0,.04)] transition-transform duration-500 ease-[var(--spring)]"
+          :class="isRegisterMode ? 'translate-x-full' : ''"
+        ></span>
+        <button
+          role="tab"
+          :aria-selected="!isRegisterMode"
+          @click="switchMode(false)"
+          :class="!isRegisterMode ? 'text-slate-900' : 'text-slate-500'"
+          class="relative z-10 h-8 text-[13px] font-medium"
+        >
+          登录
+        </button>
+        <button
+          role="tab"
+          :aria-selected="isRegisterMode"
+          @click="switchMode(true)"
+          :class="isRegisterMode ? 'text-slate-900' : 'text-slate-500'"
+          class="relative z-10 h-8 text-[13px] font-medium"
+        >
+          注册
+        </button>
+      </div>
 
-        <div class="mb-6">
-          <div class="mb-3 inline-flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-            <ScanLine :size="13" />
-            {{ isResetMode ? '找回密码' : isRegisterMode ? '普通用户注册' : '账号安全登录' }}
-          </div>
-          <h2 class="text-2xl font-semibold text-slate-950">{{ isResetMode ? '重置你的登录密码' : isRegisterMode ? '创建你的工作台账号' : '欢迎回来' }}</h2>
-          <p class="mt-2 text-sm leading-6 text-slate-500">
-            {{ isResetMode ? '用注册时的手机号接收验证码，验证通过后直接设置新密码。' : isRegisterMode ? '注册后可以创建自己的助手、资料库和能力配置。' : '系统会根据账号身份自动进入用户工作台或管理员后台。' }}
-          </p>
-        </div>
-
-        <div v-if="!isResetMode" class="mb-5 grid grid-cols-2 rounded border border-slate-200 bg-slate-50 p-1">
-          <button
-            @click="switchMode(false)"
-            :class="!isRegisterMode ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-            class="h-9 rounded text-sm font-medium"
-          >
-            登录
-          </button>
-          <button
-            @click="switchMode(true)"
-            :class="isRegisterMode ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'"
-            class="h-9 rounded text-sm font-medium"
-          >
-            注册
-          </button>
-        </div>
-
-        <div v-if="isResetMode" class="space-y-4">
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">注册手机号</label>
-            <div class="sci-field flex h-11 items-center gap-2 rounded px-3">
-              <Phone :size="16" class="text-slate-400" />
-              <input
-                v-model="phone"
-                type="tel"
-                inputmode="numeric"
-                autocomplete="tel"
-                maxlength="11"
-                class="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
-                placeholder="请输入注册时使用的手机号"
-                @input="normalizePhoneInput"
-                @keyup.enter="submit"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">短信验证码</label>
-            <div class="grid grid-cols-[1fr_118px] gap-2">
+      <!-- 找回密码 -->
+      <div v-if="isResetMode" class="mt-6 w-full">
+        <div class="ui-panel overflow-hidden">
+          <label class="row">
+            <span class="row-label">手机号</span>
+            <input
+              v-model="phone"
+              type="tel"
+              inputmode="numeric"
+              autocomplete="tel"
+              maxlength="11"
+              class="row-input"
+              placeholder="注册时使用的手机号"
+              @input="normalizePhoneInput"
+              @keyup.enter="submit"
+            />
+          </label>
+          <label class="row row-border">
+            <span class="row-label">验证码</span>
+            <span class="flex h-full items-center gap-2">
               <input
                 v-model="smsCode"
                 type="text"
                 inputmode="numeric"
                 maxlength="6"
                 autocomplete="one-time-code"
-                class="sci-field h-10 min-w-0 rounded px-3 text-sm outline-none"
-                placeholder="6 位验证码"
+                class="row-input"
+                placeholder="6 位数字"
                 @keyup.enter="submit"
               />
               <button
                 type="button"
-                @click="sendSmsCode"
+                @click.prevent="sendSmsCode"
                 :disabled="smsSending || smsCountdown > 0 || !canSendSms"
-                class="inline-flex h-10 items-center justify-center rounded border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                class="shrink-0 text-[13px] font-medium text-[var(--accent)] disabled:cursor-not-allowed disabled:text-slate-400"
               >
                 {{ smsButtonText }}
               </button>
-            </div>
-            <p v-if="smsHint" class="mt-1 text-xs text-slate-500">{{ smsHint }}</p>
-          </div>
-
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">新密码</label>
-            <div class="sci-field flex h-11 items-center gap-2 rounded px-3">
-              <LockKeyhole :size="16" class="text-slate-400" />
+            </span>
+          </label>
+          <label class="row row-border">
+            <span class="row-label">新密码</span>
+            <span class="flex h-full items-center gap-2">
               <input
                 v-model="resetNewPassword"
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="new-password"
-                class="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+                class="row-input"
                 placeholder="至少 6 位"
                 @keyup.enter="submit"
               />
               <button
                 type="button"
-                class="text-slate-400 hover:text-slate-700"
+                class="shrink-0 text-slate-400 hover:text-slate-700"
                 :title="showPassword ? '隐藏密码' : '显示密码'"
-                @click="showPassword = !showPassword"
+                @click.prevent="showPassword = !showPassword"
               >
-                <component :is="showPassword ? EyeOff : Eye" :size="16" />
+                <component :is="showPassword ? EyeOff : Eye" :size="17" :stroke-width="1.7" />
               </button>
-            </div>
-          </div>
-
-          <p v-if="errorMsg" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMsg }}</p>
-          <p v-if="successMsg" class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{{ successMsg }}</p>
-
-          <button
-            @click="submit"
-            :disabled="loading"
-            class="sci-primary inline-flex h-11 w-full items-center justify-center gap-2 rounded text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:bg-blue-300 disabled:shadow-none"
-          >
-            {{ loading ? '处理中...' : '重置密码' }}
-            <ArrowRight v-if="!loading" :size="15" />
-          </button>
-
-          <button type="button" class="w-full text-center text-sm text-slate-500 hover:text-sky-700" @click="closeReset">
-            返回登录
-          </button>
+            </span>
+          </label>
         </div>
+        <p v-if="smsHint" class="mt-2 px-1 text-[12px] text-slate-500">{{ smsHint }}</p>
 
-        <div v-else class="space-y-4">
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">用户名</label>
-            <div class="sci-field flex h-11 items-center gap-2 rounded px-3">
-              <UserRound :size="16" class="text-slate-400" />
-              <input
-                v-model="username"
-                type="text"
-                autocomplete="username"
-                class="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
-                placeholder="3-20 个字符"
-                @keyup.enter="submit"
-              />
-            </div>
-            <p v-if="usernameHint" class="mt-1 text-xs text-amber-600">{{ usernameHint }}</p>
-          </div>
+        <p v-if="errorMsg" class="mt-4 rounded-xl bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">{{ errorMsg }}</p>
+        <p v-if="successMsg" class="mt-4 rounded-xl bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">{{ successMsg }}</p>
 
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">密码</label>
-            <div class="sci-field flex h-11 items-center gap-2 rounded px-3">
-              <LockKeyhole :size="16" class="text-slate-400" />
+        <button @click="submit" :disabled="loading" class="ui-primary mt-5 h-12 w-full text-[15px] font-medium tracking-[-0.01em]">
+          {{ loading ? '处理中…' : '重置密码' }}
+        </button>
+        <button type="button" class="mt-4 w-full text-center text-[14px] text-[var(--accent)]" @click="closeReset">返回登录</button>
+      </div>
+
+      <!-- 登录 / 注册 -->
+      <div v-else class="mt-4 w-full">
+        <div class="ui-panel overflow-hidden">
+          <label class="row">
+            <span class="row-label">用户名</span>
+            <input
+              v-model="username"
+              type="text"
+              autocomplete="username"
+              class="row-input"
+              placeholder="3–20 个字符"
+              @keyup.enter="submit"
+            />
+          </label>
+          <label class="row row-border">
+            <span class="row-label">密码</span>
+            <span class="flex h-full items-center gap-2">
               <input
                 v-model="password"
                 :type="showPassword ? 'text' : 'password'"
                 :autocomplete="isRegisterMode ? 'new-password' : 'current-password'"
-                class="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+                class="row-input"
                 placeholder="至少 6 位"
                 @keyup.enter="submit"
               />
               <button
                 type="button"
-                class="text-slate-400 hover:text-slate-700"
+                class="shrink-0 text-slate-400 hover:text-slate-700"
                 :title="showPassword ? '隐藏密码' : '显示密码'"
-                @click="showPassword = !showPassword"
+                @click.prevent="showPassword = !showPassword"
               >
-                <component :is="showPassword ? EyeOff : Eye" :size="16" />
-              </button>
-            </div>
-            <div v-if="isRegisterMode" class="mt-2">
-              <div class="h-1.5 rounded bg-slate-100">
-                <div class="h-1.5 rounded transition-all" :class="passwordStrengthClass" :style="{ width: `${passwordStrength.percent}%` }"></div>
-              </div>
-              <p class="mt-1 text-xs text-slate-500">密码强度：{{ passwordStrength.text }}</p>
-            </div>
-            <div v-if="!isRegisterMode" class="mt-1.5 text-right">
-              <button type="button" class="text-xs text-sky-700 hover:text-sky-800" @click="openReset">忘记密码？</button>
-            </div>
-          </div>
-
-          <div v-if="isRegisterMode">
-            <label class="mb-1 block text-sm font-medium text-slate-700">年龄</label>
-            <input
-              v-model.number="age"
-              type="number"
-              min="0"
-              max="150"
-              class="sci-field h-10 w-full rounded px-3 text-sm outline-none"
-              placeholder="请输入年龄"
-              @keyup.enter="submit"
-            />
-          </div>
-
-          <div v-if="isRegisterMode">
-            <label class="mb-1 block text-sm font-medium text-slate-700">手机号</label>
-            <div class="sci-field flex h-11 items-center gap-2 rounded px-3">
-              <Phone :size="16" class="text-slate-400" />
-              <input
-                v-model="phone"
-                type="tel"
-                inputmode="numeric"
-                autocomplete="tel"
-                maxlength="11"
-                class="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
-                placeholder="请输入注册手机号"
-                @input="normalizePhoneInput"
-                @keyup.enter="submit"
-              />
-            </div>
-          </div>
-
-          <div v-if="isRegisterMode">
-            <label class="mb-1 block text-sm font-medium text-slate-700">短信验证码</label>
-            <div class="grid grid-cols-[1fr_118px] gap-2">
-              <input
-                v-model="smsCode"
-                type="text"
-                inputmode="numeric"
-                maxlength="6"
-                autocomplete="one-time-code"
-                class="sci-field h-10 min-w-0 rounded px-3 text-sm outline-none"
-                placeholder="6 位验证码"
-                @keyup.enter="submit"
-              />
-              <button
-                type="button"
-                @click="sendSmsCode"
-                :disabled="smsSending || smsCountdown > 0 || !canSendSms"
-                class="inline-flex h-10 items-center justify-center rounded border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                {{ smsButtonText }}
-              </button>
-            </div>
-            <p v-if="smsHint" class="mt-1 text-xs text-slate-500">{{ smsHint }}</p>
-          </div>
-
-          <label
-            v-if="isRegisterMode"
-            class="flex cursor-pointer items-start gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 hover:border-sky-200 hover:bg-sky-50/60"
-          >
-            <input
-              v-model="acceptedTerms"
-              type="checkbox"
-              class="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span>
-              我已阅读并同意
-              <button type="button" class="font-medium text-blue-700 hover:text-blue-800" @click.prevent="showTerms = true">
-                用户须知
+                <component :is="showPassword ? EyeOff : Eye" :size="17" :stroke-width="1.7" />
               </button>
             </span>
           </label>
 
-          <p v-if="errorMsg" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMsg }}</p>
-          <p v-if="successMsg" class="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{{ successMsg }}</p>
-
-          <button
-            @click="submit"
-            :disabled="loading || (isRegisterMode && !acceptedTerms)"
-            class="sci-primary inline-flex h-11 w-full items-center justify-center gap-2 rounded text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:bg-blue-300 disabled:shadow-none"
+          <div
+            :class="[
+              'grid transition-[grid-template-rows] duration-500 ease-[var(--ease)]',
+              isRegisterMode ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+            ]"
           >
-            {{ loading ? '处理中...' : isRegisterMode ? '注册并登录' : '进入系统' }}
-            <ArrowRight v-if="!loading" :size="15" />
-          </button>
-
-          <div v-if="!isRegisterMode" class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-            普通用户登录后进入工作台；管理员账号登录后会自动进入后台，普通用户无法进入管理员页面。
+            <div class="min-h-0 overflow-hidden" :inert="!isRegisterMode">
+              <label class="row row-border">
+                <span class="row-label">年龄</span>
+                <input
+                  v-model.number="age"
+                  type="number"
+                  min="0"
+                  max="150"
+                  class="row-input"
+                  placeholder="请输入年龄"
+                  @keyup.enter="submit"
+                />
+              </label>
+              <label class="row row-border">
+                <span class="row-label">手机号</span>
+                <input
+                  v-model="phone"
+                  type="tel"
+                  inputmode="numeric"
+                  autocomplete="tel"
+                  maxlength="11"
+                  class="row-input"
+                  placeholder="用于接收验证码"
+                  @input="normalizePhoneInput"
+                  @keyup.enter="submit"
+                />
+              </label>
+              <label class="row row-border">
+                <span class="row-label">验证码</span>
+                <span class="flex h-full items-center gap-2">
+                  <input
+                    v-model="smsCode"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="6"
+                    autocomplete="one-time-code"
+                    class="row-input"
+                    placeholder="6 位数字"
+                    @keyup.enter="submit"
+                  />
+                  <button
+                    type="button"
+                    @click.prevent="sendSmsCode"
+                    :disabled="smsSending || smsCountdown > 0 || !canSendSms"
+                    class="shrink-0 text-[13px] font-medium text-[var(--accent)] disabled:cursor-not-allowed disabled:text-slate-400"
+                  >
+                    {{ smsButtonText }}
+                  </button>
+                </span>
+              </label>
+            </div>
           </div>
-
         </div>
-      </section>
+
+        <p v-if="usernameHint" class="mt-2 px-1 text-[12px] text-amber-600">{{ usernameHint }}</p>
+        <p v-if="isRegisterMode && smsHint" class="mt-2 px-1 text-[12px] text-slate-500">{{ smsHint }}</p>
+
+        <div v-if="isRegisterMode && password" class="mt-3 px-1">
+          <div class="h-1 rounded-full bg-slate-100">
+            <div class="h-1 rounded-full transition-all duration-500" :class="passwordStrengthClass" :style="{ width: `${passwordStrength.percent}%` }"></div>
+          </div>
+          <p class="mt-1.5 text-[12px] text-slate-500">密码强度：{{ passwordStrength.text }}</p>
+        </div>
+
+        <label v-if="isRegisterMode" class="mt-4 flex cursor-pointer items-start gap-2.5 px-1 text-[13px] leading-5 text-slate-600">
+          <input v-model="acceptedTerms" type="checkbox" class="mt-0.5 h-4 w-4 rounded accent-[var(--accent)]" />
+          <span>
+            我已阅读并同意
+            <button type="button" class="font-medium text-[var(--accent)]" @click.prevent="showTerms = true">用户须知</button>
+          </span>
+        </label>
+
+        <p v-if="errorMsg" class="mt-4 rounded-xl bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">{{ errorMsg }}</p>
+        <p v-if="successMsg" class="mt-4 rounded-xl bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">{{ successMsg }}</p>
+
+        <button
+          @click="submit"
+          :disabled="loading || (isRegisterMode && !acceptedTerms)"
+          class="ui-primary mt-5 h-12 w-full text-[15px] font-medium tracking-[-0.01em]"
+        >
+          {{ loading ? '处理中…' : isRegisterMode ? '注册并登录' : '登录' }}
+        </button>
+
+        <button v-if="!isRegisterMode" type="button" class="mt-4 block w-full text-center text-[14px] text-[var(--accent)]" @click="openReset">
+          忘记密码？
+        </button>
+      </div>
+
+      <p class="mt-10 max-w-[300px] text-center text-[12px] leading-relaxed text-slate-400">
+        管理员账号登录后会自动进入后台，普通用户无法进入管理员页面。
+      </p>
+      <div class="mt-5 flex flex-wrap justify-center gap-x-3.5 gap-y-1 text-[12px] text-slate-400">
+        <template v-for="(cap, i) in capabilities" :key="cap">
+          <span v-if="i > 0" aria-hidden="true">·</span>
+          <span>{{ cap }}</span>
+        </template>
+      </div>
     </main>
 
-    <div v-if="showTerms" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
-      <section class="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h3 class="text-base font-semibold text-slate-900">用户须知</h3>
-            <p class="mt-1 text-sm text-slate-500">注册前请确认你理解以下使用规则。</p>
+    <Transition name="sheet">
+      <div v-if="showTerms" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+        <section class="w-full max-w-md rounded-[22px] bg-white p-6 shadow-2xl">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-[18px] font-semibold tracking-[-0.02em] text-slate-900">用户须知</h3>
+              <p class="mt-1 text-[13px] text-slate-500">注册前请确认你理解以下使用规则。</p>
+            </div>
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+              aria-label="关闭"
+              @click="showTerms = false"
+            >
+              <X :size="16" />
+            </button>
           </div>
-          <button
-            type="button"
-            class="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            @click="showTerms = false"
-          >
-            <X :size="18" />
-          </button>
-        </div>
-        <div class="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-          <p>你需要妥善保管自己的账号、密码、模型密钥和上传资料，不要提交违法、侵权或包含敏感隐私的数据。</p>
-          <p>平台会按功能需要处理你上传的资料、能力配置和对话内容，用于提供助手、检索和任务执行能力。</p>
-          <p>管理员可基于安全、合规和资源保护需要，对异常账号、异常请求和高风险内容进行管控。</p>
-        </div>
-        <div class="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            class="h-9 rounded border border-slate-200 px-4 text-sm text-slate-600 hover:bg-slate-50"
-            @click="showTerms = false"
-          >
-            关闭
-          </button>
-          <button
-            type="button"
-            class="sci-primary h-9 rounded px-4 text-sm font-medium text-white"
-            @click="acceptTerms"
-          >
-            同意并继续
-          </button>
-        </div>
-      </section>
-    </div>
+          <div class="mt-4 space-y-3 text-[14px] leading-6 text-slate-600">
+            <p>你需要妥善保管自己的账号、密码、模型密钥和上传资料，不要提交违法、侵权或包含敏感隐私的数据。</p>
+            <p>平台会按功能需要处理你上传的资料、能力配置和对话内容，用于提供助手、检索和任务执行能力。</p>
+            <p>管理员可基于安全、合规和资源保护需要，对异常账号、异常请求和高风险内容进行管控。</p>
+          </div>
+          <div class="mt-6 flex justify-end gap-2">
+            <button type="button" class="h-9 rounded-full bg-slate-100 px-4 text-[14px] font-medium text-slate-700 hover:bg-slate-200" @click="showTerms = false">
+              关闭
+            </button>
+            <button type="button" class="ui-primary h-9 px-4 text-[14px] font-medium" @click="acceptTerms">同意并继续</button>
+          </div>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Bot, Brain, Database, Eye, EyeOff, LockKeyhole, Phone, ScanLine, ShieldCheck, Sparkles, UserRound, X, Zap } from 'lucide-vue-next'
+import { Eye, EyeOff, Sparkles, X } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import { getErrorMessage } from '../utils/request'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const username = ref('')
 const password = ref('')
@@ -389,13 +319,16 @@ const router = useRouter()
 const userStore = useUserStore()
 let smsTimer: number | undefined
 
-const capabilityCards = [
-  { title: '私人助手', desc: '创建不同用途的 AI 助手', icon: Brain },
-  { title: '知识空间', desc: '上传文档和网页资料', icon: Database },
-  { title: '技能中心', desc: '安装或自定义工作流程', icon: Zap },
-  { title: '后台管控', desc: '管理员查看用户、任务和日志', icon: ShieldCheck },
-]
-const onboardingSteps = ['连接模型', '创建助手', '添加资料', '开始对话']
+const capabilities = ['私人助手', '知识空间', '技能中心']
+
+const heading = computed(() => {
+  if (isResetMode.value) return '重置登录密码'
+  return isRegisterMode.value ? '创建你的账号' : '登录 AI 助手工作台'
+})
+const lead = computed(() => {
+  if (isResetMode.value) return '用注册手机号接收验证码，再设置新密码。'
+  return isRegisterMode.value ? '注册后即可创建自己的助手和知识空间。' : '使用你的账号继续。'
+})
 
 const switchMode = (registerMode: boolean) => {
   isRegisterMode.value = registerMode
@@ -410,6 +343,7 @@ const openReset = () => {
   resetNewPassword.value = ''
   errorMsg.value = ''
   successMsg.value = ''
+  smsHint.value = ''
 }
 
 const closeReset = () => {
@@ -419,13 +353,14 @@ const closeReset = () => {
   resetNewPassword.value = ''
   errorMsg.value = ''
   successMsg.value = ''
+  smsHint.value = ''
 }
 
 const normalizedPhone = computed(() => phone.value.replace(/\D/g, ''))
 const canSendSms = computed(() => /^1[3-9]\d{9}$/.test(normalizedPhone.value))
 const smsButtonText = computed(() => {
-  if (smsSending.value) return '发送中...'
-  if (smsCountdown.value > 0) return `${smsCountdown.value}s`
+  if (smsSending.value) return '发送中…'
+  if (smsCountdown.value > 0) return `${smsCountdown.value}s 后重发`
   return '获取验证码'
 })
 const usernameHint = computed(() => {
@@ -449,7 +384,7 @@ const passwordStrength = computed(() => {
 })
 const passwordStrengthClass = computed(() => {
   if (passwordStrength.value.percent < 50) return 'bg-amber-400'
-  if (passwordStrength.value.percent < 80) return 'bg-sky-500'
+  if (passwordStrength.value.percent < 80) return 'bg-[var(--accent)]'
   return 'bg-emerald-500'
 })
 
@@ -567,3 +502,38 @@ onUnmounted(() => {
   if (smsTimer) window.clearInterval(smsTimer)
 })
 </script>
+
+<style scoped>
+.row {
+  display: grid;
+  height: 52px;
+  cursor: text;
+  grid-template-columns: 76px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  transition: background-color 0.2s;
+}
+.row:focus-within {
+  background: var(--accent-soft);
+}
+.row-border {
+  border-top: 1px solid var(--line);
+}
+.row-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.row-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 15px;
+}
+.row-input::placeholder {
+  color: var(--ink-3);
+}
+</style>

@@ -7,6 +7,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+from service.exceptions import InvalidInput, NotFound
 from service.tools import http_connector_service as svc
 from tests import _route_client as rc
 
@@ -20,21 +21,21 @@ class ValidationTest(unittest.TestCase):
         patcher.start()
 
     def test_rejects_invalid_name(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(InvalidInput):
             svc._validate("1bad-name", "desc", "https://api.example.com", "GET", {})
 
     def test_rejects_empty_description(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(InvalidInput):
             svc._validate("query_order", "", "https://api.example.com", "GET", {})
 
     def test_rejects_bad_method(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(InvalidInput):
             svc._validate("query_order", "desc", "https://api.example.com", "DELETE", {})
 
     def test_rejects_blocked_url(self):
         with patch("service.tools.http_connector_service.validate_crawl_url",
                    side_effect=svc.CrawlerError("不允许抓取内网")):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(InvalidInput):
                 svc._validate("query_order", "desc", "http://169.254.169.254/", "GET", {})
 
     def test_accepts_valid_input(self):
@@ -123,9 +124,9 @@ class LifecycleDbTest(unittest.TestCase):
         from models.init_db import SessionLocal
         db = SessionLocal()
         try:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(NotFound):
                 svc.set_connector_enabled(db, self.user["id"], 999999, True)
-            with self.assertRaises(ValueError):
+            with self.assertRaises(NotFound):
                 svc.delete_connector(db, self.user["id"], 999999)
         finally:
             db.close()

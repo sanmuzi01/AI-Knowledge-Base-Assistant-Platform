@@ -22,7 +22,15 @@ class OpenAICompatibleClient(BaseLLM):
 
     def __init__(self, api_key: str, api_url: str = None, model_name: str = None):
         super().__init__(api_key, api_url, model_name)
-        self.api_url = self._normalize_chat_url(api_url or self._default_base_url(model_name))
+        normalized = self._normalize_chat_url(api_url or self._default_base_url(model_name))
+        # api_url 可能是用户在「模型连接」里自填的自定义端点——出站前必须做和其它
+        # 用户可控 URL（Webhook、企业接口连接器、组件 HTTP 数据源）同样的 SSRF 校验，
+        # 否则模型的回答会把内网/云元数据接口的响应原样"读"给用户，等于一条数据泄露通道。
+        from service.web_crawler_service import CrawlerError, validate_crawl_url
+        try:
+            self.api_url = validate_crawl_url(normalized)
+        except CrawlerError as exc:
+            raise ValueError(f"模型端点地址不合法或不允许访问: {exc}") from exc
 
     def _default_base_url(self, model_name: str) -> str:
         model = (model_name or "").lower()

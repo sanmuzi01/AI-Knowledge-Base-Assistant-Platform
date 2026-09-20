@@ -29,8 +29,8 @@ Copy-Item .env.production.example .env
 - `DB_PASSWORD`
 - `JWT_SECRET_KEY`
 - `LLM_ENCRYPTION_KEY`
-- `SMS_WEBHOOK_URL`
-- `SMS_WEBHOOK_TOKEN`
+- `ALIBABA_CLOUD_ACCESS_KEY_ID` / `ALIBABA_CLOUD_ACCESS_KEY_SECRET`（使用阿里云短信认证时）
+- `SMS_ALIYUN_SIGN_NAME` / `SMS_ALIYUN_TEMPLATE_CODE`（使用阿里云短信认证时）
 - `TRUSTED_HOSTS`
 - `CORS_ALLOW_ORIGINS`
 
@@ -40,7 +40,18 @@ Copy-Item .env.production.example .env
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-短信验证码生产环境使用通用 Webhook：
+个人账号可使用阿里云号码认证服务的短信认证。选用控制台提供的系统签名和模板，
+使用只授予 `dypns:SendSmsVerifyCode` 的 RAM 用户密钥；项目生成并校验验证码：
+
+```env
+SMS_PROVIDER=aliyun
+ALIBABA_CLOUD_ACCESS_KEY_ID=change-me-ram-access-key-id
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=change-me-ram-access-key-secret
+SMS_ALIYUN_SIGN_NAME=change-me-system-sign-name
+SMS_ALIYUN_TEMPLATE_CODE=change-me-system-template-code
+```
+
+已有自建短信网关也可使用通用 Webhook：
 
 ```env
 SMS_PROVIDER=webhook
@@ -52,11 +63,14 @@ SMS_WEBHOOK_TOKEN=change-me-sms-webhook-token
 
 ## 2. 启动
 
-同步表结构（幂等）：
+全新数据库先执行项目初始化入口（建表、补齐字段、创建管理员）：
 
 ```powershell
-python -m alembic upgrade head
+python -m models.init_db
 ```
+
+Alembic 的基线版本只给已有表打标记，不会在空库建 `user` 表；不要在空库直接运行
+`alembic upgrade head`。现有初始化与 Alembic 迁移尚未统一，后续新增迁移需先处理基线。
 
 常驻两个进程（交给 systemd / supervisor / nssm）：
 

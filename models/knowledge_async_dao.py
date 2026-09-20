@@ -95,6 +95,19 @@ async def get_knowledge_by_id_async(db: AsyncSession, knowledge_id: int) -> Opti
     return result.scalars().first()
 
 
+async def get_knowledge_by_ids_async(db: AsyncSession, knowledge_ids) -> dict:
+    """按一批 id 批量取文档，返回 {id: Knowledge}。
+
+    检索热路径（每次聊天触发 RAG 都会走到）之前是循环调用 get_knowledge_by_id_async，
+    命中几个文档就发几条 SELECT——这里改成一条 WHERE id IN (...)。
+    """
+    ids = list({i for i in knowledge_ids if i is not None})
+    if not ids:
+        return {}
+    result = await db.execute(select(Knowledge).where(Knowledge.id.in_(ids)))
+    return {k.id: k for k in result.scalars().all()}
+
+
 async def get_chunks_by_vector_ids_async(
         db: AsyncSession, vector_ids: List[str],
 ) -> List[KnowledgeChunk]:

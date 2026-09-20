@@ -3,27 +3,28 @@
     <div class="flex min-w-0 items-center gap-2">
       <button
         @click="router.push('/agents')"
-        class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+        class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
         title="返回工作台"
+        aria-label="返回工作台"
       >
-        <ArrowLeft :size="15" />
+        <ChevronLeft :size="19" :stroke-width="2" />
       </button>
       <div class="min-w-0">
-        <p class="truncate text-sm font-semibold text-slate-900">{{ agentName || `助手 #${agentId}` }}</p>
+        <p class="truncate text-[14px] font-semibold tracking-[-0.012em] text-slate-900">{{ agentName || `助手 #${agentId}` }}</p>
         <p class="truncate text-[11px] text-slate-400">助手空间</p>
       </div>
     </div>
 
-    <nav class="flex flex-wrap gap-1">
+    <nav class="flex w-full gap-1 overflow-x-auto md:w-auto md:flex-wrap">
       <RouterLink
         v-for="t in tabs"
         :key="t.key"
         :to="`/agents/${agentId}/${t.key}`"
         :class="[
-          'rounded px-2.5 py-1.5 text-xs font-medium transition-colors',
+          'shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors',
           t.key === active
-            ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'
-            : 'text-slate-600 hover:bg-sky-50 hover:text-slate-900',
+            ? 'bg-black/[.07] text-slate-900'
+            : 'text-slate-500 hover:bg-black/[.045] hover:text-slate-900',
         ]"
       >
         {{ t.label }}
@@ -38,6 +39,7 @@
 
 <script setup lang="ts">
 import { RouterLink, useRouter } from 'vue-router'
+import { ChevronLeft } from 'lucide-vue-next'
 
 defineProps<{
   agentId: number | string

@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN pip install --index-url "$PIP_INDEX_URL" -r requirements.txt
 
 COPY . .
 

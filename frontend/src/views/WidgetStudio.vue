@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent">
-    <header class="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-sky-200/70 bg-white/78 px-6 py-2 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
+    <header class="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-sky-200/70 ui-glass px-6 py-2 backdrop-blur-xl">
       <div class="flex min-w-0 flex-col gap-1.5">
         <SectionTabs :tabs="[
           { label: '我的小窗口', path: '/widgets' },
@@ -20,14 +20,14 @@
         </button>
         <button
           @click="transferMode = 'import'"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="导入小窗口"
         >
           <Upload :size="15" />
         </button>
         <button
           @click="reload"
-          class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+          class="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="刷新"
         >
           <RefreshCcw :size="15" />

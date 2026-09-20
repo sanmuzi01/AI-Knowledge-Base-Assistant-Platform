@@ -20,6 +20,14 @@
           <RefreshCcw :size="14" :class="loading ? 'animate-spin' : ''" />
           刷新
         </button>
+        <button
+          @click="exportCsv"
+          :disabled="exporting"
+          class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+        >
+          <Download :size="14" />
+          {{ exporting ? '导出中...' : '导出 CSV' }}
+        </button>
       </div>
     </div>
 
@@ -54,12 +62,12 @@
         </div>
         <div class="p-4">
           <svg viewBox="0 0 720 260" class="h-72 w-full overflow-visible">
-            <line v-for="line in gridLines" :key="line" x1="44" x2="700" :y1="line" :y2="line" stroke="#e2e8f0" stroke-width="1" />
-            <polyline :points="runLinePoints" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            <polyline :points="messageLinePoints" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            <line v-for="line in gridLines" :key="line" x1="44" x2="700" :y1="line" :y2="line" style="stroke: var(--line)" stroke-width="1" />
+            <polyline :points="runLinePoints" fill="none" stroke="#0071e3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline :points="messageLinePoints" fill="none" stroke="#34c759" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
             <g v-for="point in chartPoints" :key="point.date">
-              <circle :cx="point.x" :cy="point.runY" r="4" fill="#3b82f6" />
-              <circle :cx="point.x" :cy="point.messageY" r="4" fill="#10b981" />
+              <circle :cx="point.x" :cy="point.runY" r="4" fill="#0071e3" />
+              <circle :cx="point.x" :cy="point.messageY" r="4" fill="#34c759" />
               <text :x="point.x" y="252" text-anchor="middle" class="fill-slate-400 text-[10px]">{{ shortDate(point.date) }}</text>
             </g>
             <text x="44" y="18" class="fill-slate-400 text-[10px]">{{ maxChartValue }}</text>
@@ -155,23 +163,25 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Activity, ListChecks, MessageSquare, PieChart, RefreshCcw, Users, Zap } from 'lucide-vue-next'
+import { Activity, Download, ListChecks, MessageSquare, PieChart, RefreshCcw, Users, Zap } from 'lucide-vue-next'
 import * as adminApi from '../../api/admin'
 import type { AdminUsage } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
+import { downloadFile } from '../../utils/download'
 
 const usage = ref<AdminUsage | null>(null)
 const loading = ref(false)
 const errorMsg = ref('')
 const days = ref(14)
+const exporting = ref(false)
 const gridLines = [36, 84, 132, 180, 228]
 const statusColors: Record<string, string> = {
-  queued: '#94a3b8',
-  running: '#3b82f6',
-  finished: '#10b981',
-  failed: '#ef4444',
-  cancelled: '#f59e0b',
-  unknown: '#64748b',
+  queued: '#9a9aa0',
+  running: '#0071e3',
+  finished: '#34c759',
+  failed: '#ff453a',
+  cancelled: '#ff9f0a',
+  unknown: '#6e6e73',
 }
 
 const formatNumber = (value: number) => new Intl.NumberFormat('zh-CN').format(value || 0)
@@ -212,7 +222,7 @@ const taskStatusItems = computed(() => {
     cancelled: '已取消',
   }
   const rows = Object.entries(usage.value?.task_status || {})
-  if (!rows.length) return [{ key: 'empty', label: '暂无数据', value: 0, color: '#cbd5e1' }]
+  if (!rows.length) return [{ key: 'empty', label: '暂无数据', value: 0, color: '#c7c7cc' }]
   return rows.map(([key, value]) => ({
     key,
     label: labels[key] || key,
@@ -222,7 +232,7 @@ const taskStatusItems = computed(() => {
 })
 const totalTasks = computed(() => taskStatusItems.value.reduce((sum, item) => sum + item.value, 0))
 const taskPieGradient = computed(() => {
-  if (!totalTasks.value) return 'conic-gradient(#e2e8f0 0deg 360deg)'
+  if (!totalTasks.value) return 'conic-gradient(#ececf0 0deg 360deg)'
   let cursor = 0
   const segments = taskStatusItems.value.map((item) => {
     const end = cursor + (item.value / totalTasks.value) * 360
@@ -255,5 +265,16 @@ const loadUsage = async () => {
 }
 
 watch(days, loadUsage)
+const exportCsv = async () => {
+  exporting.value = true
+  try {
+    await downloadFile('/admin/usage/export', { days: days.value }, 'usage_report.csv')
+  } catch (e: any) {
+    errorMsg.value = getErrorMessage(e, '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+
 onMounted(loadUsage)
 </script>

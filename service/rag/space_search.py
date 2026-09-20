@@ -245,7 +245,7 @@ async def search_spaces_async(
     import asyncio
 
     from models.knowledge_async_dao import (
-        get_chunks_by_vector_ids_async, get_knowledge_by_id_async, search_chunks_by_keyword_async,
+        get_chunks_by_vector_ids_async, get_knowledge_by_ids_async, search_chunks_by_keyword_async,
     )
     from models.knowledge_space_async_dao import list_spaces_by_ids_async
     from service.access_control import user_space_ids_async
@@ -310,7 +310,11 @@ async def search_spaces_async(
 
         chunks = await get_chunks_by_vector_ids_async(session, [r["id"] for r in raw])
         chunk_map = {c.vector_id: c for c in chunks}
-        knowledge_map: Dict[int, Any] = {}
+        # 一条 WHERE id IN (...) 批量取，而不是命中几个文档就发几条 SELECT
+        # （检索是每次聊天都会走的热路径，之前这里是循环里逐个查）。
+        knowledge_map: Dict[int, Any] = await get_knowledge_by_ids_async(
+            session, {c.knowledge_id for c in chunks},
+        )
 
         merged: List[Dict[str, Any]] = []
         for r in raw:
@@ -318,9 +322,7 @@ async def search_spaces_async(
             if not chunk:
                 continue
             kid = chunk.knowledge_id
-            if kid not in knowledge_map:
-                knowledge_map[kid] = await get_knowledge_by_id_async(session, kid)
-            knowledge = knowledge_map[kid]
+            knowledge = knowledge_map.get(kid)
             if not knowledge or knowledge.is_enabled == 0:
                 continue
             space = spaces.get(r["_space_id"])
@@ -349,11 +351,12 @@ async def search_spaces_async(
             extra_chunks = await search_chunks_by_keyword_async(
                 session, want_ids, keyword_tokens, existing_ids, limit=5,
             )
+            missing_ids = {c.knowledge_id for c in extra_chunks if c.knowledge_id not in knowledge_map}
+            if missing_ids:
+                knowledge_map.update(await get_knowledge_by_ids_async(session, missing_ids))
             for chunk in extra_chunks:
                 kid = chunk.knowledge_id
-                if kid not in knowledge_map:
-                    knowledge_map[kid] = await get_knowledge_by_id_async(session, kid)
-                knowledge = knowledge_map[kid]
+                knowledge = knowledge_map.get(kid)
                 if not knowledge or knowledge.is_enabled == 0:
                     continue
                 space = spaces.get(knowledge.space_id)

@@ -7,6 +7,7 @@
 </template>
 
 <script setup lang="ts">
+import { isDark } from '../../utils/theme'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import type { WidgetItem } from '../../api/widget'
@@ -56,18 +57,20 @@ const unit = computed(() => props.widget.view?.config?.unit || props.result?.uni
 
 function buildOption(): EChartsOption {
   const data = series.value
+  const text = isDark.value ? '#a1a1a6' : '#6e6e73'
+  const grid = isDark.value ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'
   if (chartType.value === 'pie') {
     return {
       tooltip: { trigger: 'item' },
-      legend: { bottom: 0, type: 'scroll' },
+      legend: { bottom: 0, type: 'scroll', textStyle: { color: text } },
       series: [{ type: 'pie', radius: ['40%', '68%'], data: data.map((d) => ({ name: d.name, value: d.value })) }],
     }
   }
   return {
     grid: { left: 44, right: 16, top: 24, bottom: 32 },
     tooltip: { trigger: 'axis', valueFormatter: (v) => `${v}${unit.value ? ' ' + unit.value : ''}` },
-    xAxis: { type: 'category', data: data.map((d) => d.name), axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 } },
+    xAxis: { type: 'category', data: data.map((d) => d.name), axisLabel: { fontSize: 10, color: text }, axisLine: { lineStyle: { color: grid } } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, color: text }, splitLine: { lineStyle: { color: grid } } },
     series: [
       {
         type: chartType.value === 'bar' ? 'bar' : 'line',
@@ -75,7 +78,7 @@ function buildOption(): EChartsOption {
         showSymbol: false,
         areaStyle: chartType.value === 'line' ? { opacity: 0.12 } : undefined,
         data: data.map((d) => d.value),
-        itemStyle: { color: '#0ea5e9' },
+        itemStyle: { color: '#0071e3' },
       },
     ],
   }
@@ -102,4 +105,5 @@ onBeforeUnmount(() => {
   chart = null
 })
 watch(() => [props.result, props.widget.view], render, { deep: true })
+watch(isDark, render)
 </script>

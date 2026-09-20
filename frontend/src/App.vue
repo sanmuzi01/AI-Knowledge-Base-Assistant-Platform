@@ -1,7 +1,11 @@
 <template>
   <router-view v-if="$route.path === '/login' || $route.path.startsWith('/admin')" />
   <AppShell v-else>
-    <router-view />
+    <router-view v-slot="{ Component, route }">
+      <Transition name="page" mode="out-in">
+        <component :is="Component" :key="String(route.name ?? route.path)" />
+      </Transition>
+    </router-view>
   </AppShell>
   <CurrentAgentFloat v-if="$route.path !== '/login' && !$route.path.startsWith('/admin')" />
   <AppToasts />

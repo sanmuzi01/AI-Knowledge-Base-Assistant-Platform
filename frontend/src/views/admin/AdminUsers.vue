@@ -27,7 +27,7 @@
               v-model="userQuery"
               type="text"
               class="h-9 w-full rounded border border-slate-300 pl-8 pr-3 text-sm outline-none focus:border-indigo-500"
-              placeholder="按用户名或手机号搜索（服务端搜索，回车或停顿后自动查）"
+              placeholder="搜索用户名或手机号"
             />
           </div>
           <div class="grid grid-cols-5 gap-1 rounded bg-slate-100 p-1 text-xs">
@@ -50,6 +50,7 @@
               <th class="px-4 py-3 font-medium">用户</th>
               <th class="px-4 py-3 font-medium">状态</th>
               <th class="px-4 py-3 font-medium">角色</th>
+              <th class="px-4 py-3 font-medium">套餐</th>
               <th class="px-4 py-3 font-medium">资源</th>
               <th class="px-4 py-3 font-medium">操作</th>
             </tr>
@@ -90,6 +91,16 @@
                   </span>
                   <span v-if="!user.roles.length" class="text-xs text-slate-400">无角色</span>
                 </div>
+              </td>
+              <td class="px-4 py-3">
+                <select
+                  :value="planIdForUser(user)"
+                  @change="onPlanChange(user, $event)"
+                  class="h-8 rounded border border-slate-200 px-1.5 text-xs text-slate-700 outline-none focus:border-indigo-500"
+                >
+                  <option value="">默认套餐</option>
+                  <option v-for="p in plans" :key="p.id" :value="p.id">{{ p.display_name }}</option>
+                </select>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500">
                 助手 {{ user.agent_count }} · 能力 {{ user.skill_count }} · 文档 {{ user.knowledge_count }} · 任务 {{ user.task_count }}
@@ -218,10 +229,11 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RefreshCcw, Search } from 'lucide-vue-next'
 import AdminPagination from '../../components/admin/AdminPagination.vue'
 import * as adminApi from '../../api/admin'
-import type { AdminUser } from '../../api/admin'
+import type { AdminPlan, AdminUser } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
 
 const users = ref<AdminUser[]>([])
+const plans = ref<AdminPlan[]>([])
 const total = ref(0)
 const limit = ref(50)
 const offset = ref(0)
@@ -390,5 +402,32 @@ const deleteUser = async (user: AdminUser) => {
   }
 }
 
-onMounted(loadUsers)
+const loadPlans = async () => {
+  try {
+    plans.value = await adminApi.listAdminPlans()
+  } catch {
+    // 套餐列表加载失败不影响用户列表主流程，下拉框留空即可
+  }
+}
+
+const planIdForUser = (user: AdminUser): number | '' => {
+  const plan = plans.value.find((p) => p.name === user.plan_name)
+  return plan ? plan.id : ''
+}
+
+const onPlanChange = async (user: AdminUser, event: Event) => {
+  const value = (event.target as HTMLSelectElement).value
+  if (!value) return
+  try {
+    await adminApi.assignUserPlan(user.id, Number(value))
+    await loadUsers()
+  } catch (e: any) {
+    alert(getErrorMessage(e, '分配套餐失败'))
+  }
+}
+
+onMounted(() => {
+  loadUsers()
+  loadPlans()
+})
 </script>

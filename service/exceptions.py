@@ -11,7 +11,8 @@
     PermissionDenied  403  已登录但无权
     NotFound          404  资源不存在或不属于当前用户
     Conflict          409  状态冲突（重复、并发）
-    RateLimited       429  触发限流 / 配额
+    RateLimited       429  触发限流
+    QuotaExceeded     429  套餐配额用尽（区别于限流：限流是"太快"，配额是"太多"）
     UpstreamError     502  外部服务 / 模型 / 爬虫失败
     AppError          500  兜底
 """
@@ -73,6 +74,18 @@ class Conflict(AppError):
 class RateLimited(AppError):
     http_status = 429
     code = "rate_limited"
+
+
+class QuotaExceeded(AppError):
+    """套餐配额用尽（如本月 Token 用量达到套餐上限）。
+
+    单独成类而不是复用 RateLimited：限流是短期节流，过一会儿重试就好；
+    配额是资源用尽，要么等下个周期重置，要么找管理员升级套餐——
+    前端需要区分这两种情况给用户不同的提示文案。
+    """
+
+    http_status = 429
+    code = "quota_exceeded"
 
 
 class UpstreamError(AppError):

@@ -5,7 +5,7 @@
         <div class="flex items-start gap-3">
           <button
             @click="router.push('/agents')"
-            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            class="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
             title="返回工作台"
           >
             <ArrowLeft :size="16" />
@@ -19,7 +19,7 @@
         </div>
         <button
           @click="openCreate"
-          class="sci-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
+          class="ui-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
         >
           <Plus :size="16" />新建空间
         </button>
@@ -79,7 +79,7 @@
         <div class="mt-4 flex justify-end gap-2">
           <button @click="formOpen = false" class="rounded border border-sky-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-sky-50">取消</button>
           <button @click="submit" :disabled="saving || !form.name.trim()"
-            class="sci-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
+            class="ui-primary rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
             {{ saving ? '保存中…' : '保存' }}
           </button>
         </div>

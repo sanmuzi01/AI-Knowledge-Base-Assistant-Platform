@@ -5,7 +5,7 @@
     @dragover.prevent
     @drop="emit('drop')"
     @dragend="emit('dragend')"
-    class="sci-panel flex flex-col rounded-lg transition-shadow"
+    class="ui-card flex flex-col rounded-lg transition-shadow"
     :class="[{ 'opacity-60': !widget.enabled, 'opacity-40': dragging }, attentionRing]"
   >
     <div class="flex items-start justify-between gap-2 border-b border-sky-100 px-4 py-2.5">

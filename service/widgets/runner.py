@@ -192,6 +192,43 @@ def build_success_payload(spec: Dict[str, Any], source: Dict[str, Any], processe
     return payload
 
 
+_LEVEL_RANK = {"ok": 0, "warn": 1, "alert": 2}
+
+
+async def _maybe_dispatch_alert(db, user_id: int, widget, payload: Dict[str, Any]) -> None:
+    """threshold_alert 处理器给出 level 时，只在等级发生变化那一刻往外推——
+
+    等级持续保持 alert 期间每次调度都推会刷屏；等级变化（升级/降级/恢复正常）才是
+    真正值得群里看一眼的信息。level 变化记在 widget.last_alert_level 上做去重判断。
+    """
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return
+    level = result.get("level")
+    if level not in _LEVEL_RANK:
+        return
+
+    previous = widget.last_alert_level
+    widget.last_alert_level = level
+    if level == previous:
+        return  # 等级没变化，不重复推送
+    if level == "ok" and previous is None:
+        return  # 从来没告警过，恢复正常也没必要推
+
+    from service.notification_service import dispatch_alert_async
+
+    if level == "ok":
+        title = f"✅ 「{widget.name}」已恢复正常"
+    else:
+        icon = "🔴" if level == "alert" else "🟠"
+        title = f"{icon} 「{widget.name}」触发{'警报' if level == 'alert' else '提醒'}"
+    message = str(result.get("text") or result.get("summary") or "")
+    try:
+        await dispatch_alert_async(db, user_id, title=title, message=message)
+    except Exception as exc:  # noqa: BLE001 - 告警推送失败不能影响组件运行本身
+        logger.warning(f"告警推送失败: widget_id={widget.id}, user_id={user_id}, error={exc}")
+
+
 async def run_widget(db, user_id: int, widget_id: int, *, request_id: str = None,
                      trigger: str = "manual") -> WidgetRunResult:
     """运行一个组件并落库一条数据点。db 为 AsyncSession；调用方负责 commit。"""
@@ -235,6 +272,8 @@ async def run_widget(db, user_id: int, widget_id: int, *, request_id: str = None
             payload_json=json.dumps(payload, ensure_ascii=False), duration_ms=duration_ms,
         )
         await dao.apply_retention_async(db, widget_id, now=ctx.now, **_retention_kwargs())
+
+        await _maybe_dispatch_alert(db, user_id, widget, payload)
 
         widget.last_run_at = ctx.now
         widget.last_status = "ok"

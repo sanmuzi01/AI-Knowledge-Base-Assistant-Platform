@@ -9,7 +9,7 @@
   DELETE /conversation/{conversation_id}     删除会话（级联删消息）
 路由层职责：鉴权(get_current_user) + 入参校验 + HTTP 异常转换
 """
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from service.exceptions import InvalidInput, NotFound
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -73,7 +73,7 @@ async def get_conversation(
 @router.get("/{conversation_id}/messages", summary="查询会话消息历史")
 async def get_messages(
         conversation_id: int,
-        limit: int = 100,
+        limit: int = Query(default=100, ge=1, le=500),
         async_db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):

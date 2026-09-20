@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-screen flex-col bg-transparent">
-    <header class="flex min-h-16 flex-wrap items-center gap-3 border-b border-sky-200/70 bg-white/78 px-6 py-2 shadow-lg shadow-sky-900/8 backdrop-blur-xl">
+    <header class="flex min-h-16 flex-wrap items-center gap-3 border-b border-sky-200/70 ui-glass px-6 py-2 backdrop-blur-xl">
       <AgentSubnav :agent-id="agentId" :agent-name="currentAgent?.name" active="memory">
         <template #actions>
           <button
             @click="loadData"
-            class="inline-flex h-8 w-8 items-center justify-center rounded border border-sky-200 bg-white/80 text-slate-500 hover:bg-sky-50"
+            class="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
             title="刷新"
           >
             <RefreshCcw :size="15" />
@@ -23,7 +23,7 @@
     </header>
 
     <main class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <section class="sci-panel m-5 rounded-lg p-5 lg:mr-0">
+      <section class="ui-card m-5 rounded-lg p-5 lg:mr-0">
         <h2 class="text-sm font-semibold text-slate-800">添加记忆</h2>
         <p class="mt-1 text-xs text-slate-500">这些内容会在后续对话中提醒助手，帮助它更懂你的偏好和项目背景。</p>
 
@@ -32,7 +32,7 @@
             <span class="mb-1 block text-xs font-medium text-slate-600">类型</span>
             <select
               v-model="form.memory_type"
-              class="sci-field h-10 w-full rounded px-3 text-sm outline-none"
+              class="ui-field h-10 w-full rounded px-3 text-sm outline-none"
             >
               <option v-for="option in memoryTypes" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
@@ -43,7 +43,7 @@
             <textarea
               v-model="form.content"
               rows="8"
-              class="sci-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
+              class="ui-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
               placeholder="例如：用户偏好简洁回答；当前项目是 AI 助手工作台；用户希望每完成一项等待确认。"
             />
           </label>
@@ -51,7 +51,7 @@
           <button
             @click="handleCreate"
             :disabled="saving || !form.content.trim()"
-            class="sci-primary inline-flex w-full items-center justify-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:bg-blue-300 disabled:shadow-none"
+            class="ui-primary inline-flex w-full items-center justify-center gap-2 rounded px-4 py-2 text-sm font-medium text-white disabled:bg-blue-300 disabled:shadow-none"
           >
             <Plus :size="15" />
             {{ saving ? '保存中...' : '添加记忆' }}
@@ -95,7 +95,7 @@
         </div>
 
         <div v-else class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          <article v-for="memory in filteredMemories" :key="memory.id" class="sci-panel rounded-lg p-4 transition hover:border-sky-300">
+          <article v-for="memory in filteredMemories" :key="memory.id" class="transition-all duration-500 ease-[var(--spring)] hover:-translate-y-0.5 hover:shadow-[var(--sh-2)] ui-card rounded-lg p-4 transition">
             <div v-if="editingId !== memory.id" class="space-y-3">
               <div class="flex items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-2">
@@ -132,14 +132,14 @@
             <div v-else class="space-y-3">
               <select
                 v-model="editForm.memory_type"
-                class="sci-field h-9 rounded px-3 text-sm outline-none"
+                class="ui-field h-9 rounded px-3 text-sm outline-none"
               >
                 <option v-for="option in memoryTypes" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
               <textarea
                 v-model="editForm.content"
                 rows="6"
-                class="sci-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
+                class="ui-field w-full resize-none rounded px-3 py-2 text-sm leading-relaxed outline-none"
               />
               <div class="flex justify-end gap-2">
                 <button
@@ -152,7 +152,7 @@
                 <button
                   @click="handleUpdate(memory)"
                   :disabled="saving || !editForm.content.trim()"
-                  class="sci-primary inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm text-white disabled:bg-slate-400 disabled:shadow-none"
+                  class="ui-primary inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm text-white disabled:bg-slate-400 disabled:shadow-none"
                 >
                   <Save :size="15" />
                   保存

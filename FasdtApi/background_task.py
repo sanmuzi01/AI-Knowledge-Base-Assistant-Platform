@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from service.exceptions import InvalidInput, NotFound, PermissionDenied
 
 from models.init_db import User
@@ -17,7 +17,7 @@ def _require_admin(current_user: User):
 
 @router.get("/", summary="查询当前用户后台任务（支持筛选）")
 async def list_tasks(
-    limit: int = 30,
+    limit: int = Query(default=30, ge=1, le=200),
     status: str = None,
     task_type: str = None,
     async_db=Depends(get_async_db),
@@ -30,7 +30,7 @@ async def list_tasks(
 
 @router.get("/all", summary="管理员查询全局后台任务")
 async def list_all_tasks(
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     offset: int = 0,
     status: str = None,
     task_type: str = None,

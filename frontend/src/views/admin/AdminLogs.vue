@@ -2,14 +2,25 @@
   <div class="p-6">
     <div class="mb-5 flex items-center justify-between">
       <p class="text-xs text-slate-500">查看接口访问、错误响应、慢请求和管理员操作轨迹</p>
-      <button
-        @click="loadLogs"
-        :disabled="loading"
-        class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
-      >
-        <RefreshCcw :size="14" :class="loading ? 'animate-spin' : ''" />
-        刷新
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          @click="loadLogs"
+          :disabled="loading"
+          class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+        >
+          <RefreshCcw :size="14" :class="loading ? 'animate-spin' : ''" />
+          刷新
+        </button>
+        <button
+          @click="exportCsv"
+          :disabled="exporting"
+          class="inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:text-slate-300"
+          title="按当前筛选条件导出，最多导出最近 500 条"
+        >
+          <Download :size="14" />
+          {{ exporting ? '导出中...' : '导出 CSV' }}
+        </button>
+      </div>
     </div>
 
     <p v-if="errorMsg" class="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMsg }}</p>
@@ -56,8 +67,8 @@
       </div>
     </section>
 
-    <section class="rounded-lg border border-slate-200 bg-white">
-      <div class="grid grid-cols-[150px_90px_1fr_92px_90px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+    <section class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div class="grid min-w-[820px] grid-cols-[150px_90px_1fr_92px_90px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
         <span>时间</span>
         <span>用户</span>
         <span>请求</span>
@@ -66,7 +77,7 @@
         <span>来源</span>
       </div>
 
-      <div>
+      <div class="min-w-[820px]">
         <section v-for="group in groupedLogs" :key="group.key" class="border-b border-slate-100 last:border-b-0">
           <div class="flex items-center justify-between bg-slate-50/70 px-4 py-2">
             <div class="min-w-0">
@@ -111,11 +122,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RefreshCcw, Search } from 'lucide-vue-next'
+import { Download, RefreshCcw, Search } from 'lucide-vue-next'
 import AdminPagination from '../../components/admin/AdminPagination.vue'
 import * as adminApi from '../../api/admin'
 import type { AdminLog, AdminUser } from '../../api/admin'
 import { getErrorMessage } from '../../utils/request'
+import { downloadFile } from '../../utils/download'
 
 const logs = ref<AdminLog[]>([])
 const users = ref<AdminUser[]>([])
@@ -129,6 +141,7 @@ const days = ref(7)
 const userId = ref(0)
 const method = ref('')
 const statusGroup = ref('')
+const exporting = ref(false)
 
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 const statusFilters = [
@@ -218,6 +231,23 @@ const statusClass = (value: number) => {
   if (value >= 400) return 'bg-amber-50 text-amber-700'
   if (value >= 300) return 'bg-slate-100 text-slate-600'
   return 'bg-emerald-50 text-emerald-700'
+}
+
+const exportCsv = async () => {
+  exporting.value = true
+  try {
+    await downloadFile('/admin/logs/export', {
+      days: days.value,
+      keyword: keyword.value.trim() || undefined,
+      method: method.value || undefined,
+      status_group: statusGroup.value || undefined,
+      user_id: userId.value || undefined,
+    }, 'operation_logs.csv')
+  } catch (e: any) {
+    errorMsg.value = getErrorMessage(e, '导出失败')
+  } finally {
+    exporting.value = false
+  }
 }
 
 onMounted(() => {
