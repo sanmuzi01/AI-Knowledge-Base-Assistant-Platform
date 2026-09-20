@@ -253,7 +253,7 @@ class RejectionTest(BundleTestBase):
         self.assertRejected({"s/SKILL.md": "---\nname: s\n---\n"}, "正文是空的")
 
     def test_too_many_skills(self):
-        files = {f"s{i}/SKILL.md": f"---\nname: s{i}\n---\nbody" for i in range(51)}
+        files = {f"s{i}/SKILL.md": f"---\nname: s{i}\n---\nbody" for i in range(package_import.MAX_SKILLS_PER_UPLOAD + 1)}
         self.assertRejected(files, "最多导入")
 
     def test_yaml_missing_tools_gives_specific_reason(self):
