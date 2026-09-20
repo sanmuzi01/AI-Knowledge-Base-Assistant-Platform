@@ -1,0 +1,18 @@
+# 运行器本身
+fastapi==0.140.13
+uvicorn==0.52.0
+
+# 官方 Skill 脚本最常用的库（只列 Python 生态里处理文件/数据的；不含 Node、LibreOffice）
+pypdf
+pdfplumber
+reportlab
+openpyxl
+python-docx
+python-pptx
+pandas
+numpy
+pillow
+pyyaml
+lxml
+beautifulsoup4
+markdown

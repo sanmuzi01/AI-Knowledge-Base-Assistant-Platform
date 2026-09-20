@@ -6,6 +6,9 @@ from utils.logger_handler import get_logger
 
 logger = get_logger("skill_service")
 
+# 由系统在绑定时自动添加的工具，不让用户手动勾选（比如 run_skill_script 只对带脚本的 Skill 有意义）
+INTERNAL_TOOLS = {"run_skill_script"}
+
 
 def list_available_tools() -> List[Dict[str, Any]]:
     import service.tools  # noqa: F401 - trigger tool auto registration
@@ -20,6 +23,7 @@ def list_available_tools() -> List[Dict[str, Any]]:
             "required_permissions": tool.required_permissions,
         }
         for tool in ToolRegistry.get_all_tools()
+        if tool.name not in INTERNAL_TOOLS
     ]
 
 
@@ -102,8 +106,7 @@ def validate_skill_config_file(config_file: str) -> Dict[str, Any]:
         result["tool_names"].append(tool_name)
 
     result["system_prompt_ready"] = bool(str(raw.get("system_prompt") or "").strip())
-    if not result["tool_names"]:
-        result["warnings"].append("没有可用工具，绑定后只会追加提示词，不会获得工具调用能力")
+    # 没有工具不是问题：纯说明型能力（写作规范、审阅流程等）本来就只靠提示词，页面上显示为"提示词能力"
     if not result["system_prompt_ready"]:
         result["warnings"].append("system_prompt 为空，Skill 对回答行为的影响会很弱")
 
@@ -113,6 +116,13 @@ def validate_skill_config_file(config_file: str) -> Dict[str, Any]:
         result["resources"] = cfg.get("resources", [])
         result["resource_count"] = len(result["resources"])
         result["allowed_resource_count"] = len([item for item in result["resources"] if item.get("allowed")])
+        script_count = len(cfg.get("scripts") or [])
+        result["script_count"] = script_count
+        if script_count:
+            from service import sandbox
+
+            if not sandbox.is_enabled():
+                result["warnings"].append(f"带 {script_count} 个 Python 脚本，但脚本沙箱未开启，暂时只按文字说明工作")
     except Exception as e:
         result["ok"] = False
         result["errors"].append(str(e))

@@ -223,3 +223,56 @@ TASK_EXECUTION_MODE=fastapi
 ```
 
 不要在生产环境使用 `fastapi` 模式执行重任务。
+
+## 7. Skill 脚本沙箱（可选，默认关闭）
+
+导入的官方 Skill 常带 `scripts/*.py`。开启沙箱后，助手可以用 `run_skill_script` 工具运行这些 Python 脚本，
+用户也能在聊天里上传文件（📎）交给脚本处理，脚本生成的文件会变成下载链接。
+
+**这等于让服务器执行陌生人写的代码**，所以：默认关闭；只有导入了带脚本的 Skill 并且真有需求再开。
+
+### 隔离措施（都已写在 docker-compose.prod.yml 的 `sandbox` 服务里）
+
+- 单独的容器，只挂在 `internal` 网络：**没有外网出口**，也访问不到 db / redis / chroma。
+- 不加载 `.env`，容器里没有任何业务密钥；调用用一个独立的 `SANDBOX_TOKEN`。
+- 根文件系统只读，可写的只有 tmpfs（重启即清空）；非 root 用户；丢弃全部 Linux capability。
+- 上限：1 CPU、1GB 内存、128 个进程、单次最长 30 秒（`SANDBOX_TIMEOUT_SECONDS`，最大 60）、同时最多 2 个脚本。
+- 只能运行 `.py`；`.sh` / `.js` 等一律不执行。镜像里没有 Node / LibreOffice，只预装 PDF / Excel / Word / pandas 等常用库（见 `sandbox/requirements.txt`）。
+
+### 开启步骤
+
+```bash
+# 1. 生成令牌，写进 .env
+python3 -c "import secrets; print(secrets.token_hex(32))"
+#    .env 里设置：
+#      SANDBOX_ENABLED=true
+#      SANDBOX_TOKEN=<上面生成的值>
+
+# 2. 构建并启动沙箱（profile 里的服务默认不会随 up -d 启动）
+docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox
+
+# 3. 重启 api 和 worker，让它们读到新的环境变量
+docker compose -f docker-compose.prod.yml up -d api worker
+```
+
+关闭：把 `SANDBOX_ENABLED` 改回 `false`，重启 api / worker；`docker compose ... stop sandbox` 停掉容器。
+关闭后已导入的 Skill 仍在，只是脚本不再运行，助手会按文字说明工作。
+
+### 部署后必须自己验证的两件事（本地开发机没法测容器层面的隔离）
+
+```bash
+# a) 沙箱容器确实连不出去（应当失败/超时）
+docker compose -f docker-compose.prod.yml exec sandbox python -c \
+  "import urllib.request; print(urllib.request.urlopen('https://example.com', timeout=5).status)"
+
+# b) 沙箱容器连不到数据库（应当解析失败）
+docker compose -f docker-compose.prod.yml exec sandbox python -c \
+  "import socket; print(socket.gethostbyname('db'))"
+```
+
+两条都应该报错。任何一条成功，说明网络隔离没生效，立刻关掉沙箱。
+
+### 附件文件
+
+用户上传的附件和脚本生成的文件存在 `app_data` 卷的 `/app/data/attachments/`，按用户隔离，
+默认保留 7 天（`ATTACHMENT_TTL_DAYS`），过期文件在该用户下次上传时清理。

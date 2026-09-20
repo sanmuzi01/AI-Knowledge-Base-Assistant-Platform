@@ -31,13 +31,16 @@ class ToolContext:
     def __init__(self, llm_client=None, user_id: int = None,
                  agent_id: int = None, system_prompt: str = None,
                  permissions: Dict[str, Any] = None,
-                 resource_roots: List[str] = None):
+                 resource_roots: List[str] = None,
+                 skill_bundles: Dict[str, Any] = None):
         self.llm_client = llm_client          # 已配置好Key的 BaseLLM 实例
         self.user_id = user_id                # 用户ID（日志/隔离）
         self.agent_id = agent_id              # AgentID（多Agent场景）
         self.system_prompt = system_prompt    # 用户自定义prompt（覆盖工具默认）
         self.permissions = permissions or {"network": False, "file_read": [], "exec": False}
         self.resource_roots = [os.path.abspath(path) for path in (resource_roots or []) if path]
+        # {skill 名: {"root": 脚本包目录, "scripts": [相对路径]}}，run_skill_script 工具用
+        self.skill_bundles: Dict[str, Any] = skill_bundles or {}
         self.usage_log: List[Dict[str, int]] = []  # 工具内部调 LLM 的用量，engine 每轮跑完会取走汇总
 
     def record_usage(self, usage: Optional[Dict[str, int]]) -> None:

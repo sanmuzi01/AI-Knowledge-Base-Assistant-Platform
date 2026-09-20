@@ -18,6 +18,7 @@
           </div>
         </div>
         <button
+          data-guide="new-space"
           @click="openCreate"
           class="ui-primary inline-flex h-10 shrink-0 items-center gap-2 rounded px-4 text-sm font-medium text-white"
         >

@@ -18,3 +18,11 @@ release-*/
 .env.*
 !.env.example
 !.env.production.example
+
+data/attachments/
+
+# 本机导入的 Skill（yml 里是本机绝对路径；服务器上它们在各自的 docker 卷里），不入库
+skills/imported/
+skills_packages/imported/
+# 例外：预制的 Skill 精选包可以入库（上面的 *.zip 规则会忽略其他压缩包）
+!skill-packs/*.zip

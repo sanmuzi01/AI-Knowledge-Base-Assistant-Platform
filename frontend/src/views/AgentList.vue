@@ -7,6 +7,7 @@
       </div>
       <div class="mt-3 flex flex-wrap items-center gap-2 lg:mt-0">
         <button
+          data-guide="create-agent"
           @click="openCreateDialog"
           class="ui-primary inline-flex h-9 items-center gap-1.5 px-4 text-[13px] font-medium"
         >
@@ -654,8 +655,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Activity, BookOpen, Bot, Brain, Bug, Copy, Cpu, Database, Gauge, Globe2, KeyRound, ListChecks, LogOut, MessageSquare, Pencil, Plus, SlidersHorizontal, Sparkles, Trash2, X, Zap,
 } from 'lucide-vue-next'
@@ -678,6 +679,7 @@ import { getErrorMessage } from '../utils/request'
 const userStore = useUserStore()
 const agentSession = useAgentSessionStore()
 const router = useRouter()
+const route = useRoute()
 
 const agents = ref<AgentInfo[]>([])
 const availableSkills = ref<any[]>([])
@@ -1213,7 +1215,16 @@ const handleDelete = async (agent: AgentInfo) => {
   }
 }
 
+// 新手指引会带着 ?create=1 过来：自动打开"新建助手"，并把参数清掉，刷新页面不会重复弹
+const consumeCreateQuery = () => {
+  if (!route.query.create) return
+  openCreateDialog()
+  router.replace({ path: '/agents' })
+}
+watch(() => route.query.create, consumeCreateQuery)
+
 onMounted(async () => {
+  consumeCreateQuery()
   await Promise.all([reload(), loadWorkspaceModules()])
 })
 </script>

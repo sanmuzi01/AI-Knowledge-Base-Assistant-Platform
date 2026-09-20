@@ -223,7 +223,7 @@
               ]"
               @click="msg.role === 'assistant' && onAnswerClick($event, msg)"
             >
-              <template v-if="msg.role === 'user'">{{ msg.content }}</template>
+              <template v-if="msg.role === 'user'">{{ displayUser(msg.content) }}</template>
               <div v-else v-html="renderAnswer(msg.content)"></div>
             </div>
             <CitationList
@@ -294,7 +294,39 @@
               连接模型
             </button>
           </div>
-          <div class="ui-glass-float flex items-end gap-2 rounded-[27px] p-2">
+          <div v-if="pendingAttachments.length || uploading" class="mb-2 flex flex-wrap gap-2">
+            <span
+              v-for="a in pendingAttachments"
+              :key="a.id"
+              class="ui-glass-float relative inline-flex max-w-[16rem] items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-[13px] text-slate-700"
+            >
+              <FileText :size="14" class="relative shrink-0 text-[var(--accent)]" />
+              <span class="relative truncate">{{ a.name }}</span>
+              <button
+                type="button"
+                class="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-black/[.08] hover:text-slate-700"
+                :aria-label="`移除 ${a.name}`"
+                @click="removeAttachment(a.id)"
+              >
+                <X :size="12" :stroke-width="2.4" />
+              </button>
+            </span>
+            <span v-if="uploading" class="inline-flex items-center px-2 text-[13px] text-slate-400">上传中…</span>
+          </div>
+          <div class="ui-glass-float flex items-end gap-2 rounded-[27px] p-2" data-guide="composer">
+            <template v-if="attachmentEnabled">
+              <input ref="fileInput" type="file" class="hidden" multiple @change="onFilesPicked" />
+              <button
+                type="button"
+                :disabled="loading || uploading || !chatReady || pendingAttachments.length >= 5"
+                class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-800 disabled:cursor-default disabled:opacity-40"
+                aria-label="添加附件"
+                title="添加附件（供技能里的脚本处理，最大 10MB）"
+                @click="fileInput?.click()"
+              >
+                <Paperclip :size="18" :stroke-width="2" />
+              </button>
+            </template>
             <textarea
               ref="inputRef"
               v-model="inputText"
@@ -523,10 +555,14 @@ import RagSavingsBar from '../components/knowledge/RagSavingsBar.vue'
 import AgentSubnav from '../components/agent/AgentSubnav.vue'
 import {
   BookOpen, PlusCircle, MoreHorizontal, Pencil, Trash2, Pin, Archive,
-  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search, ChevronLeft, ArrowUp, Square, PanelLeft
+  GitBranch, X, Wrench, Sparkles, AlertTriangle, Download, Search, ChevronLeft, ArrowUp, Square, PanelLeft,
+  Paperclip, FileText
 } from 'lucide-vue-next'
 import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
+import { downloadFile } from '../utils/download'
+import * as attachmentApi from '../api/attachment'
+import type { Attachment } from '../api/attachment'
 const router = useRouter()
 const route = useRoute()
 const agentId = computed(() => Number(route.params.agentId))
@@ -666,7 +702,60 @@ const filteredConversations = computed(() => {
 const renderAnswer = (text: string) =>
   renderMarkdown(text, true)
 
+// ---- 附件：上传给助手的文件 / 脚本生成的文件下载 ----
+const attachmentEnabled = ref(false)
+const pendingAttachments = ref<Attachment[]>([])
+const uploading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+const loadAttachmentStatus = async () => {
+  try {
+    attachmentEnabled.value = (await attachmentApi.getAttachmentStatus()).enabled
+  } catch {
+    attachmentEnabled.value = false
+  }
+}
+
+const onFilesPicked = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (!files.length) return
+  uploading.value = true
+  try {
+    for (const file of files) {
+      if (pendingAttachments.value.length >= 5) {
+        toastError('一次最多添加 5 个附件')
+        break
+      }
+      try {
+        pendingAttachments.value.push(await attachmentApi.uploadAttachment(file))
+      } catch (err: any) {
+        toastError(`${file.name}：${getErrorMessage(err, '上传失败')}`)
+      }
+    }
+  } finally {
+    uploading.value = false
+  }
+}
+
+const removeAttachment = (id: string) => {
+  pendingAttachments.value = pendingAttachments.value.filter((a) => a.id !== id)
+}
+
+// 历史消息里的附件会带「附件ID」（给助手看的），展示时去掉
+const displayUser = (text: string) => (text || '').replace(/（附件ID：[0-9a-f]{24}）/g, '')
+
 function onAnswerClick(e: MouseEvent, msg: any) {
+  const link = (e.target as HTMLElement)?.closest?.('a[href^="#attachment-"]') as HTMLAnchorElement | null
+  if (link) {
+    e.preventDefault()
+    const id = (link.getAttribute('href') || '').replace('#attachment-', '')
+    downloadFile(`/attachment/${id}/download`, undefined, link.textContent || 'download').catch((err) =>
+      toastError(getErrorMessage(err, '文件已过期或不存在（生成的文件只保留几天）')),
+    )
+    return
+  }
   const el = (e.target as HTMLElement)?.closest?.('.cite-ref') as HTMLElement | null
   if (!el) return
   const idx = Number(el.dataset.cite)
@@ -874,7 +963,12 @@ const sendMessage = async () => {
   abortController.value = new AbortController()
   eventTraces.value = []
   // 先加 user 消息到 UI
-  messages.value.push({ role: 'user', content: msg })
+  const attached = pendingAttachments.value
+  pendingAttachments.value = []
+  messages.value.push({
+    role: 'user',
+    content: attached.length ? `${msg}\n\n【用户上传的附件】\n${attached.map((a) => `- ${a.name}`).join('\n')}` : msg,
+  })
   inputText.value = ''
   scrollToBottom()
 
@@ -887,6 +981,7 @@ const sendMessage = async () => {
       agentId: agentId.value,
       conversationId: currentConversationId.value,
       message: msg,
+      attachmentIds: attached.map((a) => a.id),
       onEvent: async (evt) => {
                 if (evt.type === 'ready' && evt.run_id) {
           // 可选：记 run_id 供轨迹
@@ -942,6 +1037,7 @@ const stopGenerating = () => {
 }
 
 onMounted(async () => {
+  void loadAttachmentStatus()
   await Promise.all([loadCurrentAgent(), loadConfigs()])
   await loadConversations()
   resortConversations()

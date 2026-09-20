@@ -73,6 +73,10 @@
                 <component :is="item.icon" :size="18" :stroke-width="1.7" :class="iconClass(item.active)" />
                 <span class="truncate">{{ item.label }}</span>
               </RouterLink>
+              <button type="button" :class="navClass(false)" class="w-full" @click="openGuide">
+                <Compass :size="18" :stroke-width="1.7" class="text-slate-500" />
+                <span class="truncate">新手指引</span>
+              </button>
             </nav>
           </div>
         </template>
@@ -119,14 +123,21 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { ChevronRight, Layers3, LayoutGrid, Library, ListChecks, LogOut, Menu, MessageSquare, Settings, Sparkles, Workflow, Zap } from 'lucide-vue-next'
+import { ChevronRight, Compass, Layers3, LayoutGrid, Library, ListChecks, LogOut, Menu, MessageSquare, Settings, Sparkles, Workflow, Zap } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import { useAgentSessionStore } from '../stores/agentSession'
 import ThemeToggle from './ThemeToggle.vue'
+import { useOnboardingStore } from '../stores/onboarding'
 
 const route = useRoute()
 const userStore = useUserStore()
 const agentSession = useAgentSessionStore()
+const onboarding = useOnboardingStore()
+
+const openGuide = () => {
+  mobileOpen.value = false
+  void onboarding.restart()
+}
 
 const routeAgentId = computed(() => {
   const value = route.params.agentId

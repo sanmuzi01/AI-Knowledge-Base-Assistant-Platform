@@ -63,6 +63,7 @@ class ToolExecutor:
             system_prompt=self.system_prompt,
             permissions=self.skill_config.get("permissions", {}),
             resource_roots=self.skill_config.get("resource_roots", []),
+            skill_bundles=self.skill_config.get("skill_bundles", {}),
         )
 
         # 6.只适配Skill包含的工具（工具子集=Skill业务边界）

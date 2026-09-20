@@ -36,6 +36,7 @@ from FasdtApi.web_monitor import router as web_monitor_router
 from FasdtApi.user_widget import router as user_widget_router
 from FasdtApi.notification_channel import router as notification_channel_router
 from FasdtApi.agent_pipeline import router as agent_pipeline_router
+from FasdtApi.attachment_route import router as attachment_router
 from models.async_db import async_engine
 from models.init_db import SessionLocal, engine, bootstrap_database, User
 from service.operation_log_middleware import OperationLogMiddleware
@@ -113,6 +114,7 @@ app.include_router(web_monitor_router)
 app.include_router(user_widget_router)
 app.include_router(notification_channel_router)
 app.include_router(agent_pipeline_router)
+app.include_router(attachment_router)
 
 _error_logger = get_logger("app_error")
 

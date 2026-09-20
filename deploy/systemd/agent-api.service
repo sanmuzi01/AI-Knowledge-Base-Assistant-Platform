@@ -1,0 +1,20 @@
+[Unit]
+Description=Agent Platform - FastAPI service
+After=network.target agent-chroma.service
+Wants=agent-chroma.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/agent-app
+EnvironmentFile=/srv/agent-app/.env
+ExecStart=/srv/agent-app/.venv/bin/uvicorn FasdtApi.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+StandardOutput=append:/srv/agent-app/logs/api.log
+StandardError=append:/srv/agent-app/logs/api.log
+
+[Install]
+WantedBy=multi-user.target

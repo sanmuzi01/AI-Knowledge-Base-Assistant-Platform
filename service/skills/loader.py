@@ -48,6 +48,25 @@ def _safe_join(root: str, relative_path: str) -> str:
         raise SkillValidationError(f"非法资源路径: {relative_path}")
     return full_path
 
+def _packages_base() -> str:
+    # 导入的 Skill 包（资源、脚本包）都放在 <项目根>/skills_packages/ 下
+    return os.path.join(os.path.dirname(SKILLS_ROOT), "skills_packages")
+
+
+def _ensure_managed_dir(path: str, label: str, bases: List[str]) -> str:
+    """resource_root / scripts_root 只能指向平台自己管理的目录。
+
+    用户可以上传 .yml 配置，如果不限制，里面写 scripts_root: /app 就能让脚本沙箱把项目根目录
+    （含 .env）打包进去再读出来。realpath 同时挡住 ../ 和符号链接绕路。
+    """
+    real = os.path.realpath(path)
+    for base in bases:
+        real_base = os.path.realpath(base)
+        if real == real_base or real.startswith(real_base + os.sep):
+            return os.path.abspath(path)
+    raise SkillValidationError(f"{label} 只能指向平台管理的目录，不允许: {path}")
+
+
 def _normalize_permissions(raw: Any) -> Dict[str, Any]:
     permissions = raw if isinstance(raw, dict) else {}
     file_read = permissions.get("file_read") or []
@@ -68,7 +87,7 @@ def _normalize_resources(config: Dict[str, Any], file_path: str) -> Dict[str, An
     resource_root = config.get("resource_root") or os.path.join(os.path.dirname(file_path), "resources")
     if not os.path.isabs(resource_root):
         resource_root = _safe_join(SKILLS_ROOT, resource_root)
-    resource_root = os.path.abspath(resource_root)
+    resource_root = _ensure_managed_dir(resource_root, "resource_root", [SKILLS_ROOT, _packages_base()])
     normalized_resources: List[Dict[str, Any]] = []
     resource_text_parts: List[str] = []
     text_exts = {".txt", ".md", ".markdown", ".json", ".csv", ".yml", ".yaml"}
@@ -158,6 +177,21 @@ def _load_skill_config_uncached(config_file: str, file_path: str)->Dict[str,Any]
     config["resource_root"] = resource_info["resource_root"]
     config["resources"] = resource_info["resources"]
     config["resource_text"] = resource_info["resource_text"]
+    # 脚本包（导入 Skill 时生成；实际执行在沙箱里，见 service/sandbox.py）
+    if config.get("scripts_root") or config.get("scripts"):
+        scripts_root = config.get("scripts_root")
+        scripts_raw = config.get("scripts")
+        if not scripts_root or not isinstance(scripts_raw, list):
+            raise SkillValidationError("scripts_root 和 scripts 必须同时提供，且 scripts 是列表")
+        config["scripts_root"] = _ensure_managed_dir(str(scripts_root), "scripts_root", [_packages_base()])
+        scripts: List[str] = []
+        for item in scripts_raw:
+            rel = str(item).replace("\\", "/")
+            if not rel.endswith(".py"):
+                raise SkillValidationError(f"scripts 里只能是 .py 文件: {item}")
+            _safe_join(config["scripts_root"], rel)
+            scripts.append(rel)
+        config["scripts"] = scripts
     #4，tools字段校验+规范化
     tools_raw = config["tools"]
     if not isinstance(tools_raw,list):

@@ -8,6 +8,7 @@
     </router-view>
   </AppShell>
   <CurrentAgentFloat v-if="$route.path !== '/login' && !$route.path.startsWith('/admin')" />
+  <OnboardingLayer v-if="$route.path !== '/login' && !$route.path.startsWith('/admin')" />
   <AppToasts />
 </template>
 
@@ -15,4 +16,5 @@
 import AppShell from './components/AppShell.vue'
 import AppToasts from './components/AppToasts.vue'
 import CurrentAgentFloat from './components/CurrentAgentFloat.vue'
+import OnboardingLayer from './components/onboarding/OnboardingLayer.vue'
 </script>

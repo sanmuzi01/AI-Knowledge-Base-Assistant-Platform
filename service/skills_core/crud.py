@@ -140,6 +140,10 @@ def _write_skill_config(config_file: str, name: str, description: str,
             "resources": old_cfg.get("resources", []),
             "system_prompt": system_prompt,
         }
+        # 导入的 Skill 自带的脚本包信息：编辑提示词/工具时不能丢
+        for key in ("origin", "scripts_root", "scripts"):
+            if old_cfg.get(key):
+                runtime_config[key] = old_cfg[key]
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
         invalidate_skill_config(config_file)

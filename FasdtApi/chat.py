@@ -15,11 +15,11 @@ ReAct 引擎（含 ToolExecutor 装配）整段跑在 asyncio.to_thread + 自带
 from fastapi import APIRouter, Depends, HTTPException, status
 from service.exceptions import InvalidInput, PermissionDenied
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import List, Optional
 from models.async_db import get_async_db
 from models.init_db import User
 from service.dependencies import get_current_user_async
-from service import chat_async_service, chat_service, quota_service
+from service import attachment_service, chat_async_service, chat_service, quota_service
 from fastapi.responses import StreamingResponse
 from service.runtime.sse_events import SSE_HEADERS
 from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
@@ -35,6 +35,20 @@ class ChatRequest(BaseModel):
     """
     message: str = Field(min_length=1, max_length=5000)
     conversation_id: Optional[int] = Field(default=None, ge=1)
+    # 先经 POST /attachment 上传拿到 ID；只是把文件名和 ID 写进消息，供助手用 run_skill_script 传给脚本
+    attachment_ids: List[str] = Field(default_factory=list, max_length=attachment_service.MAX_ATTACHMENTS_PER_MESSAGE)
+
+
+def _message_with_attachments(user: User, request: ChatRequest) -> str:
+    if not request.attachment_ids:
+        return request.message
+    lines = []
+    for att_id in request.attachment_ids:
+        found = attachment_service.resolve(user.id, att_id)
+        if not found:
+            raise InvalidInput("有附件不存在或已过期，请重新上传")
+        lines.append(f"- {found[1]}（附件ID：{att_id}）")
+    return f"{request.message}\n\n【用户上传的附件】\n" + "\n".join(lines)
 
 
 def _limit_error(exc: LimitExceeded) -> HTTPException:
@@ -64,6 +78,7 @@ async def chat(
         )
     except LimitExceeded as e:
         raise _limit_error(e)
+    user_message = _message_with_attachments(current_user, request)
     quota_before = await quota_service.enforce_quota_async(db, current_user.id)
     try:
         with concurrency_guard(
@@ -78,7 +93,7 @@ async def chat(
                 db=db,
                 user=current_user,
                 agent_id=agent_id,
-                user_message=request.message,
+                user_message=user_message,
                 conversation_id=request.conversation_id,
             )
     except LimitExceeded as e:
@@ -112,6 +127,7 @@ async def chat_stream(
         )
     except LimitExceeded as e:
         raise _limit_error(e)
+    user_message = _message_with_attachments(current_user, request)
     quota_before = await quota_service.enforce_quota_async(db, current_user.id)
     try:
         lease_guard = concurrency_guard(
@@ -130,7 +146,7 @@ async def chat_stream(
         db=db,
         user=current_user,
         agent_id=agent_id,
-        user_message=request.message,
+        user_message=user_message,
         conversation_id=request.conversation_id,
     )
 

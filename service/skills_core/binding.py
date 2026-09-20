@@ -11,12 +11,32 @@ from models.skill_dao import (
     list_skills_by_agent as dao_list_by_agent,
     unbind_all_skills_from_agent as dao_unbind_all,
 )
+from service import sandbox
 from service.skills.loader import load_skill_config
 from utils.logger_handler import get_logger
 
 from .common import _skill_to_dict
 
 logger = get_logger("skill_service")
+
+
+NO_EXEC_NOTE = (
+    "【运行环境说明】本平台的助手无法运行脚本或命令，也不能读取本地文件。"
+    "下文如果要求运行脚本、执行命令或读取文件，请改为直接用文字完成，"
+    "或明确告诉用户这一步需要他在自己的电脑上执行。"
+)
+
+
+def _script_section(name: str, scripts: List[str]) -> str:
+    listed = "、".join(scripts[:30]) + (f" 等共 {len(scripts)} 个" if len(scripts) > 30 else "")
+    return (
+        f"【运行环境说明】这个 Skill 的脚本可以用 run_skill_script 工具在隔离沙箱里运行（skill 填「{name}」）。\n"
+        f"可运行的脚本：{listed}\n"
+        "- 下文让你运行某个脚本时，就调用这个工具，不要假装已经运行过。\n"
+        "- 用户上传的文件会以附件 ID 出现在消息里，用 input_files 传入；脚本里的路径是 inputs/文件名。\n"
+        "- 脚本生成的文件写到 outputs/ 目录；工具返回的下载链接要原样放进回答里给用户。\n"
+        "- 沙箱没有网络，不能安装依赖，只有常见的 PDF / Excel / Word / pandas 等库。"
+    )
 
 
 def bind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
@@ -106,6 +126,7 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
             "permissions": {"network": False, "file_read": [], "exec": False},
             "resource_roots": [],
             "resources": [],
+            "skill_bundles": {},
         }
     merged_tool_names: List[str] = []
     merged_defaults: Dict[str, Dict] = {}
@@ -114,6 +135,8 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
     resource_roots: List[str] = []
     resources: List[Dict[str, Any]] = []
     load_errors: List[Dict[str, str]] = []
+    skill_bundles: Dict[str, Dict[str, Any]] = {}
+    sandbox_on = sandbox.is_enabled()
     for skill in skills:
         try:
             cfg = load_skill_config(skill.config_file)
@@ -136,9 +159,20 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
         for name, defaults in cfg["tool_defaults_map"].items():
             if name not in merged_defaults:
                 merged_defaults[name] = defaults
+        # 带脚本的 Skill：沙箱开着就告诉模型怎么跑，否则老实说跑不了
+        env_note = ""
+        scripts = cfg.get("scripts") or []
+        if scripts and sandbox_on and cfg.get("scripts_root"):
+            skill_bundles[cfg["name"]] = {"root": cfg["scripts_root"], "scripts": list(scripts)}
+            env_note = _script_section(cfg["name"], scripts)
+            if "run_skill_script" not in merged_tool_names:
+                merged_tool_names.append("run_skill_script")
+        elif cfg.get("origin") == "official":
+            env_note = NO_EXEC_NOTE
         # prompt拼接
         if cfg["system_prompt"]:
-            skill_prompts.append(f"【Skill: {cfg['name']}】\n{cfg['system_prompt']}")
+            body = f"{env_note}\n\n{cfg['system_prompt']}" if env_note else cfg["system_prompt"]
+            skill_prompts.append(f"【Skill: {cfg['name']}】\n{body}")
         if cfg.get("resource_text"):
             skill_prompts.append(f"【Skill资源: {cfg['name']}】\n{cfg['resource_text']}")
     merged_prompt = "\n\n".join(skill_prompts) if skill_prompts else ""
@@ -164,5 +198,6 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
         },
         "resource_roots": resource_roots,
         "resources": resources,
+        "skill_bundles": skill_bundles,
         "load_errors": load_errors,
     }

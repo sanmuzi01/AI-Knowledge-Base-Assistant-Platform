@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -7,9 +8,13 @@ from sqlalchemy.orm import Session
 
 from models.init_db import User, get_db
 from models.async_db import get_async_db
+from service.admin_service import is_admin_user
 from service.dependencies import get_current_user, get_current_user_async
 from service.exceptions import InvalidInput, NotFound
 from service import skill_async_service
+from service.skills_core.github_import import import_from_github
+from service.skills_core.translate import TranslateError, translate_skill
+from service.skills_core.package_import import MAX_UPLOAD_BYTES, SkillImportError, import_skill_bundle
 from service.skill_service import (
     bind_skill,
     create_template,
@@ -18,7 +23,6 @@ from service.skill_service import (
     create_skill,
     delete_skill,
     get_template_config,
-    import_skill_from_upload,
     install_public_skill,
     list_available_tools,
     list_templates,
@@ -223,27 +227,73 @@ def api_install_public_skill(
     return {"code": 200, "msg": "安装成功", "data": skill}
 
 
-@router.post("/import", summary="导入外部Skill包")
-async def api_import_skill(
+class GithubImport(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+    is_public: int = 0
+
+
+def _import_response(result: Dict[str, Any]) -> Dict[str, Any]:
+    return {"code": 200, "msg": f"已导入 {len(result['imported'])} 个能力", "data": result}
+
+
+def _import_policy(user: User, is_public: int) -> Dict[str, Any]:
+    """脚本和"公开到能力商店"只对管理员开放：陌生人的脚本不该直接进沙箱，也不该直接摆给所有用户。
+    SANDBOX_ALLOW_USER_SCRIPTS=true 可放开脚本（不建议）。"""
+    admin = is_admin_user(user)
+    allow_user_scripts = os.getenv("SANDBOX_ALLOW_USER_SCRIPTS", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return {"allow_scripts": admin or allow_user_scripts, "is_public": is_public if admin else 0}
+
+
+@router.post("/import", summary="导入外部Skill包（官方 Skill / GitHub 仓库 zip / 本平台能力包 / yml）")
+def api_import_skill(
     file: UploadFile = File(...),
     is_public: int = Form(0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    content = await file.read()
-    if not content:
-        raise InvalidInput("上传文件为空")
+    # 同步 def：解压、写文件、同步 ORM 都是阻塞操作，交给线程池，别堵事件循环
+    try:
+        result = import_skill_bundle(
+            db=db,
+            user_id=current_user.id,
+            filename=file.filename or "skill.zip",
+            content=file.file.read(MAX_UPLOAD_BYTES + 1),
+            **_import_policy(current_user, is_public),
+        )
+    except SkillImportError as e:
+        db.rollback()
+        raise InvalidInput(str(e))
+    return _import_response(result)
 
-    skill = import_skill_from_upload(
-        db=db,
-        user_id=current_user.id,
-        filename=file.filename or "skill.zip",
-        content=content,
-        is_public=is_public,
-    )
+
+@router.post("/import/github", summary="通过 GitHub 链接导入 Skill（仓库或文件夹，仅公开仓库）")
+def api_import_skill_from_github(
+    data: GithubImport,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        result = import_from_github(db, current_user.id, data.url, **_import_policy(current_user, data.is_public))
+    except SkillImportError as e:
+        db.rollback()
+        raise InvalidInput(str(e))
+    return _import_response(result)
+
+
+@router.post("/{skill_id}/translate", summary="把 Skill 的名称和说明翻译成中文（用你自己的模型）")
+def api_translate_skill(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        skill = translate_skill(db, skill_id, current_user.id)
+    except TranslateError as e:
+        db.rollback()
+        raise InvalidInput(str(e))
     if not skill:
-        raise InvalidInput("导入失败：请上传 .zip Skill包，或符合格式的 .yml/.yaml 文件")
-    return {"code": 200, "msg": "导入成功", "data": skill}
+        raise NotFound("Skill不存在，或不是你创建的")
+    return {"code": 200, "msg": "已翻译", "data": skill}
 
 
 @router.get("/{skill_id}", summary="查询单个Skill详情")

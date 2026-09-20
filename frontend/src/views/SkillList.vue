@@ -1,8 +1,9 @@
 <template>
-  <div class="h-screen flex flex-col bg-transparent">
+  <div :class="[isAdminView ? 'h-full' : 'h-screen', 'flex flex-col bg-transparent']">
     <header class="min-h-16 border-b border-sky-200/70 ui-glass px-5 py-3 text-slate-900 backdrop-blur-xl flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex items-center gap-3">
         <button
+          v-if="!isAdminView"
           @click="router.push('/agents')"
           class="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-black/[.06] hover:text-slate-900"
           title="返回工作台"
@@ -15,20 +16,12 @@
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <input
-          ref="importInput"
-          type="file"
-          class="hidden"
-          accept=".zip,.yml,.yaml"
-          @change="handleImportSelect"
-        />
         <button
-          @click="importInput?.click()"
-          :disabled="importing"
-          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
+          @click="openImport"
+          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
         >
           <Upload :size="15" />
-          {{ importing ? '导入中...' : '导入能力包' }}
+          导入能力包
         </button>
         <button
           @click="openCreate"
@@ -120,7 +113,12 @@
         </div>
 
         <div v-if="shownSkills.length === 0" class="rounded-lg border border-dashed border-sky-300/70 bg-white/62 py-16 text-center text-sm text-slate-500 backdrop-blur">
-          {{ activeTab === 'mine' ? '你还没有创建能力。可以导入能力包，或从样板创建。' : '暂无可安装能力。' }}
+          <template v-if="activeTab === 'mine'">
+            你还没有能力。可以
+            <button class="text-[var(--accent)] hover:underline" @click="openImport">导入官方 / GitHub 上的 Skill</button>
+            ，或从上面的样板开始。
+          </template>
+          <template v-else>暂无可安装能力。</template>
         </div>
 
         <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -191,6 +189,15 @@
                 {{ installingId === skill.id ? '安装中...' : '安装' }}
               </button>
               <button
+                v-if="(activeTab === 'mine' || isMySkill(skill)) && needsTranslation(skill)"
+                @click="handleTranslate(skill)"
+                :disabled="translatingId === skill.id"
+                class="rounded border border-sky-200 px-3 py-1.5 text-xs text-sky-700 hover:bg-sky-50 disabled:text-slate-300"
+                title="名称和说明是英文，用你自己的模型翻译成中文"
+              >
+                {{ translatingId === skill.id ? '翻译中…' : '翻译成中文' }}
+              </button>
+              <button
                 v-if="activeTab === 'mine' || isMySkill(skill)"
                 @click="openEdit(skill)"
                 class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -219,6 +226,171 @@
         </div>
       </div>
     </main>
+
+    <!-- 导入能力 -->
+    <div v-if="showImport" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @click.self="closeImport">
+      <div class="w-full max-w-xl rounded-lg bg-white shadow-xl">
+        <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
+          <h2 class="text-base font-semibold text-slate-900">{{ importResult ? '导入完成' : '导入能力' }}</h2>
+          <button @click="closeImport" class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100" title="关闭">
+            <X :size="16" />
+          </button>
+        </header>
+
+        <!-- 结果 -->
+        <main v-if="importResult" class="max-h-[72vh] space-y-4 overflow-y-auto p-5">
+          <div v-for="s in importResult.imported" :key="s.id" class="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+            <p class="flex items-center gap-1.5 text-sm font-medium text-emerald-800">
+              <CheckCircle2 :size="15" class="shrink-0" />
+              <span class="truncate">{{ s.name }}</span>
+            </p>
+            <p class="mt-1 text-xs text-emerald-700/80">
+              工作流程说明已生效<template v-if="s.script_count">；{{ s.script_count }} 个 Python 脚本已保存</template><template v-if="s.resource_count">；参考文档 {{ s.resource_count }} 个（{{ s.prompt_resource_count }} 个已附加给助手）</template>
+            </p>
+            <div v-if="needsTranslation(s)" class="mt-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+              <span>名称和说明是英文，用户可能看不懂</span>
+              <button
+                type="button"
+                :disabled="translatingId === s.id"
+                class="shrink-0 rounded bg-white px-2 py-0.5 font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                @click="handleTranslate(s)"
+              >
+                {{ translatingId === s.id ? '翻译中…' : '翻译成中文' }}
+              </button>
+            </div>
+            <ul v-if="s.notes.length" class="mt-2 space-y-1 border-t border-emerald-100 pt-2 text-xs text-slate-600">
+              <li v-for="(n, i) in s.notes" :key="i" class="flex gap-1.5">
+                <span class="text-slate-400">·</span>{{ n }}
+              </li>
+            </ul>
+          </div>
+          <div v-for="f in importResult.failed" :key="f.name" class="rounded-lg border border-red-100 bg-red-50/60 p-3">
+            <p class="flex items-center gap-1.5 text-sm font-medium text-red-700">
+              <AlertTriangle :size="15" class="shrink-0" />
+              <span class="truncate">{{ f.name }} 导入失败</span>
+            </p>
+            <p class="mt-1 text-xs text-red-600/90">{{ f.error }}</p>
+          </div>
+          <p class="text-xs leading-relaxed text-slate-500">
+            导入后在「我的能力」里能看到它。回到工作台，创建或编辑助手时勾选这个能力，助手才会按这个方法工作。
+          </p>
+        </main>
+
+        <!-- 选择来源 -->
+        <main v-else class="max-h-[72vh] space-y-5 overflow-y-auto p-5">
+          <p class="text-sm leading-relaxed text-slate-600">
+            <b class="font-medium text-slate-900">能力（Skill）</b>是一份写给助手的工作说明书：什么场景用、按什么步骤做、输出什么格式。
+            可以直接导入 <b class="font-medium text-slate-900">Anthropic 官方 Skill</b> 和 <b class="font-medium text-slate-900">GitHub 上的 Skill 仓库</b>。
+          </p>
+
+          <div class="inline-flex rounded border border-sky-200 bg-white/70 p-1">
+            <button
+              v-for="t in importTabs"
+              :key="t.key"
+              @click="importTab = t.key"
+              :class="importTab === t.key ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50'"
+              class="rounded px-3 py-1.5 text-sm"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+
+          <div v-if="importTab === 'file'" class="space-y-2">
+            <input ref="importInput" type="file" class="hidden" accept=".zip,.md,.yml,.yaml" @change="handleImportSelect" />
+            <button
+              type="button"
+              :disabled="importing"
+              @click="importInput?.click()"
+              @dragover.prevent
+              @drop.prevent="handleImportDrop"
+              class="flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-sky-300 bg-sky-50/40 px-4 py-8 text-center hover:bg-sky-50 disabled:opacity-60"
+            >
+              <Upload :size="20" class="text-sky-600" />
+              <span class="text-sm font-medium text-slate-800">{{ importing ? '导入中…' : '点击选择文件，或拖到这里' }}</span>
+              <span class="text-xs text-slate-500">支持 .zip · SKILL.md · .yml / .yaml，最大 50MB</span>
+            </button>
+            <p class="text-xs leading-relaxed text-slate-500">
+              .zip 可以是<b class="font-medium text-slate-700">单个 Skill 文件夹</b>，也可以是
+              <b class="font-medium text-slate-700">整个 GitHub 仓库的 Download ZIP</b>（里面有多个 Skill 会全部导入）。
+              也支持从本平台「导出」的能力包。
+            </p>
+          </div>
+
+          <div v-else class="space-y-2">
+            <div class="flex gap-2">
+              <input
+                id="github-url"
+                v-model="githubUrl"
+                :disabled="importing"
+                @keydown.enter="handleGithubImport"
+                class="h-10 min-w-0 flex-1 rounded border border-slate-300 px-3 text-sm outline-none focus:border-sky-500"
+                placeholder="https://github.com/anthropics/skills"
+              />
+              <button
+                type="button"
+                :disabled="importing || !githubUrl.trim()"
+                @click="handleGithubImport"
+                class="ui-primary h-10 shrink-0 px-4 text-sm font-medium disabled:opacity-50"
+              >
+                {{ importing ? '下载中…' : '导入' }}
+              </button>
+            </div>
+            <p class="text-xs leading-relaxed text-slate-500">
+              粘贴<b class="font-medium text-slate-700">仓库地址</b>会导入其中所有 Skill；
+              粘贴<b class="font-medium text-slate-700">某个文件夹的地址</b>
+              （如 <span class="break-all">…/tree/main/skills/pdf</span>）只导入那一个。只支持公开仓库。
+            </p>
+            <p class="rounded bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              服务器在国内，可能访问不到 GitHub。失败时请在自己电脑上打开链接，点 Code → Download ZIP，再回到「上传文件」导入。
+            </p>
+          </div>
+
+          <label v-if="isAdmin" class="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+            <input id="import-public" v-model="importPublic" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <b class="font-medium text-slate-800">同时公开到能力商店</b>
+              ：所有用户都能在「能力商店」里安装它。你导入的 Skill 里的 Python 脚本会保留，并且只有这样由你挑选过的脚本才会进沙箱运行。
+            </span>
+          </label>
+          <p v-else class="rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-500">
+            你导入的 Skill 只保留文字说明。带 Python 脚本的 Skill 需要由管理员导入并公开到「能力商店」，你在商店里安装即可使用。
+          </p>
+
+          <p v-if="importFormError" class="rounded bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-600">{{ importFormError }}</p>
+
+          <div class="rounded-lg bg-slate-50 p-4">
+            <p class="text-xs font-medium text-slate-700">导入后能用到什么程度</p>
+            <ul class="mt-2 space-y-1.5 text-xs leading-relaxed text-slate-600">
+              <li class="flex gap-2"><span class="text-emerald-600">✓</span>工作流程、规范、输出格式（SKILL.md 正文）：完整生效</li>
+              <li class="flex gap-2"><span class="text-emerald-600">✓</span>参考文档（.md .txt .json .csv）：一并保存，在字数预算内附加给助手</li>
+              <li v-if="sandboxEnabled" class="flex gap-2">
+                <span class="text-emerald-600">✓</span>
+                Python 脚本（.py，仅管理员导入的 Skill 保留）：在隔离沙箱里运行。聊天输入框里可以点回形针上传文件让脚本处理，生成的文件能直接下载
+              </li>
+              <li v-else class="flex gap-2">
+                <span class="text-amber-500">!</span>
+                Python 脚本（.py，仅管理员导入的 Skill 保留）：会保存，但服务器的脚本沙箱还没开启，暂时不能运行；管理员开启后自动生效
+              </li>
+              <li class="flex gap-2"><span class="text-red-500">✗</span>其他语言的脚本（.sh .js 等）：不能运行，会跳过</li>
+              <li v-if="!sandboxEnabled" class="flex gap-2"><span class="text-red-500">✗</span>图片、PDF、Office 模板等文件：不导入（带 Python 脚本且沙箱开启时会随脚本保存）</li>
+              <li class="flex gap-2"><span class="text-red-500">✗</span>官方的 allowed-tools：那是 Claude Code 的工具，本平台没有，只能用平台自己的工具</li>
+            </ul>
+            <p v-if="sandboxEnabled" class="mt-3 border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
+              沙箱的限制：<b class="font-medium text-slate-700">没有网络</b>、不能安装依赖（只预装了 PDF / Excel / Word / pandas 等常用库）、
+              单次最长约 30 秒。依赖 Node.js、LibreOffice 或联网的脚本会报错。
+            </p>
+            <p v-else class="mt-3 border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-500">
+              沙箱没开启时，更适合<b class="font-medium text-slate-700">写作、审阅、分析、沟通规范</b>这类靠提示词完成的 Skill；
+              依赖运行脚本才能处理文件的（如生成 Excel、编辑 PDF）暂时效果有限。
+            </p>
+          </div>
+        </main>
+
+        <footer v-if="importResult" class="flex justify-end border-t border-slate-200 px-5 py-3">
+          <button @click="closeImport" class="ui-primary h-9 px-5 text-sm font-medium">完成</button>
+        </footer>
+      </div>
+    </div>
 
     <div v-if="showDialog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" @click.self="closeDialog">
       <div class="w-full max-w-2xl rounded-lg bg-white shadow-xl">
@@ -493,14 +665,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, Pencil, Plus, Trash2, Upload, X, Zap } from 'lucide-vue-next'
 import * as skillApi from '../api/skill'
-import type { Skill, SkillTemplate, SkillTool, SkillValidation } from '../api/skill'
-import { toastSuccess } from '../utils/toast'
+import * as attachmentApi from '../api/attachment'
+import { useUserStore } from '../stores/user'
+import type { Skill, SkillImportResult, SkillTemplate, SkillTool, SkillValidation } from '../api/skill'
+import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
 
 const router = useRouter()
+const route = useRoute()
+// 管理员从后台「技能管理」进来：套在后台布局里，不显示「返回工作台」
+const isAdminView = computed(() => route.path.startsWith('/admin'))
 const mySkills = ref<Skill[]>([])
 const publicSkills = ref<Skill[]>([])
 const templates = ref<SkillTemplate[]>([])
@@ -513,6 +690,15 @@ const errorMsg = ref('')
 const importing = ref(false)
 const importError = ref('')
 const importInput = ref<HTMLInputElement | null>(null)
+const showImport = ref(false)
+const importTab = ref<'file' | 'github'>('file')
+const importTabs = [
+  { key: 'file', label: '上传文件' },
+  { key: 'github', label: 'GitHub 链接' },
+] as const
+const githubUrl = ref('')
+const importFormError = ref('')
+const importResult = ref<SkillImportResult | null>(null)
 const installingId = ref<number | null>(null)
 const showTemplateDialog = ref(false)
 const templateEditing = ref<SkillTemplate | null>(null)
@@ -874,23 +1060,78 @@ const handleInstall = async (skill: Skill) => {
   }
 }
 
+const translatingId = ref<number | null>(null)
+const CJK = /[一-鿿]/
+// 名称和说明里一个汉字都没有 = 用户大概率看不懂
+const needsTranslation = (s: { name: string; description?: string }) =>
+  !CJK.test(`${s.name} ${s.description || ''}`)
+
+const handleTranslate = async (s: { id: number; name: string; description?: string }) => {
+  if (translatingId.value) return
+  translatingId.value = s.id
+  try {
+    const updated = await skillApi.translateSkill(s.id)
+    // 同步到导入结果弹窗里正在显示的那一项
+    const shown = importResult.value?.imported.find((x) => x.id === s.id)
+    if (shown) {
+      shown.name = updated.name
+      shown.description = updated.description
+    }
+    await reload()
+    toastSuccess('已翻译成中文')
+  } catch (err: any) {
+    toastError(getErrorMessage(err, '翻译失败，请稍后重试或手动编辑'))
+  } finally {
+    translatingId.value = null
+  }
+}
+
+const sandboxEnabled = ref(false)
+const importPublic = ref(false)
+const isAdmin = computed(() => Boolean(useUserStore().user?.is_admin))
+
+const openImport = () => {
+  importResult.value = null
+  importFormError.value = ''
+  showImport.value = true
+  attachmentApi.getAttachmentStatus().then((s) => { sandboxEnabled.value = s.enabled }).catch(() => { sandboxEnabled.value = false })
+}
+
+const closeImport = () => {
+  if (importing.value) return
+  showImport.value = false
+}
+
+const runImport = async (task: () => Promise<SkillImportResult>) => {
+  if (importing.value) return
+  importing.value = true
+  importFormError.value = ''
+  try {
+    importResult.value = await task()
+    activeTab.value = 'mine'
+    await reload()
+  } catch (err: any) {
+    importFormError.value = getErrorMessage(err, '导入失败，请稍后重试')
+  } finally {
+    importing.value = false
+  }
+}
+
 const handleImportSelect = async (e: Event) => {
   const target = e.target as HTMLInputElement
   const file = target.files?.[0]
   target.value = ''
-  if (!file || importing.value) return
-  importing.value = true
-  importError.value = ''
-  try {
-    await skillApi.importSkill(file)
-    activeTab.value = 'mine'
-    await reload()
-    toastSuccess('能力导入成功')
-  } catch (err: any) {
-    importError.value = getErrorMessage(err, '导入失败')
-  } finally {
-    importing.value = false
-  }
+  if (file) await runImport(() => skillApi.importSkill(file, importPublic.value ? 1 : 0))
+}
+
+const handleImportDrop = async (e: DragEvent) => {
+  const file = e.dataTransfer?.files?.[0]
+  if (file) await runImport(() => skillApi.importSkill(file, importPublic.value ? 1 : 0))
+}
+
+const handleGithubImport = async () => {
+  const url = githubUrl.value.trim()
+  if (url) await runImport(() => skillApi.importSkillFromGithub(url, importPublic.value ? 1 : 0))
 }
 
 onMounted(reload)

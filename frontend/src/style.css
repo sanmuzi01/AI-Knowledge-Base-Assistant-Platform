@@ -317,6 +317,31 @@ button.inline-flex { white-space: nowrap; }
   from { opacity: 0; transform: scale(0.95) translateY(8px); }
 }
 
+/* ---------- 新手指引 ---------- */
+@keyframes guide-pulse {
+  0% { outline-color: rgba(0, 113, 227, 0.6); outline-offset: 0; }
+  100% { outline-color: rgba(0, 113, 227, 0); outline-offset: 12px; }
+}
+.guide-pulse {
+  outline: 2px solid transparent;
+  animation: guide-pulse 1.6s ease-out infinite;
+}
+@keyframes ob-rise {
+  from { opacity: 0; transform: translateY(16px); }
+}
+@keyframes ob-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  60% { transform: scale(1.14); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ob-draw {
+  from { stroke-dashoffset: 60; }
+  to { stroke-dashoffset: 0; }
+}
+.ob-rise { animation: ob-rise 0.7s var(--spring) both; }
+.ob-pop { animation: ob-pop 0.55s var(--spring) both; }
+.ob-check path { stroke-dasharray: 60; animation: ob-draw 0.6s 0.2s ease-out both; }
+
 /* ---------- 弹层 / 路由切换 ---------- */
 .sheet-enter-active,
 .sheet-leave-active {

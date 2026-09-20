@@ -1,0 +1,174 @@
+# 生产部署：db / redis / chroma / api / worker 全部容器化，跑在同一台机器上。
+# 前端构建产物 + HTTPS 走宿主机 Nginx + certbot，见 docs/deployment.md ——
+# 容器化 TLS 终结/挂载证书的复杂度换不来什么好处，没必要凑。
+#
+# 注意：db 是自建 MySQL 容器，数据全部在 mysql_data 这个具名卷里，没有云 RDS 那种
+# 托管自动备份 —— 必须自己定期跑 docs/deployment.md 里的 mysqldump 备份，
+# 且要连着这台机器一起考虑容灾（机器没了，卷也没了）。等有真实客户/流量后，
+# 优先迁到云数据库（RDS），别长期靠这个自建容器撑生产。
+#
+# 启动：
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d db
+#   （等 db healthy 后再迁移，见下面 docker compose ps 确认）
+#   docker compose -f docker-compose.prod.yml run --rm api python -m alembic upgrade head
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# .env 需要这几项（对应本文件里的服务名，不是 127.0.0.1）：
+#   DB_HOST=db
+#   DB_USER=root
+#   DB_PASSWORD=<和下面 MYSQL_ROOT_PASSWORD 保持一致>
+#   DB_NAME=agent_sql
+#   REDIS_URL=redis://redis:6379/0
+#   CHROMA_SERVER_HOST=chroma
+#   CHROMA_SERVER_PORT=8000
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      # 必须和 .env 里的 DB_PASSWORD 保持一致，两边任何一个改了都要同步改另一个。
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在 .env 设置 DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-agent_sql}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -uroot -p\"$$MYSQL_ROOT_PASSWORD\" -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  chroma:
+    image: chromadb/chroma:1.5.9
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - app_data:/app/data
+      - knowledge_data:/app/knowledge_files
+      - prompt_data:/app/prompt/prompts
+      - skill_imports:/app/skills/imported
+      - skill_templates:/app/skills/user_templates
+      - skill_packages:/app/skills_packages/imported
+      - chart_data:/app/static/charts
+      - agent_templates:/app/agent_templates
+      - app_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - default
+      - sandbox_net
+    ports:
+      # 只绑本机回环：不直接对公网暴露，由宿主机 Nginx 反代并终结 HTTPS。
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build:
+      context: .
+      args:
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
+    restart: unless-stopped
+    command: python -m service.background_worker
+    env_file: .env
+    volumes:
+      - app_data:/app/data
+      - knowledge_data:/app/knowledge_files
+      - prompt_data:/app/prompt/prompts
+      - skill_imports:/app/skills/imported
+      - skill_templates:/app/skills/user_templates
+      - skill_packages:/app/skills_packages/imported
+      - chart_data:/app/static/charts
+      - agent_templates:/app/agent_templates
+      - app_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - default
+      - sandbox_net
+
+  # Skill 脚本沙箱（可选，默认不启动）。开启：.env 里设 SANDBOX_ENABLED=true 和 SANDBOX_TOKEN，
+  #   docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox
+  # 它会执行用户导入的 Skill 里的 Python 脚本，也就是"跑陌生人的代码"，所以隔离做得很死：
+  #  - 只挂在 internal 网络上：没有外网出口，也连不到 db / redis / chroma，只有 api 和 worker 能访问它
+  #  - 不带 .env，进程里没有任何业务密钥
+  #  - 只读根文件系统，只有 tmpfs 可写（重启即清空）；非 root；丢掉全部 Linux capability
+  #  - CPU / 内存 / 进程数硬上限，防止一个脚本把整台机器拖死
+  sandbox:
+    profiles: ["sandbox"]
+    build:
+      context: ./sandbox
+      args:
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
+    restart: unless-stopped
+    environment:
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
+      SANDBOX_MAX_CONCURRENT: "2"
+    networks:
+      - sandbox_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /work:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  # internal: true = 容器之间能互通，但不能访问外网
+  sandbox_net:
+    internal: true
+
+volumes:
+  mysql_data:
+  redis_data:
+  chroma_data:
+  app_data:
+  knowledge_data:
+  prompt_data:
+  skill_imports:
+  skill_templates:
+  skill_packages:
+  chart_data:
+  agent_templates:
+  app_logs:

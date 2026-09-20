@@ -1,0 +1,17 @@
+[Unit]
+Description=Agent Platform - ChromaDB vector store server
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/agent-app
+ExecStart=/srv/agent-app/.venv/bin/chroma run --path /data/chroma_db --port 8001
+Restart=always
+RestartSec=5
+StandardOutput=append:/srv/agent-app/logs/chroma.log
+StandardError=append:/srv/agent-app/logs/chroma.log
+
+[Install]
+WantedBy=multi-user.target

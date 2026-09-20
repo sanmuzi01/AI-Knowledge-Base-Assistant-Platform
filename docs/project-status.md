@@ -114,8 +114,20 @@
   深色模式：`utils/theme.ts` 在 `<html>` 写 `data-theme`（首次跟随系统，手动切换后记住；`index.html` 首屏前先定主题防闪白），
   做法是在 `style.css` 里翻转重映射过的色阶变量 + 少量写死 `bg-white` / `bg-black/[.xx]` 的覆盖；
   切换按钮在侧栏底部、后台顶栏、登录页右上角。助手回答用 `.md-body` 排版（列表 / 代码 / 表格 / 引用）。
+  新手指引（`stores/onboarding.ts` + `components/onboarding/`）：只有"什么数据都没有"的新用户登录后才弹欢迎页，
+  之后是 4 步清单（连接模型 → 创建助手 → 添加资料〔可选〕→ 聊一句），完成判断全部来自 `/user/dashboard` 的计数，
+  每 4 秒轮询；某一步做完会打勾并自动跳到下一步的页面，目标控件（`data-guide` 标记）脉冲高亮。进度按用户存在
+  浏览器 `localStorage`（`onboarding:v1:<userId>`），老用户静默标记为已完成；侧栏"更多 → 新手指引"可随时重开。
   手机端（< 768px）：用户端与后台都是"顶栏 + 抽屉导航"；对话页会话栏变抽屉；后台任务 / 日志这类多列列表
   横向滚动；右下角"当前助手"浮窗在手机上隐藏（换助手走工作台）；`viewport-fit=cover` + 安全区留白。
+  技能中心导入（`service/skills_core/package_import.py` / `github_import.py`）：兼容 Anthropic 官方 Skill
+  （`SKILL.md` + YAML 头）、整个 GitHub 仓库 zip（多 Skill 批量）、GitHub 链接（仓库 / 文件夹，固定走
+  codeload.github.com，链接只提取参数不当请求地址）、本平台能力包和 yml；导入结果逐条告知哪些被忽略。
+  **脚本沙箱（默认关闭，`SANDBOX_ENABLED`）**：`sandbox/`（独立容器，无外网、无密钥、只读根、资源上限）+
+  `service/sandbox.py`（可替换的后端接口）+ `service/tools/skill_script.py`（`run_skill_script` 工具，绑定时
+  仅在沙箱开启且 Skill 带 .py 脚本时才自动加进工具列表）。配套：聊天附件上传 / 生成文件下载
+  （`service/attachment_service.py`、`/attachment`，按用户隔离、默认保留 7 天）。**容器层面的隔离本地没测过**
+  （开发机 Docker 未运行），部署后按 docs/deployment.md 第 7 节的两条命令验证。
 
 ## 当前验证结果
 

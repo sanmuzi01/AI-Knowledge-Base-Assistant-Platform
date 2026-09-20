@@ -110,7 +110,7 @@
               <section class="rounded-lg border border-slate-200 bg-white p-4">
                 <h3 class="text-sm font-semibold text-slate-900">访问密钥</h3>
                 <p class="mt-1 text-xs leading-5 text-slate-500">从平台控制台复制密钥粘贴到这里。保存后只显示隐藏后的结果。</p>
-                <div class="relative mt-3">
+                <div class="relative mt-3 rounded-[10px]" data-guide="api-key">
                   <KeyRound :size="16" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     v-model="apiKey"

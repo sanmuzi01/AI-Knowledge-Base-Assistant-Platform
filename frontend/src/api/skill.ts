@@ -175,12 +175,40 @@ export async function deleteSkill(skillId: number): Promise<void> {
   await request.delete(`/skill/${skillId}`)
 }
 
-export async function importSkill(file: File, isPublic = 0): Promise<Skill> {
+export interface ImportedSkill extends Skill {
+  /** 导入时的差异说明：哪些内容被忽略、为什么 */
+  notes: string[]
+  resource_count: number
+  prompt_resource_count: number
+  /** 保存下来的 Python 脚本数（沙箱开启后助手才能运行） */
+  script_count: number
+}
+
+export interface SkillImportResult {
+  imported: ImportedSkill[]
+  failed: { name: string; error: string }[]
+}
+
+export async function importSkill(file: File, isPublic = 0): Promise<SkillImportResult> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('is_public', String(isPublic))
-  const { data } = await request.post<SkillResponse<Skill>>('/skill/import', formData, {
+  const { data } = await request.post<SkillResponse<SkillImportResult>>('/skill/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data.data
+}
+
+/** 用当前用户自己的聊天模型，把 Skill 的名称和说明翻译成中文并保存 */
+export async function translateSkill(skillId: number): Promise<Skill> {
+  const { data } = await request.post<SkillResponse<Skill>>(`/skill/${skillId}/translate`)
+  return data.data
+}
+
+export async function importSkillFromGithub(url: string, isPublic = 0): Promise<SkillImportResult> {
+  const { data } = await request.post<SkillResponse<SkillImportResult>>('/skill/import/github', {
+    url,
+    is_public: isPublic,
   })
   return data.data
 }

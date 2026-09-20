@@ -216,6 +216,10 @@ def install_public_skill(db: Session, user_id: int, skill_id: int, commit: bool 
             "resources": cfg.get("resources", []),
             "system_prompt": cfg.get("system_prompt", ""),
         }
+        # 脚本包是共享的只读目录（安装的只是一份指向它的配置），不复制文件
+        for key in ("origin", "scripts_root", "scripts"):
+            if cfg.get(key):
+                runtime_config[key] = cfg[key]
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
         invalidate_skill_config(config_file)
@@ -286,4 +290,16 @@ def export_skill_package(db: Session, skill_id: int, user_id: int) -> Optional[D
             root = os.path.abspath(resource_root)
             if os.path.isfile(abs_path) and abs_path.startswith(root + os.sep):
                 zf.write(abs_path, f"resources/{rel_path}")
+        # 带脚本的 Skill：脚本包按原来的相对路径放回压缩包，重新导入时目录结构不变、脚本仍可运行
+        bundle_root = cfg.get("scripts_root", "")
+        if bundle_root and os.path.isdir(bundle_root):
+            root = os.path.abspath(bundle_root)
+            written = set(zf.namelist())
+            for base, _, names in os.walk(root):
+                for n in names:
+                    full = os.path.join(base, n)
+                    rel = os.path.relpath(full, root).replace("\\", "/")
+                    if rel in written or rel.lower() in {"skill.md", "manifest.yaml", "manifest.yml"}:
+                        continue
+                    zf.write(full, rel)
     return {"path": export_path, "filename": package_name}

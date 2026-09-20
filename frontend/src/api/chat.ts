@@ -56,6 +56,8 @@ export interface SendStreamOptions {
   agentId: number
   conversationId?: number | null
   message: string
+  /** 先经 uploadAttachment 上传后得到的附件 ID */
+  attachmentIds?: string[]
   onEvent: (evt: SseEvent) => void
   signal?: AbortSignal
 }
@@ -69,7 +71,7 @@ export interface SendStreamOptions {
  *   data: {"content":"心跳或仅 data 的事件"}
  */
 export async function sendStream(opts: SendStreamOptions): Promise<void> {
-  const { agentId, conversationId, message, onEvent, signal } = opts
+  const { agentId, conversationId, message, attachmentIds, onEvent, signal } = opts
   const token = localStorage.getItem('token') || ''
 
   const resp = await fetch(`/api/chat/${agentId}/stream`, {
@@ -81,6 +83,7 @@ export async function sendStream(opts: SendStreamOptions): Promise<void> {
     body: JSON.stringify({
       message,
       conversation_id: conversationId ?? undefined,
+      attachment_ids: attachmentIds?.length ? attachmentIds : undefined,
     }),
     signal,
   })
