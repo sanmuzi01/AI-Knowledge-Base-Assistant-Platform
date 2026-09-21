@@ -1099,8 +1099,11 @@ const reload = async () => {
 
 const loadSecondaryData = async () => {
   try {
+    const userSkillsRequest = userStore.user?.is_admin
+      ? skillApi.listUserSkills()
+      : Promise.resolve([])
     const [userSkills, publicSkills, dashboardData, quotaData] = await Promise.all([
-      skillApi.listUserSkills(),
+      userSkillsRequest,
       skillApi.listPublicSkills(),
       getUserDashboard(),
       getUserQuota(),

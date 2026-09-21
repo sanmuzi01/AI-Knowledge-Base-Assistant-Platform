@@ -12,10 +12,10 @@
         </button>
         <div>
           <h1 class="text-base font-semibold text-slate-950">技能中心</h1>
-          <p class="text-xs text-slate-500">把常用工作流程保存成能力，让助手按固定方法完成任务。</p>
+          <p class="text-xs text-slate-500">{{ isAdmin ? '维护并发布可供用户选择的助手技能。' : '创建或编辑助手时，可直接选择这里的技能。' }}</p>
         </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div v-if="isAdmin" class="flex flex-wrap items-center gap-2">
         <button
           @click="openImport"
           class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50"
@@ -24,7 +24,7 @@
           导入能力包
         </button>
         <button
-          v-if="isAdminView"
+          v-if="isAdmin"
           @click="handleReanalyze"
           :disabled="reanalyzing"
           class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
@@ -52,7 +52,7 @@
 
     <main class="flex-1 overflow-y-auto p-6">
       <div class="mx-auto max-w-6xl">
-        <section class="mb-5">
+        <section v-if="isAdmin" class="mb-5">
           <div class="mb-2 flex items-center justify-between">
             <h2 class="text-sm font-semibold text-slate-950">从样板开始</h2>
             <span class="text-xs text-slate-500">适合不知道怎么写能力的新用户</span>
@@ -100,7 +100,7 @@
         </section>
 
         <div class="mb-4 flex items-center justify-between">
-          <div class="inline-flex rounded border border-sky-200 bg-white/70 p-1 backdrop-blur">
+          <div v-if="isAdmin" class="inline-flex rounded border border-sky-200 bg-white/70 p-1 backdrop-blur">
             <button
               @click="activeTab = 'mine'"
               :class="activeTab === 'mine' ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50'"
@@ -128,7 +128,7 @@
             <button class="text-[var(--accent)] hover:underline" @click="openImport">导入官方 / GitHub 上的 Skill</button>
             ，或从上面的样板开始。
           </template>
-          <template v-else>暂无可安装能力。</template>
+          <template v-else>暂无可用技能。</template>
         </div>
 
         <div v-else class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -203,7 +203,7 @@
               </div>
             </div>
 
-            <div class="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <div v-if="isAdmin" class="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
               <button
                 v-if="activeTab === 'public' && !isMySkill(skill)"
                 @click="handleInstall(skill)"
@@ -369,16 +369,14 @@
             </p>
           </div>
 
-          <label v-if="isAdmin" class="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+          <label class="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
             <input id="import-public" v-model="importPublic" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               <b class="font-medium text-slate-800">同时公开到能力商店</b>
-              ：所有用户都能在「能力商店」里安装它。你导入的 Skill 里的 Python 脚本会保留，并且只有这样由你挑选过的脚本才会进沙箱运行。
+              ：所有用户都能在编辑助手时勾选它（用户不能自己导入、创建或修改技能）。Python 脚本会保留，
+              只有你导入并审核过的脚本才会进沙箱运行，上架前请自己看一遍说明内容。
             </span>
           </label>
-          <p v-else class="rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-500">
-            你导入的 Skill 只保留文字说明。带 Python 脚本的 Skill 需要由管理员导入并公开到「能力商店」，你在商店里安装即可使用。
-          </p>
 
           <p v-if="importFormError" class="rounded bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-600">{{ importFormError }}</p>
 
@@ -389,11 +387,11 @@
               <li class="flex gap-2"><span class="text-emerald-600">✓</span>参考文档（.md .txt .json .csv）：一并保存，在字数预算内附加给助手</li>
               <li v-if="sandboxEnabled" class="flex gap-2">
                 <span class="text-emerald-600">✓</span>
-                Python 脚本（.py，仅管理员导入的 Skill 保留）：在隔离沙箱里运行。聊天输入框里可以点回形针上传文件让脚本处理，生成的文件能直接下载
+                Python 脚本（.py）：在隔离沙箱里运行。聊天输入框里可以点回形针上传文件让脚本处理，生成的文件能直接下载
               </li>
               <li v-else class="flex gap-2">
                 <span class="text-amber-500">!</span>
-                Python 脚本（.py，仅管理员导入的 Skill 保留）：会保存，但服务器的脚本沙箱还没开启，暂时不能运行；管理员开启后自动生效
+                Python 脚本（.py）：会保存，但服务器的脚本沙箱还没开启，暂时不能运行；管理员开启后自动生效
               </li>
               <li class="flex gap-2"><span class="text-red-500">✗</span>其他语言的脚本（.sh .js 等）：不能运行，会跳过</li>
               <li v-if="!sandboxEnabled" class="flex gap-2"><span class="text-red-500">✗</span>图片、PDF、Office 模板等文件：不导入（带 Python 脚本且沙箱开启时会随脚本保存）</li>
@@ -707,13 +705,15 @@ import { getErrorMessage } from '../utils/request'
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
+const isAdmin = computed(() => Boolean(userStore.user?.is_admin))
 // 管理员从后台「技能管理」进来：套在后台布局里，不显示「返回工作台」
 const isAdminView = computed(() => route.path.startsWith('/admin'))
 const mySkills = ref<Skill[]>([])
 const publicSkills = ref<Skill[]>([])
 const templates = ref<SkillTemplate[]>([])
 const tools = ref<SkillTool[]>([])
-const activeTab = ref<'mine' | 'public'>('mine')
+const activeTab = ref<'mine' | 'public'>(isAdmin.value ? 'mine' : 'public')
 const showDialog = ref(false)
 const editing = ref<Skill | null>(null)
 const submitting = ref(false)
@@ -890,6 +890,15 @@ const selectBlankTemplate = () => {
 }
 
 const reload = async () => {
+  if (!isAdmin.value) {
+    activeTab.value = 'public'
+    mySkills.value = []
+    templates.value = []
+    tools.value = []
+    publicSkills.value = await skillApi.listPublicSkills()
+    await loadValidations(publicSkills.value)
+    return
+  }
   const [mine, pub, tpls, availableTools] = await Promise.all([
     skillApi.listUserSkills(),
     skillApi.listPublicSkills(),
@@ -1162,8 +1171,6 @@ const handleTranslate = async (s: { id: number; name: string; description?: stri
 
 const sandboxEnabled = ref(false)
 const importPublic = ref(false)
-const isAdmin = computed(() => Boolean(useUserStore().user?.is_admin))
-
 const openImport = () => {
   importResult.value = null
   importFormError.value = ''

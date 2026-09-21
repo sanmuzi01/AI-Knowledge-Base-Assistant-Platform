@@ -1,4 +1,4 @@
-"""脚本兼容性静态检查、只有管理员能上架、附件额度、脚本限频。"""
+"""脚本兼容性静态检查、附件额度、脚本限频。"""
 import io
 import os
 import re
@@ -13,9 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import service.tools  # noqa: F401
-from FasdtApi import skill_route
 from service import attachment_service, sandbox
-from service.exceptions import InvalidInput
 from service.skills import loader as skill_loader
 from service.skills_core import binding, package_import
 from service.skills_core.package_import import import_skill_bundle
@@ -199,18 +197,6 @@ class ImportAndBindingTest(unittest.TestCase):
         skill_loader.invalidate_skill_config()
         with self.assertRaises(skill_loader.SkillValidationError):
             skill_loader.load_skill_config(self.skill["config_file"])
-
-
-class OnlyAdminsCanPublishTest(unittest.TestCase):
-    def test_publish_gate(self):
-        user = SimpleNamespace()
-        with patch.object(skill_route, "is_admin_user", return_value=False):
-            with self.assertRaises(InvalidInput):
-                skill_route._require_admin_to_publish(user, 1)
-            skill_route._require_admin_to_publish(user, 0)      # 取消公开谁都行
-            skill_route._require_admin_to_publish(user, None)   # 没改这个字段
-        with patch.object(skill_route, "is_admin_user", return_value=True):
-            skill_route._require_admin_to_publish(user, 1)
 
 
 class AttachmentQuotaTest(unittest.TestCase):

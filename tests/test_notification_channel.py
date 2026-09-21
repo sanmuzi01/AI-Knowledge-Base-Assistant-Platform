@@ -18,10 +18,15 @@ def _run(coro):
 class NotificationChannelCrudTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # 出站 URL 会走防 SSRF 校验，校验要解析域名。测试不该依赖真实 DNS / 外网：
+        # 断网或 DNS 抖动时这两个用例会莫名失败。这里把 example.com 固定解析成一个公网地址。
+        cls._dns = patch("service.web_crawler_service._resolve_host", return_value=["93.184.216.34"])
+        cls._dns.start()
         cls.user = rc.create_user("rt-notify-user")
 
     @classmethod
     def tearDownClass(cls):
+        cls._dns.stop()
         from sqlalchemy import text
         from models.init_db import SessionLocal
         db = SessionLocal()

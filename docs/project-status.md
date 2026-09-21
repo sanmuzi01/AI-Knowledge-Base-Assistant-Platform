@@ -126,7 +126,7 @@
   **脚本沙箱（默认关闭，`SANDBOX_ENABLED`）**：`sandbox/`（独立容器，无外网、无密钥、只读根、资源上限）+
   `service/sandbox.py`（可替换的后端接口）+ `service/tools/skill_script.py`（`run_skill_script` 工具，绑定时
   仅在沙箱开启且 Skill 带 .py 脚本时才自动加进工具列表）。配套：聊天附件上传 / 生成文件下载
-  （`service/attachment_service.py`、`/attachment`，按用户隔离、默认保留 7 天）。上架与可用性：只有管理员能导入带脚本的 Skill、能公开到「能力商店」（商店里的都标「官方」）；
+  （`service/attachment_service.py`、`/attachment`，按用户隔离、默认保留 7 天）。上架与可用性：技能只有管理员能维护（创建 / 编辑 / 删除 / 导入 / 上架，路由要求管理员，导入策略再按角色判断一次），普通用户只能看商店并把技能直接绑定到助手（商店里的都标「官方」，所有用户绑定同一份配置）；
   导入时对每个 .py 做静态兼容性检查（缺依赖 / 要联网 / 调系统命令，`service/skills_core/script_report.py`），
   卡片上标「脚本可运行 / 部分可运行 / 脚本暂不支持 / 脚本需管理员启用沙箱」，助手只会被告知能跑的脚本；
   每用户脚本限频、附件总量上限、`sandbox_audit` 审计日志。预制包 `skill-packs/anbeime-skills-all.zip`（75 个）导入后：

@@ -1,4 +1,3 @@
-import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -9,7 +8,12 @@ from sqlalchemy.orm import Session
 from models.init_db import User, get_db
 from models.async_db import get_async_db
 from service.admin_service import is_admin_user
-from service.dependencies import get_current_admin_user, get_current_user, get_current_user_async
+from service.dependencies import (
+    get_current_admin_user,
+    get_current_admin_user_async,
+    get_current_user,
+    get_current_user_async,
+)
 from service.exceptions import InvalidInput, NotFound
 from service import skill_async_service
 from service.skills_core.github_import import import_from_github
@@ -71,20 +75,12 @@ class SkillTemplateSave(BaseModel):
     tool_names: List[str] = Field(default_factory=list)
 
 
-def _require_admin_to_publish(user: User, is_public) -> None:
-    """公开到能力商店 = 摆给所有用户，只有管理员可以（商店里的 Skill 都是管理员审核过的）。
-    取消公开（is_public=0）谁都可以。"""
-    if is_public == 1 and not is_admin_user(user):
-        raise InvalidInput("只有管理员可以把能力公开到能力商店，请联系管理员上架")
-
-
-@router.post("/", summary="创建Skill")
+@router.post("/", summary="（管理员）创建Skill")
 def api_create_skill(
     data: SkillCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
-    _require_admin_to_publish(current_user, data.is_public)
     skill = create_skill(
         db=db,
         user_id=current_user.id,
@@ -101,10 +97,10 @@ def api_create_skill(
     return {"code": 200, "msg": "创建成功", "data": skill}
 
 
-@router.get("/", summary="查询当前用户的所有Skill")
+@router.get("/", summary="（管理员）查询管理员维护的Skill")
 async def api_list_my_skills(
     async_db=Depends(get_async_db),
-    current_user: User = Depends(get_current_user_async),
+    current_user: User = Depends(get_current_admin_user_async),
 ):
     skills = await skill_async_service.list_user_skills(async_db, current_user.id)
     return {"code": 200, "msg": "查询成功", "data": skills}
@@ -119,18 +115,18 @@ async def api_list_public_skills(
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 
-@router.get("/templates", summary="列出可用YML模板")
+@router.get("/templates", summary="（管理员）列出可用YML模板")
 def api_list_templates(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     templates = list_templates(current_user.id)
     return {"code": 200, "msg": "查询成功", "data": templates}
 
 
-@router.post("/templates", summary="创建用户Skill模板")
+@router.post("/templates", summary="（管理员）创建Skill模板")
 def api_create_template(
     data: SkillTemplateSave,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     template = create_template(
         user_id=current_user.id,
@@ -144,10 +140,10 @@ def api_create_template(
     return {"code": 200, "msg": "创建成功", "data": template}
 
 
-@router.get("/templates/{template_filename:path}", summary="查询Skill模板详情")
+@router.get("/templates/{template_filename:path}", summary="（管理员）查询Skill模板详情")
 def api_get_template(
     template_filename: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     template = get_template_config(template_filename, user_id=current_user.id)
     if not template:
@@ -155,11 +151,11 @@ def api_get_template(
     return {"code": 200, "msg": "查询成功", "data": template}
 
 
-@router.put("/templates/{template_filename:path}", summary="更新用户Skill模板")
+@router.put("/templates/{template_filename:path}", summary="（管理员）更新Skill模板")
 def api_update_template(
     template_filename: str,
     data: SkillTemplateSave,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     template = update_template(
         user_id=current_user.id,
@@ -174,10 +170,10 @@ def api_update_template(
     return {"code": 200, "msg": "更新成功", "data": template}
 
 
-@router.delete("/templates/{template_filename:path}", summary="删除用户Skill模板")
+@router.delete("/templates/{template_filename:path}", summary="（管理员）删除Skill模板")
 def api_delete_template(
     template_filename: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     success = delete_template(current_user.id, template_filename)
     if not success:
@@ -185,9 +181,9 @@ def api_delete_template(
     return {"code": 200, "msg": "删除成功"}
 
 
-@router.get("/tools", summary="列出可用于Skill的工具")
+@router.get("/tools", summary="（管理员）列出可用于Skill的工具")
 def api_list_tools(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     tools = list_available_tools()
     return {"code": 200, "msg": "查询成功", "data": tools}
@@ -205,11 +201,11 @@ async def api_validate_skill(
     return {"code": 200, "msg": "校验完成", "data": result}
 
 
-@router.get("/{skill_id}/export", summary="导出Skill包")
+@router.get("/{skill_id}/export", summary="（管理员）导出Skill包")
 def api_export_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     try:
         package = export_skill_package(db, skill_id, user_id=current_user.id)
@@ -224,11 +220,11 @@ def api_export_skill(
     )
 
 
-@router.post("/{skill_id}/install", summary="安装公开Skill到我的能力库")
+@router.post("/{skill_id}/install", summary="（管理员）复制公开Skill到管理库")
 def api_install_public_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     skill = install_public_skill(db, current_user.id, skill_id)
     if not skill:
@@ -246,11 +242,13 @@ def _import_response(result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _import_policy(user: User, is_public: int) -> Dict[str, Any]:
-    """脚本和"公开到能力商店"只对管理员开放：陌生人的脚本不该直接进沙箱，也不该直接摆给所有用户。
-    SANDBOX_ALLOW_USER_SCRIPTS=true 可放开脚本（不建议）。"""
+    """脚本和"公开到能力商店"只给管理员。
+
+    导入接口本身已经要求管理员（get_current_admin_user）；这里再按角色判断一次是纵深防御：
+    以后如果放宽路由（比如让公司管理员也能导入），脚本和上架也不会跟着被悄悄放开。
+    """
     admin = is_admin_user(user)
-    allow_user_scripts = os.getenv("SANDBOX_ALLOW_USER_SCRIPTS", "false").strip().lower() in {"1", "true", "yes", "on"}
-    return {"allow_scripts": admin or allow_user_scripts, "is_public": is_public if admin else 0}
+    return {"allow_scripts": admin, "is_public": 1 if (admin and is_public == 1) else 0}
 
 
 @router.post("/import", summary="导入外部Skill包（官方 Skill / GitHub 仓库 zip / 本平台能力包 / yml）")
@@ -258,7 +256,7 @@ def api_import_skill(
     file: UploadFile = File(...),
     is_public: int = Form(0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     # 同步 def：解压、写文件、同步 ORM 都是阻塞操作，交给线程池，别堵事件循环
     try:
@@ -279,7 +277,7 @@ def api_import_skill(
 def api_import_skill_from_github(
     data: GithubImport,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     try:
         result = import_from_github(db, current_user.id, data.url, **_import_policy(current_user, data.is_public))
@@ -299,11 +297,11 @@ def api_reanalyze_skill_scripts(
     return {"code": 200, "msg": f"已检查 {result['checked']} 个，{result['changed']} 个有变化", "data": result}
 
 
-@router.post("/{skill_id}/translate", summary="把 Skill 的名称和说明翻译成中文（用你自己的模型）")
+@router.post("/{skill_id}/translate", summary="（管理员）把 Skill 的名称和说明翻译成中文")
 def api_translate_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     try:
         skill = translate_skill(db, skill_id, current_user.id)
@@ -327,15 +325,14 @@ async def api_get_skill(
     return {"code": 200, "msg": "查询成功", "data": skill}
 
 
-@router.put("/{skill_id}", summary="更新Skill")
+@router.put("/{skill_id}", summary="（管理员）更新Skill")
 def api_update_skill(
     skill_id: int,
     data: SkillUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     payload = data.model_dump(exclude_none=True)
-    _require_admin_to_publish(current_user, payload.get("is_public"))
     config_payload = {}
     for key in ("system_prompt", "tool_names", "permissions"):
         if key in payload:
@@ -352,11 +349,11 @@ def api_update_skill(
     return {"code": 200, "msg": "更新成功", "data": skill}
 
 
-@router.delete("/{skill_id}", summary="删除Skill")
+@router.delete("/{skill_id}", summary="（管理员）删除Skill")
 def api_delete_skill(
     skill_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_admin_user),
 ):
     success = delete_skill(db, skill_id, user_id=current_user.id)
     if not success:

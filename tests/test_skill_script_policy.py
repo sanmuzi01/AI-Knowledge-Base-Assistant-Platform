@@ -122,15 +122,28 @@ class ScriptsAreAdminOnlyTest(PolicyTestBase):
         pkg = os.path.join(self.base, "skills_packages", "imported")
         self.assertFalse(any(os.path.exists(os.path.join(pkg, d, "bundle")) for d in os.listdir(pkg)))
 
-    def test_route_policy_by_role(self):
-        with patch.object(skill_route, "is_admin_user", return_value=False), \
-                patch.dict(os.environ, {"SANDBOX_ALLOW_USER_SCRIPTS": "false"}):
-            self.assertEqual(skill_route._import_policy(SimpleNamespace(), 1), {"allow_scripts": False, "is_public": 0})
+    def test_import_policy_is_decided_by_role_even_though_the_route_is_admin_only(self):
+        user = SimpleNamespace()
         with patch.object(skill_route, "is_admin_user", return_value=True):
-            self.assertEqual(skill_route._import_policy(SimpleNamespace(), 1), {"allow_scripts": True, "is_public": 1})
-        with patch.object(skill_route, "is_admin_user", return_value=False), \
-                patch.dict(os.environ, {"SANDBOX_ALLOW_USER_SCRIPTS": "true"}):
-            self.assertEqual(skill_route._import_policy(SimpleNamespace(), 1), {"allow_scripts": True, "is_public": 0})
+            self.assertEqual(skill_route._import_policy(user, 1), {"allow_scripts": True, "is_public": 1})
+            self.assertEqual(skill_route._import_policy(user, 0), {"allow_scripts": True, "is_public": 0})
+            self.assertEqual(skill_route._import_policy(user, 7), {"allow_scripts": True, "is_public": 0})  # 只认 1
+        # 纵深防御：万一以后路由放宽，非管理员既不能带脚本，也不能上架
+        with patch.object(skill_route, "is_admin_user", return_value=False):
+            self.assertEqual(skill_route._import_policy(user, 1), {"allow_scripts": False, "is_public": 0})
+
+    def test_import_routes_require_the_admin_dependency(self):
+        """导入是最危险的入口，直接检查路由依赖，不依赖数据库。"""
+        from service.dependencies import get_current_admin_user
+
+        wanted = {"/skill/import", "/skill/import/github", "/skill/admin/reanalyze"}
+        found = set()
+        for route in skill_route.router.routes:
+            if route.path in wanted:
+                found.add(route.path)
+                deps = [d.call for d in route.dependant.dependencies]
+                self.assertIn(get_current_admin_user, deps, f"{route.path} 必须要求管理员")
+        self.assertEqual(found, wanted)
 
 
 class StoreInstallKeepsScriptsTest(PolicyTestBase):

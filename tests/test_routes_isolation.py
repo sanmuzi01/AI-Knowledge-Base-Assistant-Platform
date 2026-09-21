@@ -410,14 +410,38 @@ class RouteIsolationTest(unittest.TestCase):
         self.assertEqual(r.json().get("code"), "permission_denied")
         self.assertEqual(self.client.get("/task/all", headers=self.admin["headers"]).status_code, 200)
 
-    # ---- Skill 读接口（已全量 async）----
+    # ---- Skill：管理员维护，普通用户只读公开技能并绑定使用 ----
 
     def test_skill_read_routes_work_and_404(self):
         h = self.alice["headers"]
-        self.assertEqual(self.client.get("/skill/", headers=h).status_code, 200)
         self.assertEqual(self.client.get("/skill/public", headers=h).status_code, 200)
         self.assertEqual(self.client.get("/skill/999999", headers=h).status_code, 404)
         self.assertEqual(self.client.get("/skill/999999/validate", headers=h).status_code, 404)
+
+    def test_skill_management_routes_are_admin_only(self):
+        regular = self.alice["headers"]
+        admin = self.admin["headers"]
+        management_requests = [
+            self.client.get("/skill/", headers=regular),
+            self.client.get("/skill/templates", headers=regular),
+            self.client.get("/skill/tools", headers=regular),
+            self.client.post("/skill/", json={"name": "x", "system_prompt": "x"}, headers=regular),
+            self.client.put("/skill/999999", json={"name": "x"}, headers=regular),
+            self.client.delete("/skill/999999", headers=regular),
+            self.client.post("/skill/999999/translate", headers=regular),
+            self.client.get("/skill/999999/export", headers=regular),
+            self.client.post("/skill/999999/install", headers=regular),
+            # 导入和批量刷新是最危险的入口（能让服务器保存并执行第三方脚本），必须单独确认
+            self.client.post("/skill/import", files={"file": ("x.zip", b"PK\x05\x06" + b"\x00" * 18)}, headers=regular),
+            self.client.post("/skill/import/github", json={"url": "https://github.com/anthropics/skills"}, headers=regular),
+            self.client.post("/skill/admin/reanalyze", headers=regular),
+        ]
+        for response in management_requests:
+            self.assertEqual(response.status_code, 403, response.text)
+
+        self.assertEqual(self.client.get("/skill/", headers=admin).status_code, 200)
+        self.assertEqual(self.client.get("/skill/templates", headers=admin).status_code, 200)
+        self.assertEqual(self.client.get("/skill/tools", headers=admin).status_code, 200)
 
     # ---- 管理员接口隔离 ----
 
