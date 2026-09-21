@@ -56,9 +56,9 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(r["runnable"], ["scripts/a.py", "scripts/helper.py"])
 
     def test_missing_third_party_packages_are_named(self):
-        r = self._analyze({"scripts/a.py": "import cv2\nimport moviepy.editor\nimport os\n"})
+        r = self._analyze({"scripts/a.py": "import torch\nimport transformers.models\nimport os\n"})
         self.assertEqual(r["status"], "unsupported")
-        self.assertEqual(r["missing_packages"], ["cv2", "moviepy"])
+        self.assertEqual(r["missing_packages"], ["torch", "transformers"])
 
     def test_network_libraries_block_the_script(self):
         r = self._analyze({"scripts/a.py": "import requests\n", "scripts/b.py": "import urllib.request\n",
@@ -153,7 +153,7 @@ class ImportAndBindingTest(unittest.TestCase):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("v/SKILL.md", "---\nname: v\n---\nbody")
-            zf.writestr("v/a.py", "import moviepy\n")
+            zf.writestr("v/a.py", "import torch\n")
         res = import_skill_bundle(SimpleNamespace(commit=lambda: None), 1, "v.zip", buf.getvalue())
         with patch.dict(os.environ, {"SANDBOX_ENABLED": "true", "SANDBOX_TOKEN": "t"}), \
                 patch.object(binding, "dao_list_by_agent", return_value=[SimpleNamespace(**res["imported"][0])]):

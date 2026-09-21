@@ -30,6 +30,12 @@ PACKAGE_MODULES: Dict[str, Set[str]] = {
     "beautifulsoup4": {"bs4", "soupsieve"},
     "markdown": {"markdown"},
     "defusedxml": {"defusedxml"},
+    "opencv-python-headless": {"cv2"},
+    "imageio-ffmpeg": {"imageio_ffmpeg"},
+    "scipy": {"scipy"},
+    "soundfile": {"soundfile"},
+    "pyloudnorm": {"pyloudnorm"},
+    "matplotlib": {"matplotlib", "cycler", "kiwisolver", "pyparsing", "contourpy", "fontTools"},
 }
 SANDBOX_MODULES: Set[str] = set().union(*PACKAGE_MODULES.values())
 

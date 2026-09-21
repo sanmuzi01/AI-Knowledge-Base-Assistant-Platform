@@ -23,3 +23,17 @@ lxml==6.1.1
 beautifulsoup4>=4.12
 markdown==3.10.3
 defusedxml>=0.7
+
+# 图像 / 音频 / 视频处理与绘图（离线可用、纯 CPU）。ffmpeg 由 imageio-ffmpeg 自带的静态二进制提供
+# （Dockerfile 里做了 /usr/local/bin/ffmpeg 软链，直接调 `ffmpeg` 命令的脚本也能用）。
+# 有意不装：
+#  - torch / transformers 等深度学习库：要下载模型权重，沙箱没有网络，装了也跑不起来
+#  - requests 等联网库：沙箱没有外网，装上只会让脚本运行到一半才报错
+#  - moviepy：官方 Skill 用的是 1.0.3 的 `moviepy.editor`，而 1.0.3 与新版 Pillow（resize 用了已删除的 Image.ANTIALIAS）
+#    和 NumPy 2 有已知不兼容，在能实机验证兼容之前不装，避免"标了可运行、实际一跑就报错"
+opencv-python-headless>=4.9
+imageio-ffmpeg>=0.4
+scipy>=1.11
+soundfile>=0.12
+pyloudnorm>=0.1
+matplotlib>=3.8

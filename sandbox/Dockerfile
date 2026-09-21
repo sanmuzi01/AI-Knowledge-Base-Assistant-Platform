@@ -9,6 +9,8 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt \
     && pip freeze > /opt/installed-packages.txt
+# 让直接调 `ffmpeg` 命令的脚本也能用：链到 imageio-ffmpeg 自带的静态 ffmpeg（不用 apt，国内服务器装 apt 包常常很慢）
+RUN ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" /usr/local/bin/ffmpeg
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox
 COPY runner.py /opt/runner/runner.py

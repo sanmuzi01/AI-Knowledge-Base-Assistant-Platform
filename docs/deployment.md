@@ -297,7 +297,11 @@ docker compose -f docker-compose.prod.yml exec sandbox python -c \
 所以开启沙箱后仍要挑代表性的 Skill 实际跑一遍。
 
 **改沙箱依赖时，两处必须同步**：`sandbox/requirements.txt` 和 `service/skills_core/script_report.py` 里的
-`PACKAGE_MODULES`（测试会校验两边一致）。想让更多 Skill 能跑，就是往这两处加库、重建沙箱镜像、
+`PACKAGE_MODULES`（测试会校验两边一致）。**沙箱里装了什么、有意没装什么**：装了 PDF / Excel / Word / PPT / pandas / numpy / Pillow 这类文件与数据处理库，
+以及图像音频视频处理（opencv-headless、imageio-ffmpeg 自带 ffmpeg、scipy、soundfile、pyloudnorm、matplotlib）。
+**有意不装**：`moviepy`（官方 Skill 用的 1.0.3 版和新版 Pillow / NumPy 2 有已知不兼容，能实机验证前不装）、`requests` 等联网库（沙箱没有外网，装了只会让脚本跑一半才报错）、torch / transformers 等深度学习库
+（要下载模型权重，同样需要网络，而且镜像会大到几个 GB）、Coze / 浏览器自动化这类平台专属 SDK。
+想让更多 Skill 能跑，就是往这两处加库、重建沙箱镜像、
 然后重新导入这些 Skill 让检查结果刷新。
 
 依赖版本：`sandbox/requirements.txt` 里 `==` 的是本地验证过的版本，`>=` 的几个（pdfplumber、reportlab、
