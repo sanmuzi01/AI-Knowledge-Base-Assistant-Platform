@@ -24,6 +24,16 @@
           导入能力包
         </button>
         <button
+          v-if="isAdminView"
+          @click="handleReanalyze"
+          :disabled="reanalyzing"
+          class="inline-flex items-center gap-2 rounded border border-sky-200 bg-white/80 px-3 py-2 text-sm text-slate-700 hover:bg-sky-50 disabled:text-slate-300"
+          title="沙箱依赖变化后，刷新每个 Skill 的「脚本可运行」标签，不用重新导入"
+        >
+          <RefreshCw :size="15" :class="reanalyzing ? 'animate-spin' : ''" />
+          {{ reanalyzing ? '检查中…' : '重新检查脚本' }}
+        </button>
+        <button
           @click="openCreate"
           class="ui-primary inline-flex items-center gap-2 rounded px-3 py-2 text-sm font-medium text-white"
         >
@@ -687,7 +697,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, Pencil, Plus, Trash2, Upload, X, Zap } from 'lucide-vue-next'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X, Zap } from 'lucide-vue-next'
 import * as skillApi from '../api/skill'
 import * as attachmentApi from '../api/attachment'
 import { useUserStore } from '../stores/user'
@@ -1106,6 +1116,21 @@ const handleInstall = async (skill: Skill) => {
     importError.value = getErrorMessage(e, '安装失败')
   } finally {
     installingId.value = null
+  }
+}
+
+const reanalyzing = ref(false)
+const handleReanalyze = async () => {
+  if (reanalyzing.value) return
+  reanalyzing.value = true
+  try {
+    const r = await skillApi.reanalyzeSkillScripts()
+    await reload()
+    toastSuccess(`已检查 ${r.checked} 个带脚本的能力，${r.changed} 个状态有变化`)
+  } catch (err: any) {
+    toastError(getErrorMessage(err, '检查失败，请稍后重试'))
+  } finally {
+    reanalyzing.value = false
   }
 }
 

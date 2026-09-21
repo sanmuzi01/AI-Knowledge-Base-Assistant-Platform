@@ -161,6 +161,33 @@ class ImportAndBindingTest(unittest.TestCase):
         self.assertNotIn("run_skill_script", merged["tool_names"])
         self.assertEqual(merged["skill_bundles"], {})
 
+    def test_reanalyze_picks_up_new_sandbox_dependencies_without_reimport(self):
+        from service.skills_core import script_report
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("t/SKILL.md", "---\nname: t\n---\nbody")
+            zf.writestr("t/a.py", "import torch\n")
+        skill = import_skill_bundle(SimpleNamespace(commit=lambda: None), 1, "t.zip", buf.getvalue())["imported"][0]
+        self.assertEqual(skill["script_status"], "unsupported")
+
+        # 管理员往沙箱里加了 torch（改了 requirements 和 PACKAGE_MODULES）后，刷新检查结果
+        with patch.object(script_report, "SANDBOX_MODULES", script_report.SANDBOX_MODULES | {"torch"}):
+            res = script_report.reanalyze_config(skill["config_file"])
+        self.assertEqual((res["changed"], res["before"], res["after"]), (True, "unsupported", "ready"))
+        skill_loader.invalidate_skill_config()
+        self.assertEqual(skill_loader.load_skill_config(skill["config_file"])["runnable_scripts"], ["a.py"])
+
+        with patch.object(script_report, "SANDBOX_MODULES", script_report.SANDBOX_MODULES | {"torch"}):
+            self.assertFalse(script_report.reanalyze_config(skill["config_file"])["changed"])  # 幂等
+
+    def test_reanalyze_skips_skills_without_a_script_bundle(self):
+        from service.skills_core import script_report
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("p/SKILL.md", "---\nname: p\n---\nbody")
+        skill = import_skill_bundle(SimpleNamespace(commit=lambda: None), 1, "p.zip", buf.getvalue())["imported"][0]
+        self.assertTrue(script_report.reanalyze_config(skill["config_file"])["skipped"])
+
     def test_loader_rejects_runnable_scripts_that_are_not_a_subset(self):
         import yaml
         path = os.path.join(self.root, self.skill["config_file"])

@@ -24,6 +24,10 @@
   平台里没有对应能力，只能当作说明书，实际做不了事。
 - `stock-analysis` 涉及个股买卖建议，对外开放前请自行评估合规风险；`contract-review` 建议在说明里加上"仅供参考，不构成法律意见"。
 
+## 兼容性清单与后续扩展
+
+`COMPATIBILITY.md` 是每个 Skill 的脚本兼容性清单（脚本生成，不要手改）；哪些被什么卡住、怎么解锁，见 `docs/skill-extension.md`。
+
 ## 许可证
 
 各 Skill 的许可证以原仓库为准：`contract-review`、`law-to-markdown` 是 Apache-2.0，`archify` 是 MIT；

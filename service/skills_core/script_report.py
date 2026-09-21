@@ -155,3 +155,33 @@ def analyze_bundle(bundle_dir: str, scripts: List[str]) -> Dict[str, Any]:
         "status": status, "total": len(scripts), "runnable": runnable,
         "missing_packages": sorted(missing_all), "network": network, "system": system, "problems": problems,
     }
+
+
+def reanalyze_config(config_file: str) -> Dict[str, Any]:
+    """重新检查一个已导入 Skill 的脚本，改写配置里的 runnable_scripts / script_report。
+
+    沙箱依赖变了（往 sandbox/requirements.txt 和 PACKAGE_MODULES 里加了库）之后用，
+    不用把 Skill 删掉重新导入。返回 {"changed": 是否有变化, "before": 旧状态, "after": 新状态}。
+    没有脚本包的配置返回 {"skipped": True}。
+    """
+    import yaml
+
+    from service.skills.loader import _get_yml_path, invalidate_skill_config
+
+    path = _get_yml_path(config_file)
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    if not isinstance(cfg, dict) or not cfg.get("scripts_root") or not cfg.get("scripts"):
+        return {"skipped": True}
+
+    report = analyze_bundle(cfg["scripts_root"], list(cfg["scripts"]))
+    before = (cfg.get("script_report") or {}).get("status", "unknown")
+    new_report = {k: report[k] for k in ("status", "total", "missing_packages", "network", "system", "problems")}
+    changed = cfg.get("runnable_scripts") != report["runnable"] or cfg.get("script_report") != new_report
+    if changed:
+        cfg["runnable_scripts"] = report["runnable"]
+        cfg["script_report"] = new_report
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+        invalidate_skill_config(config_file)
+    return {"skipped": False, "changed": changed, "before": before, "after": report["status"]}

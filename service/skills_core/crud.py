@@ -192,6 +192,25 @@ def get_skill_config(db: Session, skill_id: int, user_id: int) -> Optional[Dict[
     }
 
 
+def reanalyze_all_scripts(db: Session) -> Dict[str, int]:
+    """重新检查所有带脚本的 Skill（含用户从商店安装的副本）。管理员在沙箱依赖变化后使用。"""
+    from .script_report import reanalyze_config
+
+    checked = changed = failed = 0
+    for skill in dao_list_all(db):
+        try:
+            res = reanalyze_config(skill.config_file)
+        except Exception as e:  # noqa: BLE001 - 单个配置坏了不能拖垮整批
+            logger.warning(f"重新检查脚本失败: skill={skill.id}, error={e}")
+            failed += 1
+            continue
+        if res.get("skipped"):
+            continue
+        checked += 1
+        changed += bool(res.get("changed"))
+    return {"checked": checked, "changed": changed, "failed": failed}
+
+
 def get_skill(db: Session, skill_id: int, user_id: int = None) -> Optional[Dict]:
     skill = dao_get(db, skill_id)
     if skill and user_id is not None and not can_read_skill(skill, user_id):

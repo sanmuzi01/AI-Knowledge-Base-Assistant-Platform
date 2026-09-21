@@ -226,6 +226,8 @@ TASK_EXECUTION_MODE=fastapi
 
 ## 7. Skill 脚本沙箱（可选，默认关闭）
 
+> 现状、保留的内容和后续扩展路线见 [skill-extension.md](skill-extension.md)。
+
 导入的官方 Skill 常带 `scripts/*.py`。开启沙箱后，助手可以用 `run_skill_script` 工具运行这些 Python 脚本，
 用户也能在聊天里上传文件（📎）交给脚本处理，脚本生成的文件会变成下载链接。
 
@@ -302,7 +304,7 @@ docker compose -f docker-compose.prod.yml exec sandbox python -c \
 **有意不装**：`moviepy`（官方 Skill 用的 1.0.3 版和新版 Pillow / NumPy 2 有已知不兼容，能实机验证前不装）、`requests` 等联网库（沙箱没有外网，装了只会让脚本跑一半才报错）、torch / transformers 等深度学习库
 （要下载模型权重，同样需要网络，而且镜像会大到几个 GB）、Coze / 浏览器自动化这类平台专属 SDK。
 想让更多 Skill 能跑，就是往这两处加库、重建沙箱镜像、
-然后重新导入这些 Skill 让检查结果刷新。
+然后在后台「技能管理」点「重新检查脚本」刷新检查结果，不用重新导入。
 
 依赖版本：`sandbox/requirements.txt` 里 `==` 的是本地验证过的版本，`>=` 的几个（pdfplumber、reportlab、
 python-pptx、beautifulsoup4）首次构建后请用 `docker compose ... run --rm sandbox pip freeze` 补成精确版本；

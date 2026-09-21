@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from models.init_db import User, get_db
 from models.async_db import get_async_db
 from service.admin_service import is_admin_user
-from service.dependencies import get_current_user, get_current_user_async
+from service.dependencies import get_current_admin_user, get_current_user, get_current_user_async
 from service.exceptions import InvalidInput, NotFound
 from service import skill_async_service
 from service.skills_core.github_import import import_from_github
+from service.skills_core.crud import reanalyze_all_scripts
 from service.skills_core.translate import TranslateError, translate_skill
 from service.skills_core.package_import import MAX_UPLOAD_BYTES, SkillImportError, import_skill_bundle
 from service.skill_service import (
@@ -286,6 +287,16 @@ def api_import_skill_from_github(
         db.rollback()
         raise InvalidInput(str(e))
     return _import_response(result)
+
+
+@router.post("/admin/reanalyze", summary="（管理员）重新检查所有 Skill 的脚本兼容性")
+def api_reanalyze_skill_scripts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """沙箱依赖变化后调用，刷新每个带脚本的 Skill 的"可运行"标签，不用重新导入。"""
+    result = reanalyze_all_scripts(db)
+    return {"code": 200, "msg": f"已检查 {result['checked']} 个，{result['changed']} 个有变化", "data": result}
 
 
 @router.post("/{skill_id}/translate", summary="把 Skill 的名称和说明翻译成中文（用你自己的模型）")

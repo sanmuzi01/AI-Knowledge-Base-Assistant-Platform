@@ -217,6 +217,12 @@ export async function translateSkill(skillId: number): Promise<Skill> {
   return data.data
 }
 
+/** （管理员）沙箱依赖变化后，重新检查所有 Skill 的脚本兼容性 */
+export async function reanalyzeSkillScripts(): Promise<{ checked: number; changed: number; failed: number }> {
+  const { data } = await request.post<SkillResponse<{ checked: number; changed: number; failed: number }>>('/skill/admin/reanalyze')
+  return data.data
+}
+
 export async function importSkillFromGithub(url: string, isPublic = 0): Promise<SkillImportResult> {
   const { data } = await request.post<SkillResponse<SkillImportResult>>('/skill/import/github', {
     url,
