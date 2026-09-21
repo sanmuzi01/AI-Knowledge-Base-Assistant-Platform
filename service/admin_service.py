@@ -21,6 +21,7 @@ from models.init_db import (
     LLMConfig,
     Memory,
     Skill,
+    SkillVersion,
     User,
 )
 
@@ -172,6 +173,7 @@ def delete_user(db, user_id: int, operator_id: int) -> Dict:
     skill_ids = [row[0] for row in db.query(Skill.id).filter(Skill.user_id == user.id).all()]
     if skill_ids:
         db.execute(agent_skill.delete().where(agent_skill.c.skill_id.in_(skill_ids)))
+        db.query(SkillVersion).filter(SkillVersion.skill_id.in_(skill_ids)).delete(synchronize_session=False)
         db.query(Skill).filter(Skill.id.in_(skill_ids)).delete(synchronize_session=False)
 
     db.query(LLMConfig).filter(LLMConfig.user_id == user.id).delete(synchronize_session=False)

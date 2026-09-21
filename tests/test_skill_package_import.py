@@ -129,6 +129,19 @@ class OfficialSkillImportTest(BundleTestBase):
         self.assertFalse(os.path.exists(os.path.join(resource_root, "scripts", "extract.py")))
         self.assertTrue(os.path.exists(os.path.join(resource_root, "reference.md")))
 
+    def test_oversized_bundle_file_is_skipped_with_a_note(self):
+        with patch.object(package_import, "MAX_BUNDLE_FILE_BYTES", 1000):
+            res = self.run_import({
+                "s/SKILL.md": "---\nname: s\n---\nbody",
+                "s/scripts/run.py": "print(1)",
+                "s/data/big.bin": b"a" * 5000,
+            })
+        skill = res["imported"][0]
+        bundle = self.cfg(skill)["scripts_root"]
+        self.assertTrue(os.path.exists(os.path.join(bundle, "scripts", "run.py")))
+        self.assertFalse(os.path.exists(os.path.join(bundle, "data", "big.bin")))
+        self.assertIn("太大或太多", " ".join(skill["notes"]))
+
     def test_skill_without_python_scripts_has_no_bundle(self):
         res = self.run_import({"s/SKILL.md": "---\nname: s\n---\nbody", "s/logo.png": b"\x89PNG"})
         skill = res["imported"][0]
@@ -255,6 +268,15 @@ class RejectionTest(BundleTestBase):
     def test_too_many_skills(self):
         files = {f"s{i}/SKILL.md": f"---\nname: s{i}\n---\nbody" for i in range(package_import.MAX_SKILLS_PER_UPLOAD + 1)}
         self.assertRejected(files, "最多导入")
+
+    def test_oversized_skill_md_is_rejected(self):
+        with patch.object(package_import, "MAX_TEXT_MEMBER_BYTES", 100):
+            self.assertRejected({"s/SKILL.md": "---\nname: s\n---\n" + "x" * 500}, "SKILL.md 太大")
+
+    def test_oversized_manifest_is_rejected(self):
+        with patch.object(package_import, "MAX_TEXT_MEMBER_BYTES", 100):
+            self.assertRejected({"SKILL.md": "---\nname: s\n---\nbody", "manifest.yaml": "name: s\n# " + "x" * 500},
+                                "manifest.yaml 太大")
 
     def test_yaml_missing_tools_gives_specific_reason(self):
         self.assertRejected(yaml.safe_dump({"name": "x"}).encode(), "缺少 tools", filename="x.yml")

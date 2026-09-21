@@ -12,11 +12,11 @@ from typing import Any, Dict, List, Optional
 
 from models import skill_version_dao as vdao
 from models.skill_dao import get_skill_by_id as dao_get, update_skill as dao_update
-from service.access_control import can_write_skill
-from service.skills.loader import _get_yml_path, invalidate_skill_config
+from service.access_control import can_manage_skill
+from service.skills.loader import _get_yml_path
 from utils.logger_handler import get_logger
 
-from .validation import validate_skill_config_file
+from .config_io import atomic_write_validated
 
 logger = get_logger("skill_service")
 
@@ -52,12 +52,19 @@ def snapshot_skill(db, skill, user_id: Optional[int], note: str, force: bool = F
     return row
 
 
-def snapshot_before_edit(db, skill_id: int, user_id: int) -> None:
+def snapshot_before_edit(db, skill_id: int, user_id: int, allow_admin: bool = False) -> None:
     """编辑前调用。尽力而为：版本记录出问题不能挡住正常的编辑，只记日志。"""
     try:
-        skill = dao_get(db, skill_id)
-        if skill and can_write_skill(skill, user_id):
-            snapshot_skill(db, skill, user_id, "编辑前自动保存")
+        nested = getattr(db, "begin_nested", None)
+        if callable(nested):
+            with nested():
+                skill = dao_get(db, skill_id)
+                if can_manage_skill(skill, user_id, allow_admin):
+                    snapshot_skill(db, skill, user_id, "编辑前自动保存")
+        else:
+            skill = dao_get(db, skill_id)
+            if can_manage_skill(skill, user_id, allow_admin):
+                snapshot_skill(db, skill, user_id, "编辑前自动保存")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"保存技能历史版本失败（不影响编辑）: skill={skill_id}, error={e}")
 
@@ -79,18 +86,22 @@ def _to_dict(row) -> Dict[str, Any]:
     }
 
 
-def list_skill_versions(db, skill_id: int, user_id: int) -> Optional[List[Dict[str, Any]]]:
+def list_skill_versions(
+    db, skill_id: int, user_id: int, allow_admin: bool = False,
+) -> Optional[List[Dict[str, Any]]]:
     """不是自己的技能返回 None。"""
     skill = dao_get(db, skill_id)
-    if not skill or not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         return None
     return [_to_dict(r) for r in vdao.list_versions(db, skill_id, MAX_VERSIONS)]
 
 
-def restore_skill_version(db, skill_id: int, version_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+def restore_skill_version(
+    db, skill_id: int, version_id: int, user_id: int, allow_admin: bool = False,
+) -> Optional[Dict[str, Any]]:
     """恢复到指定版本。不是自己的技能返回 None；版本不存在或恢复后配置不可用抛 VersionError。"""
     skill = dao_get(db, skill_id)
-    if not skill or not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         return None
     version = vdao.get(db, skill_id, version_id)
     if version is None:
@@ -99,22 +110,21 @@ def restore_skill_version(db, skill_id: int, version_id: int, user_id: int) -> O
     current = _read_config(skill)
     if current is None:
         raise VersionError("这个技能的配置文件已经不存在，无法恢复")
-    path = _get_yml_path(skill.config_file)
-
     snapshot_skill(db, skill, user_id, f"恢复到 v{version.version_no} 前自动保存", force=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(version.config_text)
-    invalidate_skill_config(skill.config_file)
-
-    validation = validate_skill_config_file(skill.config_file)
+    validation = atomic_write_validated(skill.config_file, version.config_text)
     if not validation["ok"]:
-        # 旧版本现在已经不能用了（比如它引用的脚本包被清掉了）：把文件写回去，不要留一个坏配置
-        with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(current)
-        invalidate_skill_config(skill.config_file)
         db.rollback()
         raise VersionError("该版本现在已经不可用，未恢复：" + "；".join(validation["errors"][:2]))
 
-    dao_update(db, skill_id, name=version.name, description=version.description or "")
-    db.commit()
+    updated = dao_update(db, skill_id, name=version.name, description=version.description or "")
+    if not updated:
+        atomic_write_validated(skill.config_file, current)
+        db.rollback()
+        raise VersionError("恢复技能名称和说明失败，配置未改变")
+    try:
+        db.commit()
+    except Exception as e:
+        atomic_write_validated(skill.config_file, current)
+        db.rollback()
+        raise VersionError("保存恢复结果失败，配置未改变") from e
     return {"restored_to": version.version_no, "name": version.name}

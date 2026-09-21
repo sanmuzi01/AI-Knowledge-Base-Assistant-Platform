@@ -106,7 +106,7 @@
               :class="activeTab === 'mine' ? 'bg-sky-100 text-sky-800 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50'"
               class="rounded px-3 py-1.5 text-sm"
             >
-              我的能力
+              全部技能
             </button>
             <button
               @click="activeTab = 'public'"
@@ -124,7 +124,7 @@
 
         <div v-if="shownSkills.length === 0" class="rounded-lg border border-dashed border-sky-300/70 bg-white/62 py-16 text-center text-sm text-slate-500 backdrop-blur">
           <template v-if="activeTab === 'mine'">
-            你还没有能力。可以
+            平台还没有技能。可以
             <button class="text-[var(--accent)] hover:underline" @click="openImport">导入官方 / GitHub 上的 Skill</button>
             ，或从上面的样板开始。
           </template>
@@ -304,7 +304,7 @@
             <p class="mt-1 text-xs text-red-600/90">{{ f.error }}</p>
           </div>
           <p class="text-xs leading-relaxed text-slate-500">
-            导入后在「我的能力」里能看到它。回到工作台，创建或编辑助手时勾选这个能力，助手才会按这个方法工作。
+             导入后会出现在「全部技能」里。公开后，普通用户可在创建或编辑助手时选择使用。
           </p>
         </main>
 

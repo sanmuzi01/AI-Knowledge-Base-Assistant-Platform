@@ -18,7 +18,7 @@ class DeleteUserWithRealDataTest(unittest.TestCase):
     def test_delete_user_with_knowledge_space_connector_and_eval_set(self):
         from models.init_db import (
             SessionLocal, KnowledgeSpace, AgentApiConnector, EvalSet, EvalRun, Agent,
-            Plan, UserSubscription,
+            Plan, Skill, SkillVersion, UserSubscription,
         )
         from service.admin_service import delete_user
 
@@ -56,9 +56,20 @@ class DeleteUserWithRealDataTest(unittest.TestCase):
                 db.add(plan)
                 db.flush()
             db.add(UserSubscription(user_id=target["id"], plan_id=plan.id))
+            skill = Skill(
+                user_id=target["id"], name="rt-deluser-skill",
+                description="", config_file="user_created/rt-delete.yml", is_public=0,
+            )
+            db.add(skill)
+            db.flush()
+            db.add(SkillVersion(
+                skill_id=skill.id, version_no=1, name=skill.name,
+                description="", config_text="name: test\ntools: []\n", created_by=target["id"],
+            ))
             db.commit()
 
             space_id = space.id
+            skill_id = skill.id
         finally:
             db.close()
 
@@ -82,6 +93,9 @@ class DeleteUserWithRealDataTest(unittest.TestCase):
             ).first())
             self.assertIsNone(db3.execute(
                 text("SELECT id FROM user_subscription WHERE user_id=:u"), {"u": target["id"]},
+            ).first())
+            self.assertIsNone(db3.execute(
+                text("SELECT id FROM skill_version WHERE skill_id=:s"), {"s": skill_id},
             ).first())
             db3.execute(text("DELETE FROM plan WHERE name='rt-deluser-plan'"))
             db3.commit()

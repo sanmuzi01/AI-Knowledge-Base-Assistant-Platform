@@ -98,12 +98,12 @@ def api_create_skill(
     return {"code": 200, "msg": "创建成功", "data": skill}
 
 
-@router.get("/", summary="（管理员）查询管理员维护的Skill")
+@router.get("/", summary="（管理员）查询平台全部Skill")
 async def api_list_my_skills(
     async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_admin_user_async),
 ):
-    skills = await skill_async_service.list_user_skills(async_db, current_user.id)
+    skills = await skill_async_service.list_all_skills(async_db)
     return {"code": 200, "msg": "查询成功", "data": skills}
 
 
@@ -196,7 +196,10 @@ async def api_validate_skill(
     async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    result = await skill_async_service.validate_skill(async_db, skill_id, user_id=current_user.id)
+    result = await skill_async_service.validate_skill(
+        async_db, skill_id, user_id=current_user.id,
+        allow_admin=is_admin_user(current_user),
+    )
     if not result:
         raise NotFound("Skill不存在")
     return {"code": 200, "msg": "校验完成", "data": result}
@@ -209,7 +212,7 @@ def api_export_skill(
     current_user: User = Depends(get_current_admin_user),
 ):
     try:
-        package = export_skill_package(db, skill_id, user_id=current_user.id)
+        package = export_skill_package(db, skill_id, user_id=current_user.id, allow_admin=True)
     except ValueError as e:
         raise InvalidInput(str(e))
     if not package:
@@ -304,7 +307,7 @@ def api_list_skill_versions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
-    versions = list_skill_versions(db, skill_id, current_user.id)
+    versions = list_skill_versions(db, skill_id, current_user.id, allow_admin=True)
     if versions is None:
         raise NotFound("Skill不存在，或不是你创建的")
     return {"code": 200, "msg": "查询成功", "data": versions}
@@ -318,7 +321,7 @@ def api_restore_skill_version(
     current_user: User = Depends(get_current_admin_user),
 ):
     try:
-        result = restore_skill_version(db, skill_id, version_id, current_user.id)
+        result = restore_skill_version(db, skill_id, version_id, current_user.id, allow_admin=True)
     except VersionError as e:
         db.rollback()
         raise InvalidInput(str(e))
@@ -334,7 +337,7 @@ def api_translate_skill(
     current_user: User = Depends(get_current_admin_user),
 ):
     try:
-        skill = translate_skill(db, skill_id, current_user.id)
+        skill = translate_skill(db, skill_id, current_user.id, allow_admin=True)
     except TranslateError as e:
         db.rollback()
         raise InvalidInput(str(e))
@@ -349,7 +352,10 @@ async def api_get_skill(
     async_db=Depends(get_async_db),
     current_user: User = Depends(get_current_user_async),
 ):
-    skill = await skill_async_service.get_skill_with_config(async_db, skill_id, user_id=current_user.id)
+    skill = await skill_async_service.get_skill_with_config(
+        async_db, skill_id, user_id=current_user.id,
+        allow_admin=is_admin_user(current_user),
+    )
     if not skill:
         raise NotFound("Skill不存在")
     return {"code": 200, "msg": "查询成功", "data": skill}
@@ -373,6 +379,7 @@ def api_update_skill(
         user_id=current_user.id,
         fields=payload,
         config_fields=config_payload,
+        allow_admin=True,
     )
     if not skill:
         raise InvalidInput("更新失败，Skill不存在、模板文件名错误或配置不可用")
@@ -385,7 +392,7 @@ def api_delete_skill(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
-    success = delete_skill(db, skill_id, user_id=current_user.id)
+    success = delete_skill(db, skill_id, user_id=current_user.id, allow_admin=True)
     if not success:
         raise NotFound("Skill不存在")
     return {"code": 200, "msg": "删除成功"}

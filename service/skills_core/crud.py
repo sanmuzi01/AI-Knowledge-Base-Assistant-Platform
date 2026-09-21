@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from service.access_control import can_read_skill, can_write_skill
+from service.access_control import can_manage_skill, can_read_skill
 from models.skill_dao import (
     create_skill as dao_create,
     get_skill_by_id as dao_get,
@@ -22,6 +22,7 @@ from service.skills.loader import (
 from utils.logger_handler import get_logger
 
 from .versioning import delete_versions, snapshot_before_edit
+from .config_io import atomic_write_validated
 from .common import _can_use_template, _normalize_permission_payload, _safe_skill_stem, _skill_to_dict
 from .validation import _validate_tool_names
 
@@ -34,10 +35,8 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
                  permissions: Optional[Dict[str, Any]] = None,
                  commit: bool = True) -> Optional[Dict]:
     # 新建 Skill 要生成用户自己的运行时 YML，否则只是数据库里的一条模板引用。
-    import os
     import uuid
     import yaml
-    from service.skills.loader import SKILLS_ROOT
 
     template_cfg = {
         "name": name,
@@ -82,8 +81,6 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
         prompt_parts.append(system_prompt.strip())
 
     config_file = f"user_created/u{user_id}_{uuid.uuid4().hex[:10]}_{_safe_skill_stem(name)}.yml"
-    config_path = os.path.join(SKILLS_ROOT, config_file)
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
 
     runtime_config = {
         "name": name,
@@ -97,10 +94,12 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
     }
 
     try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
-        invalidate_skill_config(config_file)
-        load_skill_config(config_file)
+        validation = atomic_write_validated(
+            config_file,
+            yaml.safe_dump(runtime_config, allow_unicode=True, sort_keys=False),
+        )
+        if not validation["ok"]:
+            raise ValueError("；".join(validation["errors"][:2]))
     except Exception as e:
         logger.error(f"创建Skill配置文件失败: {e}")
         return None
@@ -118,16 +117,13 @@ def create_skill(db: Session, user_id: int, name: str, description: str,
 def _write_skill_config(config_file: str, name: str, description: str,
                         system_prompt: str, tool_names: List[str],
                         permissions: Optional[Dict[str, Any]] = None) -> bool:
-    import os
     import yaml
-    from service.skills.loader import SKILLS_ROOT
 
     selected_tool_names = _validate_tool_names(tool_names)
     if selected_tool_names is None:
         logger.warning(f"保存Skill配置失败：工具不存在或未选择工具 {tool_names}")
         return False
 
-    config_path = os.path.join(SKILLS_ROOT, config_file)
     try:
         old_cfg = load_skill_config(config_file)
         runtime_config = {
@@ -145,10 +141,13 @@ def _write_skill_config(config_file: str, name: str, description: str,
         for key in ("origin", "scripts_root", "scripts", "runnable_scripts", "script_report"):
             if old_cfg.get(key):
                 runtime_config[key] = old_cfg[key]
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
-        invalidate_skill_config(config_file)
-        load_skill_config(config_file)
+        validation = atomic_write_validated(
+            config_file,
+            yaml.safe_dump(runtime_config, allow_unicode=True, sort_keys=False),
+        )
+        if not validation["ok"]:
+            logger.warning(f"保存Skill配置校验失败: config_file={config_file}, errors={validation['errors'][:2]}")
+            return False
         return True
     except Exception as e:
         logger.error(f"保存Skill配置失败: config_file={config_file}, error={e}")
@@ -158,14 +157,17 @@ def _write_skill_config(config_file: str, name: str, description: str,
 def update_skill_config(db: Session, skill_id: int, user_id: int, *,
                         system_prompt: Optional[str] = None,
                         tool_names: Optional[List[str]] = None,
-                        permissions: Optional[Dict[str, Any]] = None) -> bool:
+                        permissions: Optional[Dict[str, Any]] = None,
+                        allow_admin: bool = False,
+                        snapshot: bool = True) -> bool:
     skill = dao_get(db, skill_id)
-    if not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         return False
     if not skill.config_file.startswith(("user_created/", "imported/")):
         logger.warning(f"拒绝修改内置模板Skill配置: skill_id={skill_id}, config={skill.config_file}")
         return False
-    snapshot_before_edit(db, skill_id, user_id)
+    if snapshot:
+        snapshot_before_edit(db, skill_id, user_id, allow_admin)
     cfg = load_skill_config(skill.config_file)
     return _write_skill_config(
         config_file=skill.config_file,
@@ -177,9 +179,11 @@ def update_skill_config(db: Session, skill_id: int, user_id: int, *,
     )
 
 
-def get_skill_config(db: Session, skill_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+def get_skill_config(
+    db: Session, skill_id: int, user_id: int, allow_admin: bool = False,
+) -> Optional[Dict[str, Any]]:
     skill = dao_get(db, skill_id)
-    if not can_read_skill(skill, user_id):
+    if skill is None or (not allow_admin and not can_read_skill(skill, user_id)):
         return None
     cfg = load_skill_config(skill.config_file)
     return {
@@ -213,9 +217,11 @@ def reanalyze_all_scripts(db: Session) -> Dict[str, int]:
     return {"checked": checked, "changed": changed, "failed": failed}
 
 
-def get_skill(db: Session, skill_id: int, user_id: int = None) -> Optional[Dict]:
+def get_skill(
+    db: Session, skill_id: int, user_id: int = None, allow_admin: bool = False,
+) -> Optional[Dict]:
     skill = dao_get(db, skill_id)
-    if skill and user_id is not None and not can_read_skill(skill, user_id):
+    if skill and user_id is not None and not allow_admin and not can_read_skill(skill, user_id):
         logger.warning(f"权限拒绝：用户{user_id}尝试查看私有Skill {skill_id}")
         return None
     return _skill_to_dict(skill) if skill else None
@@ -236,17 +242,21 @@ def list_all_skills(db: Session) -> List[Dict]:
     return [_skill_to_dict(s) for s in skills]
 
 
-def update_skill(db: Session, skill_id: int, user_id: int, commit: bool = True, **kwargs) -> Optional[Dict]:
+def update_skill(
+    db: Session, skill_id: int, user_id: int, commit: bool = True,
+    allow_admin: bool = False, snapshot: bool = True, **kwargs,
+) -> Optional[Dict]:
     # 先查Skill是否存在
     skill = dao_get(db, skill_id)
     if not skill:
         logger.warning(f"更新Skill失败：不存在 id={skill_id}")
         return None
     # 权限校验：只有创建者能更新
-    if not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         logger.warning(f"权限拒绝：用户{user_id}尝试更新别人的Skill {skill_id}")
         return None
-    snapshot_before_edit(db, skill_id, user_id)
+    if snapshot:
+        snapshot_before_edit(db, skill_id, user_id, allow_admin)
     # 如果更新了模板文件，校验是否存在
     if "template_filename" in kwargs:
         template = kwargs.pop("template_filename")
@@ -269,6 +279,7 @@ def update_skill_with_config(
         user_id: int,
         fields: Dict[str, Any],
         config_fields: Dict[str, Any],
+        allow_admin: bool = False,
 ) -> Optional[Dict]:
     """统一更新 Skill 基础信息和运行配置。
 
@@ -276,26 +287,36 @@ def update_skill_with_config(
     """
     if not fields and not config_fields:
         return None
+    skill_model = dao_get(db, skill_id)
+    if not can_manage_skill(skill_model, user_id, allow_admin):
+        return None
+    snapshot_before_edit(db, skill_id, user_id, allow_admin)
     if fields:
-        skill = update_skill(db, skill_id, user_id=user_id, commit=False, **fields)
+        skill = update_skill(
+            db, skill_id, user_id=user_id, commit=False,
+            allow_admin=allow_admin, snapshot=False, **fields,
+        )
         if not skill:
             return None
     if config_fields:
-        if not update_skill_config(db, skill_id, user_id=user_id, **config_fields):
+        if not update_skill_config(
+            db, skill_id, user_id=user_id, allow_admin=allow_admin,
+            snapshot=False, **config_fields,
+        ):
             return None
     db.commit()
-    skill = get_skill(db, skill_id, user_id=user_id)
+    skill = get_skill(db, skill_id, user_id=user_id, allow_admin=allow_admin)
     if skill:
-        skill["config"] = get_skill_config(db, skill_id, user_id=user_id)
+        skill["config"] = get_skill_config(db, skill_id, user_id=user_id, allow_admin=allow_admin)
     return skill
 
 
-def delete_skill(db: Session, skill_id: int, user_id: int) -> bool:
+def delete_skill(db: Session, skill_id: int, user_id: int, allow_admin: bool = False) -> bool:
     """删除Skill（加权限校验：只有创建者能删除）"""
     skill = dao_get(db, skill_id)
     if not skill:
         return False
-    if not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         logger.warning(f"权限拒绝：用户{user_id}尝试删除别人的Skill {skill_id}")
         return False
     config_file = skill.config_file

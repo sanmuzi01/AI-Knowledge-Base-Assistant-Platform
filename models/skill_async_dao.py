@@ -19,6 +19,11 @@ async def list_skills_by_user_async(db: AsyncSession, user_id: int) -> List[Skil
     return list(result.unique().scalars().all())
 
 
+async def list_all_skills_async(db: AsyncSession, limit: int = 1000) -> List[Skill]:
+    result = await db.execute(select(Skill).order_by(Skill.id.desc()).limit(limit))
+    return list(result.unique().scalars().all())
+
+
 async def list_public_skills_async(db: AsyncSession) -> List[Skill]:
     result = await db.execute(select(Skill).where(Skill.is_public == 1).order_by(Skill.id.desc()))
     return list(result.unique().scalars().all())

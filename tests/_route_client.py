@@ -151,6 +151,7 @@ def _purge_users(where_users: str) -> int:
             # agent_skill 同时被 agent.id / skill.id 外键引用 —— 删 agent / skill 之前先清掉
             f"DELETE ask FROM agent_skill ask JOIN agent a ON ask.agent_id=a.id WHERE a.user_id IN {inc}",
             f"DELETE ask FROM agent_skill ask JOIN skill s ON ask.skill_id=s.id WHERE s.user_id IN {inc}",
+            f"DELETE sv FROM skill_version sv JOIN skill s ON sv.skill_id=s.id WHERE s.user_id IN {inc}",
             f"DELETE FROM skill WHERE user_id IN {inc}",
             f"DELETE FROM web_monitor WHERE user_id IN {inc}",
             f"DELETE FROM user_workspace WHERE user_id IN {inc}",

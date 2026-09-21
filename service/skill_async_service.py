@@ -18,6 +18,11 @@ async def list_user_skills(db, user_id: int) -> List[Dict]:
     return [_skill_to_dict(skill) for skill in skills]
 
 
+async def list_all_skills(db) -> List[Dict]:
+    skills = await dao.list_all_skills_async(db)
+    return [_skill_to_dict(skill) for skill in skills]
+
+
 async def list_public_skills(db) -> List[Dict]:
     """能力商店列表。is_official：发布者是管理员（= 经管理员审核上架）。
     以前普通用户也能公开，那批老数据发布者不是管理员，所以不能一概当官方。"""
@@ -49,11 +54,11 @@ async def get_skill(db, skill_id: int, user_id: int = None) -> Optional[Dict]:
     return _skill_to_dict(skill) if skill else None
 
 
-async def get_skill_with_config(db, skill_id: int, user_id: int) -> Optional[Dict]:
+async def get_skill_with_config(db, skill_id: int, user_id: int, allow_admin: bool = False) -> Optional[Dict]:
     """异步查 Skill，配置文件读取放到线程池执行。"""
 
     skill_model = await dao.get_skill_by_id_async(db, skill_id)
-    if not can_read_skill(skill_model, user_id):
+    if skill_model is None or (not allow_admin and not can_read_skill(skill_model, user_id)):
         return None
     skill = _skill_to_dict(skill_model)
     cfg = await run_in_threadpool(load_skill_config, skill_model.config_file)
@@ -70,9 +75,9 @@ async def get_skill_with_config(db, skill_id: int, user_id: int) -> Optional[Dic
     return skill
 
 
-async def validate_skill(db, skill_id: int, user_id: int) -> Optional[Dict]:
+async def validate_skill(db, skill_id: int, user_id: int, allow_admin: bool = False) -> Optional[Dict]:
     skill = await dao.get_skill_by_id_async(db, skill_id)
-    if not can_read_skill(skill, user_id):
+    if skill is None or (not allow_admin and not can_read_skill(skill, user_id)):
         return None
     result = await run_in_threadpool(validate_skill_config_file, skill.config_file)
     result.update({

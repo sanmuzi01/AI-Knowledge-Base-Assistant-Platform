@@ -211,13 +211,25 @@ def _report_note(report: Dict[str, Any]) -> str:
     return f"脚本兼容性检查：没有一个脚本能在沙箱里运行（{tail}），只会按文字说明工作"
 
 
+MAX_TEXT_MEMBER_BYTES = 1_000_000   # SKILL.md / manifest 这类文本文件的上限
+
+
+def _read_text_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, label: str) -> bytes:
+    """读取压缩包里的文本文件，最多读 MAX_TEXT_MEMBER_BYTES（不信任压缩包声明的大小）。"""
+    with zf.open(info) as f:
+        data = f.read(MAX_TEXT_MEMBER_BYTES + 1)
+    if len(data) > MAX_TEXT_MEMBER_BYTES:
+        raise SkillImportError(f"{label} 太大（超过 {MAX_TEXT_MEMBER_BYTES // 1000} KB），不像是正常的说明文件")
+    return data
+
+
 def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
                  own: Dict[str, zipfile.ZipInfo], label: str, is_public: int,
                  allow_scripts: bool = True) -> Dict[str, Any]:
     prefix = root + "/" if root else ""
     md_name = next(n for n in own if n[len(prefix):].lower() == "skill.md")
     try:
-        skill_text = zf.read(own[md_name]).decode("utf-8-sig")
+        skill_text = _read_text_member(zf, own[md_name], "SKILL.md").decode("utf-8-sig")
     except UnicodeDecodeError:
         raise SkillImportError("SKILL.md 不是 UTF-8 编码，请另存为 UTF-8 后重试")
     meta, body = parse_skill_md(skill_text)
@@ -229,7 +241,7 @@ def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
     manifest_name = next((n for n in own if n[len(prefix):].lower() in {"manifest.yaml", "manifest.yml"}), None)
     if manifest_name:
         try:
-            loaded = yaml.safe_load(zf.read(manifest_name).decode("utf-8-sig"))
+            loaded = yaml.safe_load(_read_text_member(zf, own[manifest_name], "manifest.yaml").decode("utf-8-sig"))
         except (yaml.YAMLError, UnicodeDecodeError):
             raise SkillImportError("manifest.yaml 格式不对，无法解析")
         manifest = loaded if isinstance(loaded, dict) else {}
@@ -336,10 +348,17 @@ def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
                     continue
                 target = os.path.join(bundle_dir, *rel.split("/"))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
-                with zf.open(info) as src, open(target, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
+                # 压缩包里声明的大小可以造假，按实际读到的字节数为准
+                limit = min(MAX_BUNDLE_FILE_BYTES, MAX_BUNDLE_TOTAL_BYTES - total_bytes)
+                with zf.open(info) as src:
+                    data = src.read(limit + 1)
+                if len(data) > limit:
+                    skipped += 1
+                    continue
+                with open(target, "wb") as dst:
+                    dst.write(data)
                 kept += 1
-                total_bytes += info.file_size
+                total_bytes += len(data)
             if skipped:
                 notes.append(f"{skipped} 个文件太大或太多，没有放进脚本包，依赖它们的脚本可能报错")
             py_scripts = [p for p in py_scripts if os.path.exists(os.path.join(bundle_dir, *p.split("/")))]

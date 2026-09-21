@@ -63,8 +63,10 @@ class VersioningTestBase(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "user_created"))
         self.config_file = "user_created/u7_demo.yml"
         self.write_config("旧提示词")
-        self.skill = SimpleNamespace(id=1, user_id=self.OWNER, name="演示技能", description="演示说明",
-                                     config_file=self.config_file)
+        self.skill = SimpleNamespace(
+            id=1, user_id=self.OWNER, name="演示技能", description="演示说明",
+            config_file=self.config_file, is_public=1, created_at=None,
+        )
         self.dao = FakeVersionDao()
         self.updates = []
         self.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
@@ -72,12 +74,16 @@ class VersioningTestBase(unittest.TestCase):
             patch.object(skill_loader, "SKILLS_ROOT", self.root),
             patch.object(versioning, "vdao", self.dao),
             patch.object(versioning, "dao_get", lambda db, sid: self.skill if sid == 1 else None),
-            patch.object(versioning, "dao_update", lambda db, sid, **kw: self.updates.append(kw)),
+            patch.object(versioning, "dao_update", self._record_update),
             patch.object(crud, "dao_get", lambda db, sid: self.skill if sid == 1 else None),
         ]
         for p in self._patches:
             p.start()
         skill_loader.invalidate_skill_config()
+
+    def _record_update(self, db, sid, **kwargs):
+        self.updates.append(kwargs)
+        return self.skill
 
     def tearDown(self):
         for p in self._patches:
@@ -154,6 +160,50 @@ class EditingCreatesSnapshotsTest(VersioningTestBase):
     def test_someone_elses_edit_is_refused_and_leaves_no_snapshot(self):
         self.assertFalse(crud.update_skill_config(self.db, 1, 999, system_prompt="x", tool_names=["word_count"]))
         self.assertEqual(self.dao.rows, [])
+
+    def test_admin_can_manage_a_skill_owned_by_another_account(self):
+        ok = crud.update_skill_config(
+            self.db, 1, 999, system_prompt="管理员修订", tool_names=["word_count"], allow_admin=True,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(self.prompt_on_disk(), "管理员修订")
+
+    def test_combined_edit_creates_one_snapshot_without_an_intermediate_version(self):
+        def update_row(db, skill_id, **fields):
+            for key, value in fields.items():
+                setattr(self.skill, key, value)
+            return self.skill
+
+        with patch.object(crud, "dao_update", update_row):
+            result = crud.update_skill_with_config(
+                self.db,
+                1,
+                self.OWNER,
+                fields={"name": "新名称", "description": "新说明"},
+                config_fields={"system_prompt": "新提示词", "tool_names": ["word_count"]},
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(len(self.dao.rows), 1)
+        self.assertEqual(self.dao.rows[0].name, "演示技能")
+        self.assertIn("旧提示词", self.dao.rows[0].config_text)
+        self.assertEqual(self.prompt_on_disk(), "新提示词")
+
+    def test_invalid_edit_keeps_the_published_file_unchanged(self):
+        path = os.path.join(self.root, self.config_file)
+        with open(path, "r", encoding="utf-8") as handle:
+            before = handle.read()
+        ok = crud._write_skill_config(
+            self.config_file,
+            name=self.skill.name,
+            description=self.skill.description,
+            system_prompt="不应发布",
+            tool_names=["word_count"],
+            permissions={"network": False, "file_read": ["missing.md"], "exec": False},
+        )
+        self.assertFalse(ok)
+        with open(path, "r", encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), before)
+        self.assertFalse(any(name.startswith(".skill-") for name in os.listdir(os.path.dirname(path))))
 
 
 class RestoreTest(VersioningTestBase):

@@ -66,6 +66,11 @@ def can_write_skill(skill: Skill, user_id: int) -> bool:
     return bool(skill and skill.user_id == user_id)
 
 
+def can_manage_skill(skill: Skill, user_id: int, allow_admin: bool = False) -> bool:
+    """Owners manage their records; admin-only callers may manage every Skill."""
+    return bool(skill and (allow_admin or skill.user_id == user_id))
+
+
 def get_owned_memory(db, user_id: int, memory_id: int, agent_id: int = None) -> Optional[Memory]:
     memory = get_memory_by_id(db, memory_id)
     if not memory or memory.user_id != user_id:

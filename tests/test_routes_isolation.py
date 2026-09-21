@@ -3,7 +3,9 @@
 走真实 FastAPI 应用（TestClient）、真实 JWT、真实 DB。无法连库或缺 JWT_SECRET_KEY 时整体 skip。
 """
 
+import os
 import unittest
+import uuid
 
 from tests import _route_client as rc
 
@@ -444,6 +446,77 @@ class RouteIsolationTest(unittest.TestCase):
         self.assertEqual(self.client.get("/skill/", headers=admin).status_code, 200)
         self.assertEqual(self.client.get("/skill/templates", headers=admin).status_code, 200)
         self.assertEqual(self.client.get("/skill/tools", headers=admin).status_code, 200)
+
+    def test_admin_skill_list_includes_records_owned_by_other_users(self):
+        from models.init_db import SessionLocal, Skill
+
+        db = SessionLocal()
+        try:
+            skill = Skill(
+                user_id=self.alice["id"], name="rt-legacy-owner-skill",
+                description="legacy", config_file="user_created/rt-legacy.yml", is_public=0,
+            )
+            db.add(skill)
+            db.commit()
+            skill_id = skill.id
+        finally:
+            db.close()
+
+        response = self.client.get("/skill/", headers=self.admin["headers"])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn(skill_id, [item["id"] for item in response.json()["data"]])
+
+    def test_admin_can_edit_version_and_delete_a_skill_owned_by_another_user(self):
+        import yaml
+        from models.init_db import SessionLocal, Skill
+        from service.skills import loader as skill_loader
+
+        name = f"rt-admin-manage-{uuid.uuid4().hex[:8]}.yml"
+        config_file = f"user_created/{name}"
+        path = os.path.join(skill_loader.SKILLS_ROOT, config_file)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump({"name": "旧技能", "description": "d", "tools": [{"name": "word_count", "defaults": {}}],
+                            "system_prompt": "旧提示词"}, f, allow_unicode=True)
+        db = SessionLocal()
+        try:
+            skill = Skill(user_id=self.alice["id"], name="rt-owned-by-alice", description="d",
+                          config_file=config_file, is_public=0)
+            db.add(skill)
+            db.commit()
+            skill_id = skill.id
+        finally:
+            db.close()
+
+        try:
+            admin, alice = self.admin["headers"], self.alice["headers"]
+            self.assertEqual(self.client.put(f"/skill/{skill_id}", json={"system_prompt": "别人改"}, headers=alice).status_code, 403)
+
+            r = self.client.put(f"/skill/{skill_id}", json={"system_prompt": "管理员改过", "tool_names": ["word_count"]},
+                                headers=admin)
+            self.assertEqual(r.status_code, 200, r.text)
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("管理员改过", f.read())
+
+            r = self.client.get(f"/skill/{skill_id}/versions", headers=admin)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(len(r.json()["data"]), 1)
+
+            r = self.client.delete(f"/skill/{skill_id}", headers=admin)
+            self.assertEqual(r.status_code, 200, r.text)
+            # 管理员访问已不存在的技能：一律 404，不能 500
+            for suffix in ("", "/validate", "/export"):
+                r = self.client.get(f"/skill/{skill_id}{suffix}", headers=admin)
+                self.assertEqual(r.status_code, 404, f"{suffix or '/'} -> {r.status_code}")
+        finally:
+            db = SessionLocal()
+            try:
+                db.query(Skill).filter(Skill.id == skill_id).delete()
+                db.commit()
+            finally:
+                db.close()
+            if os.path.exists(path):
+                os.remove(path)
 
     # ---- 管理员接口隔离 ----
 

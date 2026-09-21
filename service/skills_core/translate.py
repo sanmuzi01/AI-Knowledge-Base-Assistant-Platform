@@ -7,7 +7,7 @@ import json
 import re
 from typing import Dict, Optional
 
-from service.access_control import can_write_skill
+from service.access_control import can_manage_skill
 from models.skill_dao import get_skill_by_id as dao_get
 from service.skills_core.crud import update_skill
 from utils.logger_handler import get_logger
@@ -61,10 +61,12 @@ def _parse(reply: str) -> Dict[str, str]:
     return {"name": name[:60], "description": desc[:500]}
 
 
-def translate_skill(db, skill_id: int, user_id: int) -> Optional[Dict]:
+def translate_skill(
+    db, skill_id: int, user_id: int, allow_admin: bool = False,
+) -> Optional[Dict]:
     """翻译并保存。不是自己的 Skill 返回 None；没有可用模型或翻译失败抛 TranslateError。"""
     skill = dao_get(db, skill_id)
-    if not can_write_skill(skill, user_id):
+    if not can_manage_skill(skill, user_id, allow_admin):
         return None
     picked = _pick_chat_model(db, user_id)
     if not picked:
@@ -80,4 +82,7 @@ def translate_skill(db, skill_id: int, user_id: int) -> Optional[Dict]:
         logger.warning(f"翻译Skill失败: skill={skill_id}, error={e}")
         raise TranslateError("调用你的模型失败（可能是额度不足或网络问题），请稍后重试或手动编辑")
     result = _parse(reply if isinstance(reply, str) else str(reply))
-    return update_skill(db, skill_id, user_id, name=result["name"], description=result["description"])
+    kwargs = {"name": result["name"], "description": result["description"]}
+    if allow_admin:
+        kwargs["allow_admin"] = True
+    return update_skill(db, skill_id, user_id, **kwargs)

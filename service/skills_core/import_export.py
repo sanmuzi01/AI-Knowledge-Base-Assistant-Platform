@@ -244,7 +244,9 @@ def install_public_skill(db: Session, user_id: int, skill_id: int, commit: bool 
         return None
 
 
-def export_skill_package(db: Session, skill_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+def export_skill_package(
+    db: Session, skill_id: int, user_id: int, allow_admin: bool = False,
+) -> Optional[Dict[str, Any]]:
     """把运行时 Skill 导出为标准 zip 包：manifest.yaml + SKILL.md。"""
     import os
     import tempfile
@@ -252,7 +254,7 @@ def export_skill_package(db: Session, skill_id: int, user_id: int) -> Optional[D
     import yaml
 
     skill = dao_get(db, skill_id)
-    if not can_read_skill(skill, user_id):
+    if skill is None or (not allow_admin and not can_read_skill(skill, user_id)):
         return None
     validation = validate_skill_config_file(skill.config_file)
     if not validation["ok"]:
