@@ -111,6 +111,7 @@
             <LogOut :size="16" :stroke-width="1.7" />
           </button>
         </div>
+        <IcpFooter v-if="!rail" class="mt-3 px-2" />
       </aside>
 
       <main class="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -127,6 +128,7 @@ import { ChevronRight, Compass, Layers3, LayoutGrid, Library, ListChecks, LogOut
 import { useUserStore } from '../stores/user'
 import { useAgentSessionStore } from '../stores/agentSession'
 import ThemeToggle from './ThemeToggle.vue'
+import IcpFooter from './IcpFooter.vue'
 import { useOnboardingStore } from '../stores/onboarding'
 
 const route = useRoute()

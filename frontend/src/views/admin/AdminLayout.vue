@@ -41,6 +41,7 @@
             <span>退出登录</span>
           </button>
         </div>
+        <IcpFooter class="mt-3 px-2" />
       </aside>
 
       <!-- 主体 -->
@@ -85,6 +86,7 @@ import {
 } from 'lucide-vue-next'
 import { useUserStore } from '../../stores/user'
 import ThemeToggle from '../../components/ThemeToggle.vue'
+import IcpFooter from '../../components/IcpFooter.vue'
 
 const route = useRoute()
 const userStore = useUserStore()

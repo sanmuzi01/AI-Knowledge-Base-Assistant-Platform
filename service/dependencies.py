@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from models.init_db import SessionLocal, get_db
 from models.async_db import get_async_db
@@ -128,7 +129,10 @@ async def get_current_user_async(
     last_seen_at = getattr(user, "last_seen_at", None)
     if not last_seen_at or (now - last_seen_at).total_seconds() > 30:
         await touch_user_seen_async(async_db, user.id)
-        user.last_seen_at = now
+        # touch_user_seen_async has already committed this field. Mark the local
+        # value as committed too, otherwise the next read query autoflushes a
+        # second UPDATE and concurrent page requests can lock the same user row.
+        set_committed_value(user, "last_seen_at", now)
     return user
 
 

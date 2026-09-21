@@ -254,6 +254,7 @@
           <span>{{ cap }}</span>
         </template>
       </div>
+      <IcpFooter class="mt-5" />
     </main>
 
     <Transition name="sheet">
@@ -297,6 +298,7 @@ import { Eye, EyeOff, Sparkles, X } from 'lucide-vue-next'
 import { useUserStore } from '../stores/user'
 import { getErrorMessage } from '../utils/request'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import IcpFooter from '../components/IcpFooter.vue'
 
 const username = ref('')
 const password = ref('')
