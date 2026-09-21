@@ -86,7 +86,7 @@ def is_enabled() -> bool:
 def get_backend() -> Optional[SandboxBackend]:
     if not is_enabled():
         return None
-    return RunnerBackend(os.getenv("SANDBOX_URL", "http://sandbox:8090"), os.environ["SANDBOX_TOKEN"].strip())
+    return RunnerBackend(os.getenv("SANDBOX_URL", "http://sandbox-gw:8090"), os.environ["SANDBOX_TOKEN"].strip())
 
 
 def default_timeout() -> int:

@@ -217,6 +217,31 @@ export async function translateSkill(skillId: number): Promise<Skill> {
   return data.data
 }
 
+export interface SkillVersion {
+  id: number
+  version_no: number
+  name: string
+  description: string
+  /** 为什么存这一版，如「编辑前自动保存」 */
+  note: string
+  created_at: string | null
+  size: number
+}
+
+/** （管理员）技能的历史版本，最新的在前，最多保留最近 20 个 */
+export async function listSkillVersions(skillId: number): Promise<SkillVersion[]> {
+  const { data } = await request.get<SkillResponse<SkillVersion[]>>(`/skill/${skillId}/versions`)
+  return data.data
+}
+
+/** （管理员）把技能恢复到某个历史版本；恢复前会自动保存当前状态，所以恢复本身也能撤销 */
+export async function restoreSkillVersion(skillId: number, versionId: number): Promise<{ restored_to: number; name: string }> {
+  const { data } = await request.post<SkillResponse<{ restored_to: number; name: string }>>(
+    `/skill/${skillId}/versions/${versionId}/restore`,
+  )
+  return data.data
+}
+
 /** （管理员）沙箱依赖变化后，重新检查所有 Skill 的脚本兼容性 */
 export async function reanalyzeSkillScripts(): Promise<{ checked: number; changed: number; failed: number }> {
   const { data } = await request.post<SkillResponse<{ checked: number; changed: number; failed: number }>>('/skill/admin/reanalyze')

@@ -3,6 +3,7 @@ from typing import List
 from typing import Generator
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table, Index, Float
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import declarative_base, sessionmaker, Mapped, relationship
 from dotenv import load_dotenv
 import os
@@ -588,6 +589,25 @@ class Skill(Base):
     agents: Mapped[List["Agent"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="skills"
     )
+
+class SkillVersion(Base):
+    """技能配置的历史快照：每次编辑前自动存一份，可以恢复到任意一版。
+
+    所有用户绑定的是同一份技能配置，管理员改错会影响所有人，所以必须有回滚。
+    不加外键：删除技能时由 service 先清掉它的快照。
+    """
+    __tablename__ = "skill_version"
+    __table_args__ = (Index("idx_skill_version_skill", "skill_id", "version_no"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    skill_id = Column(Integer, nullable=False)
+    version_no = Column(Integer, nullable=False)                          # 该技能下从 1 递增
+    name = Column(String(255), nullable=False)
+    description = Column(String(500))
+    config_text = Column(Text().with_variant(LONGTEXT(), "mysql"), nullable=False)   # 运行时 YML 原文
+    note = Column(String(200))                                            # 为什么存这一版
+    created_by = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
 
 # Agent-Skill 多对多关联(一个Agent可用多个Skill,一个Skill可被多个Agent用)
 agent_skill = Table(

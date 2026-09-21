@@ -435,6 +435,8 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.post("/skill/import", files={"file": ("x.zip", b"PK\x05\x06" + b"\x00" * 18)}, headers=regular),
             self.client.post("/skill/import/github", json={"url": "https://github.com/anthropics/skills"}, headers=regular),
             self.client.post("/skill/admin/reanalyze", headers=regular),
+            self.client.get("/skill/999999/versions", headers=regular),
+            self.client.post("/skill/999999/versions/1/restore", headers=regular),
         ]
         for response in management_requests:
             self.assertEqual(response.status_code, 403, response.text)

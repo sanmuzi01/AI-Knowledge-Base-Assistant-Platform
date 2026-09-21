@@ -136,7 +136,8 @@ class ScriptsAreAdminOnlyTest(PolicyTestBase):
         """导入是最危险的入口，直接检查路由依赖，不依赖数据库。"""
         from service.dependencies import get_current_admin_user
 
-        wanted = {"/skill/import", "/skill/import/github", "/skill/admin/reanalyze"}
+        wanted = {"/skill/import", "/skill/import/github", "/skill/admin/reanalyze",
+                  "/skill/{skill_id}/versions", "/skill/{skill_id}/versions/{version_id}/restore"}
         found = set()
         for route in skill_route.router.routes:
             if route.path in wanted:

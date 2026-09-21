@@ -222,6 +222,14 @@
                 {{ translatingId === skill.id ? '翻译中…' : '翻译成中文' }}
               </button>
               <button
+                v-if="isAdmin && (activeTab === 'mine' || isMySkill(skill))"
+                @click="openVersions(skill)"
+                class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                title="历史版本（改错了可以恢复）"
+              >
+                <History :size="15" />
+              </button>
+              <button
                 v-if="activeTab === 'mine' || isMySkill(skill)"
                 @click="openEdit(skill)"
                 class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -627,6 +635,51 @@
       </div>
     </div>
 
+    <!-- 历史版本 -->
+    <div v-if="versionsFor" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4" @click.self="closeVersions">
+      <div class="w-full max-w-lg rounded-lg bg-white shadow-xl">
+        <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
+          <div class="min-w-0">
+            <h2 class="truncate text-base font-semibold text-slate-900">历史版本 · {{ versionsFor.name }}</h2>
+            <p class="text-xs text-slate-500">每次编辑前自动保存，最多保留最近 20 个</p>
+          </div>
+          <button @click="closeVersions" class="inline-flex h-8 w-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100" title="关闭">
+            <X :size="16" />
+          </button>
+        </header>
+        <main class="max-h-[60vh] overflow-y-auto p-5">
+          <p v-if="versionsLoading" class="py-8 text-center text-sm text-slate-400">加载中…</p>
+          <p v-else-if="versionsError" class="rounded bg-red-50 px-3 py-2 text-xs text-red-600">{{ versionsError }}</p>
+          <p v-else-if="versions.length === 0" class="py-8 text-center text-sm text-slate-400">
+            还没有历史版本。第一次编辑这个技能时，会先自动保存当前的样子。
+          </p>
+          <ul v-else class="space-y-2">
+            <li v-for="ver in versions" :key="ver.id" class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-slate-900">
+                  v{{ ver.version_no }}
+                  <span class="ml-1.5 text-xs font-normal text-slate-400">{{ formatVersionTime(ver.created_at) }}</span>
+                </p>
+                <p class="mt-0.5 truncate text-xs text-slate-500">{{ ver.name }}<template v-if="ver.note"> · {{ ver.note }}</template></p>
+              </div>
+              <button
+                type="button"
+                :disabled="restoringId !== null"
+                class="shrink-0 rounded border border-sky-200 px-2.5 py-1 text-xs text-sky-700 hover:bg-sky-50 disabled:text-slate-300"
+                @click="handleRestore(ver)"
+              >
+                {{ restoringId === ver.id ? '恢复中…' : '恢复到此版本' }}
+              </button>
+            </li>
+          </ul>
+        </main>
+        <footer class="border-t border-slate-200 px-5 py-3 text-xs leading-relaxed text-slate-500">
+          所有用户绑定的是同一份技能配置：恢复会立刻对所有人生效。恢复前会先自动保存当前状态，恢复错了可以再恢复回来。
+          是否公开不受影响。
+        </footer>
+      </div>
+    </div>
+
     <div v-if="previewValidation" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4" @click.self="previewValidation = null">
       <div class="w-full max-w-lg rounded-lg bg-white shadow-xl">
         <header class="flex h-14 items-center justify-between border-b border-slate-200 px-5">
@@ -695,11 +748,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X, Zap } from 'lucide-vue-next'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Download, History, Pencil, Plus, RefreshCw, Trash2, Upload, X, Zap } from 'lucide-vue-next'
 import * as skillApi from '../api/skill'
 import * as attachmentApi from '../api/attachment'
 import { useUserStore } from '../stores/user'
-import type { Skill, SkillImportResult, SkillTemplate, SkillTool, SkillValidation } from '../api/skill'
+import type { Skill, SkillImportResult, SkillTemplate, SkillTool, SkillValidation, SkillVersion } from '../api/skill'
 import { toastError, toastSuccess } from '../utils/toast'
 import { getErrorMessage } from '../utils/request'
 
@@ -1125,6 +1178,54 @@ const handleInstall = async (skill: Skill) => {
     importError.value = getErrorMessage(e, '安装失败')
   } finally {
     installingId.value = null
+  }
+}
+
+// ---- 历史版本 ----
+const versionsFor = ref<Skill | null>(null)
+const versions = ref<SkillVersion[]>([])
+const versionsLoading = ref(false)
+const versionsError = ref('')
+const restoringId = ref<number | null>(null)
+
+const formatVersionTime = (iso: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso.endsWith('Z') || /[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z')
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false })
+}
+
+const openVersions = async (skill: Skill) => {
+  versionsFor.value = skill
+  versions.value = []
+  versionsError.value = ''
+  versionsLoading.value = true
+  try {
+    versions.value = await skillApi.listSkillVersions(skill.id)
+  } catch (err: any) {
+    versionsError.value = getErrorMessage(err, '加载历史版本失败')
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+const closeVersions = () => {
+  if (restoringId.value === null) versionsFor.value = null
+}
+
+const handleRestore = async (ver: SkillVersion) => {
+  const skill = versionsFor.value
+  if (!skill || restoringId.value !== null) return
+  if (!confirm(`确认把「${skill.name}」恢复到 v${ver.version_no}？会立刻对所有绑定它的用户生效（恢复前会自动保存当前状态）。`)) return
+  restoringId.value = ver.id
+  try {
+    await skillApi.restoreSkillVersion(skill.id, ver.id)
+    toastSuccess(`已恢复到 v${ver.version_no}`)
+    await reload()
+    versionsFor.value = null
+  } catch (err: any) {
+    versionsError.value = getErrorMessage(err, '恢复失败')
+  } finally {
+    restoringId.value = null
   }
 }
 

@@ -69,11 +69,11 @@
 
 | 项 | 现状 | 缺口 |
 |---|---|---|
-| 文件隔离 | 每次运行独立临时目录；容器只读根、无外网；输入只能是本人附件 | 全站共用一个沙箱容器，没有按用户/每次运行新建容器 |
+| 文件隔离 | 每次运行独立临时目录；容器只读根、无外网、到不了 api（走网关）；输入只能是本人附件 | 全站共用一个沙箱容器，没有按用户/每次运行新建容器 |
 | 依赖管理 | 全站一份固定依赖 | 用户无法自带依赖；部分版本还是 `>=` 未锁死 |
 | 审计 | `sandbox_audit` 日志：用户、助手、Skill、脚本、退出码、耗时 | 不留脚本内容/哈希，没有异常告警 |
 | 配额 | 次数限频、附件容量 | 没有 CPU 秒 / 内存用量计量，没有计费 |
-| 审核 | 管理员导入即信任；只有管理员能上架 | 没有变更审核、版本、回滚、下架原因 |
+| 审核 | 管理员导入即信任；只有管理员能上架；每次编辑前自动存快照，可在后台一键回滚（最近 20 版） | 没有变更审核流程（谁改了什么要不要复核）、灰度发布、下架原因 |
 | 对抗恶意脚本 | 容器隔离 + rlimit + 超时 | 没有 gVisor / seccomp 等更强隔离，没做过容器逃逸评估；用户脚本还需要静态扫描（危险调用、混淆） |
 
 ## 6. 验收清单（部署后逐条打勾）
@@ -81,7 +81,7 @@
 静态检查不等于能跑，开启沙箱后必须实测。
 
 - [ ] 沙箱容器启动且健康（`docker compose ... ps`）
-- [ ] 网络隔离两条命令都**失败**（见 deployment.md 第 7 节）。任何一条成功 = 立刻关沙箱
+- [ ] 跑 `scripts/sandbox_acceptance.py`（见 deployment.md 第 7 节）全部通过；任何隔离类 FAIL = 立刻关沙箱
 - [ ] 代表性 Skill 各跑一遍「上传文件 → 助手运行脚本 → 下载结果」：
   合同审阅（18 个脚本全标可运行）、PPTX 生成、PDF 处理 Pro、历史人物访谈脚本、音视频处理
 - [ ] `logs/sandbox_audit_*.log` 里能看到这些运行记录
@@ -102,6 +102,8 @@
 | 文件 | 作用 |
 |---|---|
 | `sandbox/runner.py`、`Dockerfile`、`requirements.txt` | 沙箱容器：写入文件 → 跑脚本 → 带回 stdout 和新文件；令牌校验、并发上限、rlimit、超时 |
+| `sandbox/gateway.py` | 沙箱网关：api / worker 经它调用沙箱，只转发 `GET /health` 和 `POST /run` 给固定上游，避免沙箱里的脚本访问到 api |
+| `scripts/sandbox_acceptance.py` | 部署后一条命令验收：隔离、限额、依赖、产出文件 |
 | `service/sandbox.py` | `SandboxBackend` 抽象 + `RunnerBackend`（HTTP 调 runner）。**换云沙箱 / GPU 后端从这里接** |
 | `service/tools/skill_script.py` | `run_skill_script` 工具：打包脚本包和附件 → 调沙箱 → 存产出文件；限频、审计 |
 | `service/skills_core/package_import.py` | 导入：格式识别、去重、脚本包落盘、参考文档预算、`allow_scripts` 权限 |
@@ -109,6 +111,7 @@
 | `service/skills_core/binding.py` | 绑定到助手时按沙箱状态注入脚本说明和工具，只暴露通过检查的脚本 |
 | `service/skills_core/validation.py` | 生成卡片标签所需的 `script_status` 等字段 |
 | `service/skills/loader.py` | 配置校验：`scripts_root` / `resource_root` 只能指向平台管理的目录（防上传 yml 指向 `.env`） |
+| `service/skills_core/versioning.py`、`models/skill_version_dao.py` | 技能历史版本：编辑前自动快照、最近 20 版、一键恢复（恢复前也存快照） |
 | `service/skills_core/github_import.py`、`translate.py` | GitHub 链接导入（固定走 codeload）、名称说明翻译成中文 |
 | `service/attachment_service.py`、`FasdtApi/attachment_route.py` | 附件与产出文件：按用户隔离、保留期、容量上限 |
 | `FasdtApi/skill_route.py` | 导入策略（脚本/公开仅管理员）、`/skill/admin/reanalyze` |
@@ -120,8 +123,8 @@
 - **自建沙箱容器 + 可替换接口**，而不是直接用云沙箱：起步成本最低、不依赖外部服务；把接口抽出来，量大或需要 GPU 时换后端只改一处。
 - **脚本默认关闭、只有管理员能带**：这相当于让服务器执行第三方代码。信任放在"管理员审核过的 Skill"上，而不是"任何用户上传的脚本"。
 - **技能整体只有管理员能维护，用户直接绑定商店里的同一份配置**：一道闸比逐条堵入口简单可靠，也顺带避免了
-  普通用户反复上传大压缩包占磁盘和 CPU。代价是没有各人的副本，管理员改错会影响所有人（还没有版本 / 回滚），
-  下架不会让已绑定的助手立刻失效。将来做「公司管理员维护本公司技能」时，把这批管理员判断改成
+  普通用户反复上传大压缩包占磁盘和 CPU。代价是没有各人的副本，管理员改错会影响所有人——所以补了版本快照和一键回滚
+  （`service/skills_core/versioning.py`，表 `skill_version`）。下架不会让已绑定的助手立刻失效。将来做「公司管理员维护本公司技能」时，把这批管理员判断改成
   「平台管理员，或本公司的公司管理员且限本公司范围」，不要写死更多「只有平台管理员」。
 - **不装 `requests` 等联网库**：沙箱没有外网，装上只会让脚本跑到一半才报错，比提前标「暂不支持」更糟。
 - **不装 `torch` 等**：要下载模型权重（同样需要网络），镜像会涨到几个 GB，1GB 内存也带不动。

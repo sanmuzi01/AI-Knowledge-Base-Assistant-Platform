@@ -79,9 +79,6 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
-    networks:
-      - default
-      - sandbox_net
     ports:
       # 只绑本机回环：不直接对公网暴露，由宿主机 Nginx 反代并终结 HTTPS。
       - "127.0.0.1:8000:8000"
@@ -114,19 +111,18 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
-    networks:
-      - default
-      - sandbox_net
 
   # Skill 脚本沙箱（可选，默认不启动）。开启：.env 里设 SANDBOX_ENABLED=true 和 SANDBOX_TOKEN，
-  #   docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox
-  # 它会执行用户导入的 Skill 里的 Python 脚本，也就是"跑陌生人的代码"，所以隔离做得很死：
-  #  - 只挂在 internal 网络上：没有外网出口，也连不到 db / redis / chroma，只有 api 和 worker 能访问它
+  #   docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox sandbox-gw
+  # 它会执行导入的 Skill 里的 Python 脚本，也就是"跑第三方代码"，所以隔离做得很死：
+  #  - 只挂在 internal 网络 sandbox_net 上：没有外网出口，也连不到 db / redis / chroma / api / worker
+  #    （api / worker 不在这个网络里，它们通过下面的网关 sandbox-gw 间接调用沙箱）
   #  - 不带 .env，进程里没有任何业务密钥
   #  - 只读根文件系统，只有 tmpfs 可写（重启即清空）；非 root；丢掉全部 Linux capability
   #  - CPU / 内存 / 进程数硬上限，防止一个脚本把整台机器拖死
   sandbox:
     profiles: ["sandbox"]
+    image: agent-platform-sandbox
     build:
       context: ./sandbox
       args:
@@ -148,6 +144,37 @@ services:
     pids_limit: 128
     mem_limit: 1g
     cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # 沙箱网关：唯一同时在「默认网络」和「sandbox_net」上的容器，只把 GET /health 和 POST /run 转发给固定的上游（沙箱）。
+  # 这样 api / worker 能用沙箱，而沙箱里的脚本看得到的只有网关，网关又只通向沙箱自己，到不了 api。
+  # 复用沙箱镜像（不需要额外拉镜像），只是启动命令不同。
+  sandbox-gw:
+    profiles: ["sandbox"]
+    image: agent-platform-sandbox
+    command: ["python", "/opt/runner/gateway.py"]
+    restart: unless-stopped
+    depends_on:
+      - sandbox
+    environment:
+      GATEWAY_UPSTREAM: http://sandbox:8090
+    networks:
+      - default
+      - sandbox_net
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
       interval: 15s

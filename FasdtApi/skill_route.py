@@ -19,6 +19,7 @@ from service import skill_async_service
 from service.skills_core.github_import import import_from_github
 from service.skills_core.crud import reanalyze_all_scripts
 from service.skills_core.translate import TranslateError, translate_skill
+from service.skills_core.versioning import VersionError, list_skill_versions, restore_skill_version
 from service.skills_core.package_import import MAX_UPLOAD_BYTES, SkillImportError, import_skill_bundle
 from service.skill_service import (
     bind_skill,
@@ -295,6 +296,35 @@ def api_reanalyze_skill_scripts(
     """沙箱依赖变化后调用，刷新每个带脚本的 Skill 的"可运行"标签，不用重新导入。"""
     result = reanalyze_all_scripts(db)
     return {"code": 200, "msg": f"已检查 {result['checked']} 个，{result['changed']} 个有变化", "data": result}
+
+
+@router.get("/{skill_id}/versions", summary="（管理员）查看技能的历史版本")
+def api_list_skill_versions(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    versions = list_skill_versions(db, skill_id, current_user.id)
+    if versions is None:
+        raise NotFound("Skill不存在，或不是你创建的")
+    return {"code": 200, "msg": "查询成功", "data": versions}
+
+
+@router.post("/{skill_id}/versions/{version_id}/restore", summary="（管理员）把技能恢复到某个历史版本")
+def api_restore_skill_version(
+    skill_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    try:
+        result = restore_skill_version(db, skill_id, version_id, current_user.id)
+    except VersionError as e:
+        db.rollback()
+        raise InvalidInput(str(e))
+    if result is None:
+        raise NotFound("Skill不存在，或不是你创建的")
+    return {"code": 200, "msg": f"已恢复到 v{result['restored_to']}", "data": result}
 
 
 @router.post("/{skill_id}/translate", summary="（管理员）把 Skill 的名称和说明翻译成中文")

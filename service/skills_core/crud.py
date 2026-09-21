@@ -21,6 +21,7 @@ from service.skills.loader import (
 )
 from utils.logger_handler import get_logger
 
+from .versioning import delete_versions, snapshot_before_edit
 from .common import _can_use_template, _normalize_permission_payload, _safe_skill_stem, _skill_to_dict
 from .validation import _validate_tool_names
 
@@ -164,6 +165,7 @@ def update_skill_config(db: Session, skill_id: int, user_id: int, *,
     if not skill.config_file.startswith(("user_created/", "imported/")):
         logger.warning(f"拒绝修改内置模板Skill配置: skill_id={skill_id}, config={skill.config_file}")
         return False
+    snapshot_before_edit(db, skill_id, user_id)
     cfg = load_skill_config(skill.config_file)
     return _write_skill_config(
         config_file=skill.config_file,
@@ -244,6 +246,7 @@ def update_skill(db: Session, skill_id: int, user_id: int, commit: bool = True, 
     if not can_write_skill(skill, user_id):
         logger.warning(f"权限拒绝：用户{user_id}尝试更新别人的Skill {skill_id}")
         return None
+    snapshot_before_edit(db, skill_id, user_id)
     # 如果更新了模板文件，校验是否存在
     if "template_filename" in kwargs:
         template = kwargs.pop("template_filename")
@@ -296,6 +299,7 @@ def delete_skill(db: Session, skill_id: int, user_id: int) -> bool:
         logger.warning(f"权限拒绝：用户{user_id}尝试删除别人的Skill {skill_id}")
         return False
     config_file = skill.config_file
+    delete_versions(db, skill_id)
     success = dao_delete(db, skill_id)
     if success:
         invalidate_skill_config(config_file)

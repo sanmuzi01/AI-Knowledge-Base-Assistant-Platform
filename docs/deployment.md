@@ -235,7 +235,11 @@ TASK_EXECUTION_MODE=fastapi
 
 ### 隔离措施（都已写在 docker-compose.prod.yml 的 `sandbox` 服务里）
 
-- 单独的容器，只挂在 `internal` 网络：**没有外网出口**，也访问不到 db / redis / chroma。
+- 单独的容器，只挂在 `internal` 网络 `sandbox_net`：**没有外网出口**，也访问不到 db / redis / chroma / **api / worker**。
+- **网关**：api / worker 不在 `sandbox_net` 里，它们通过 `sandbox-gw` 间接调用沙箱。网关同时在默认网络和 `sandbox_net` 上，
+  但只把 `GET /health` 和 `POST /run` 转发给固定的上游（沙箱本身）。拓扑：
+  `api / worker ──▶ sandbox-gw ──▶ sandbox`，沙箱里的脚本看得到的只有网关，而网关只通向沙箱自己。
+  （早期版本让 api / worker 直接挂在 `sandbox_net` 上，脚本能访问到 api 容器，所以加了网关。）
 - 不加载 `.env`，容器里没有任何业务密钥；调用用一个独立的 `SANDBOX_TOKEN`。
 - 根文件系统只读，可写的只有 tmpfs（重启即清空）；非 root 用户；丢弃全部 Linux capability。
 - 上限：1 CPU、1GB 内存、128 个进程、单次最长 30 秒（`SANDBOX_TIMEOUT_SECONDS`，最大 60）、同时最多 2 个脚本。
@@ -251,28 +255,33 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 #      SANDBOX_TOKEN=<上面生成的值>
 
 # 2. 构建并启动沙箱（profile 里的服务默认不会随 up -d 启动）
-docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox
+docker compose -f docker-compose.prod.yml --profile sandbox up -d --build sandbox sandbox-gw
 
 # 3. 重启 api 和 worker，让它们读到新的环境变量
 docker compose -f docker-compose.prod.yml up -d api worker
 ```
 
-关闭：把 `SANDBOX_ENABLED` 改回 `false`，重启 api / worker；`docker compose ... stop sandbox` 停掉容器。
+关闭：把 `SANDBOX_ENABLED` 改回 `false`，重启 api / worker；`docker compose ... stop sandbox sandbox-gw` 停掉容器。
 关闭后已导入的 Skill 仍在，只是脚本不再运行，助手会按文字说明工作。
 
-### 部署后必须自己验证的两件事（本地开发机没法测容器层面的隔离）
+### 部署后必须做的验收（一条命令）
+
+本地开发机测不了容器层面的隔离，所以开启后**必须**在服务器上跑一次：
 
 ```bash
-# a) 沙箱容器确实连不出去（应当失败/超时）
-docker compose -f docker-compose.prod.yml exec sandbox python -c \
-  "import urllib.request; print(urllib.request.urlopen('https://example.com', timeout=5).status)"
-
-# b) 沙箱容器连不到数据库（应当解析失败）
-docker compose -f docker-compose.prod.yml exec sandbox python -c \
-  "import socket; print(socket.gethostbyname('db'))"
+docker compose -f docker-compose.prod.yml exec api python scripts/sandbox_acceptance.py
 ```
 
-两条都应该报错。任何一条成功，说明网络隔离没生效，立刻关掉沙箱。
+它会在真实沙箱里逐项检查并给出 PASS / FAIL：沙箱健康、能运行脚本、**非 root**、**连不出外网**（含解析外部域名）、
+**连不到 db / redis / chroma / api / worker**、**根文件系统只读**、**环境里没有业务密钥**、死循环会被终止、
+超过内存上限的脚本被拒绝、产出文件能带回来、**镜像里声明装了的依赖真的都能 import**、ffmpeg 可用。
+退出码 0 = 没有 FAIL。
+
+**任何隔离类的 FAIL（`no_egress`、`no_internal_access`、`readonly_fs`、`env_clean`）都要立刻关闭沙箱**
+（`SANDBOX_ENABLED=false`）并排查网络配置。`memory_limit` 会占用较多内存，服务器内存紧张时先加 `--skip-heavy`。
+
+已知且接受的限制（脚本输出里会以 INFO 列出）：脚本能读到沙箱自己的令牌（同一用户可读 `/proc/1/environ`）。
+这个令牌只能调用沙箱本身，而网关只通向沙箱，价值有限。
 
 ### 附件文件
 
@@ -285,8 +294,11 @@ docker compose -f docker-compose.prod.yml exec sandbox python -c \
   普通用户只能看「能力商店」、在创建/编辑助手时**直接绑定**商店里的技能、上传输入文件、使用。
   商店里的都是管理员上架的，标「官方」。**不开放用户自带脚本**；要开放，须先做到文件隔离、依赖管理、审计和配额都完善。
   代码层面有两道：路由要求管理员，导入策略（`skill_route._import_policy`）再按角色判断一次脚本和上架权限。
-- 所有用户绑定的是**同一份**技能配置（不再有各人的副本）：管理员改一次全员生效，**目前没有版本和回滚**，
-  改之前请想清楚。把技能设为不公开后，已经绑定它的助手仍能继续用；删除技能才会自动解绑。
+- 所有用户绑定的是**同一份**技能配置（不再有各人的副本）：管理员改一次全员生效。
+  **有版本和回滚**：每次编辑（提示词 / 工具 / 权限 / 名称 / 说明，含翻译）之前会自动保存一份快照，最多留最近 20 个；
+  后台技能卡片上的「历史版本」按钮可以一键恢复，恢复前也会先保存当前状态，恢复错了还能再恢复回来。
+  快照存在数据库表 `skill_version`（应用启动时自动建表；也有幂等的 Alembic 迁移 `20260921_0007`）。
+  恢复不改变是否公开。把技能设为不公开后，已经绑定它的助手仍能继续用；删除技能才会自动解绑（同时清掉它的历史版本）。
 - 每个用户默认 60 秒内最多运行 10 次脚本（`SANDBOX_RATE_LIMIT` / `SANDBOX_RATE_WINDOW_SECONDS`）；
   沙箱同时只跑 2 个脚本（全站共用），超出会提示"沙箱正忙"。
 - 每人附件总量默认 100MB、最多 50 个文件（`ATTACHMENT_USER_MAX_MB` / `ATTACHMENT_USER_MAX_FILES`），

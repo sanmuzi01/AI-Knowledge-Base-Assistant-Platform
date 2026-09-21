@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.
 RUN ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" /usr/local/bin/ffmpeg
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox
-COPY runner.py /opt/runner/runner.py
+COPY runner.py gateway.py /opt/runner/
 
 USER sandbox
 WORKDIR /opt/runner
