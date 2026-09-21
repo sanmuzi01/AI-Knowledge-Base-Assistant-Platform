@@ -110,6 +110,12 @@ def validate_runtime_config() -> Dict[str, object]:
     elif cors_origins:
         checks.append({"name": "CORS_ALLOW_ORIGINS", "ok": True, "level": "ok", "message": "已配置 CORS 来源"})
 
+    if production and "*" in _split_csv(os.getenv("FORWARDED_ALLOW_IPS", "")):
+        checks.append({
+            "name": "FORWARDED_ALLOW_IPS", "ok": True, "level": "warn",
+            "message": "设为 * 时会采信客户端自带的 X-Forwarded-For，用户可伪造 IP 绕过登录/短信限流；建议只列 nginx 所在的内网段",
+        })
+
     admin_password = os.getenv("ADMIN_PASSWORD", "")
     if production:
         if _is_blank(admin_password):

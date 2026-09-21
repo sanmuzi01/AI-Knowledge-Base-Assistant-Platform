@@ -73,6 +73,21 @@ SMS_WEBHOOK_TOKEN=change-me-sms-webhook-token
 
 超限返回 429 并带 `Retry-After`。全站总量按你的用户规模调整：设得太低，被攻击时正常用户也会暂时收不到验证码；设得太高，起不到封顶费用的作用。
 
+**按 IP 限流的前提：后端要拿到用户的真实 IP。** 登录、注册、短信的"按 IP"限制都用请求的来源地址。经过 nginx 转发后，
+后端直接看到的是 nginx / Docker 网关的地址，如果不处理，所有用户会被当成同一个 IP，共用一份额度（正常用户被 429）。
+`Dockerfile` 里已经设置了 `FORWARDED_ALLOW_IPS`（只信任本机和内网网段）：从这些地址连进来的请求，后端才采信
+`X-Forwarded-For`，并取"从右往左第一个不在内网里的地址"——nginx 追加的真实 IP 在最右边，用户自己伪造的在左边，取不到。
+nginx 保持 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` 不用改。**不要把它改成 `*`**，那样会取最左边，用户能伪造。
+
+上线后确认（在服务器上，先用手机流量随便登录一次，再看限流记录里的 IP 是不是你的公网 IP，而不是 `172.x.x.x`）：
+
+```bash
+docker compose -f docker-compose.prod.yml exec redis redis-cli --scan --pattern 'limit:rate:login:ip:*'
+```
+
+如果没有用 Docker、后端和 nginx 在同一台机器上直接跑，默认只信任 `127.0.0.1`，同样可用；nginx 在另一台机器时，把那台的地址加进
+`FORWARDED_ALLOW_IPS` 环境变量。
+
 ## 2. 启动
 
 全新数据库先执行项目初始化入口（建表、补齐字段、创建管理员）：

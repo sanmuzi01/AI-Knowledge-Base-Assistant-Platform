@@ -1,9 +1,13 @@
 # 后端镜像（api / worker 共用，靠 command 区分）。
 FROM python:3.12-slim
 
+# FORWARDED_ALLOW_IPS：只有从这些地址（本机、Docker 内网）连进来的请求，才采信 X-Forwarded-For。
+# 客户端 IP 取"从右往左第一个不在此列表里的地址"：nginx 追加的真实连接 IP 在最右边，
+# 用户自己伪造的在左边取不到。不要改成 *（那样会取最左边，用户能伪造 IP 绕过登录 / 短信限流）。
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    FORWARDED_ALLOW_IPS="127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
 
 WORKDIR /app
 
