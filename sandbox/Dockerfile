@@ -7,7 +7,8 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PYTHONUNBUFFERED=1
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt \
+    && pip freeze > /opt/installed-packages.txt
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox
 COPY runner.py /opt/runner/runner.py

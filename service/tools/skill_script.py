@@ -11,6 +11,11 @@ from typing import Dict, List, Tuple
 
 from service import attachment_service, sandbox
 from service.tools.base import BaseTool, ToolRegistry
+from utils.logger_handler import get_logger
+from utils.rate_limit import LimitExceeded, require_limit
+
+# 单独一份审计日志（logs/sandbox_audit_*.log）：谁、在哪个助手、跑了哪个 Skill 的哪个脚本、结果如何
+audit = get_logger("sandbox_audit")
 
 MAX_BUNDLE_BYTES = 30 * 1024 * 1024
 MAX_BUNDLE_FILES = 1500
@@ -87,6 +92,16 @@ class RunSkillScriptTool(BaseTool):
             listed = "、".join(match["scripts"][:20])
             return f"这个 Skill 里没有脚本 {script}。可运行的脚本：{listed}"
 
+        # 沙箱是全站共用的（同时只跑 2 个），按用户限频，防止一个人占满
+        try:
+            require_limit(
+                key=f"sandbox:user:{ctx.user_id}", limit_env="SANDBOX_RATE_LIMIT", default_limit=10,
+                window_env="SANDBOX_RATE_WINDOW_SECONDS", default_window=60, label="脚本运行",
+            )
+        except LimitExceeded as e:
+            audit.warning(f"限频拒绝: user={ctx.user_id} agent={ctx.agent_id} script={script}")
+            return f"脚本运行太频繁，请 {e.retry_after} 秒后再试。"
+
         files, err = _collect_bundle(match["root"])
         if err:
             return err
@@ -103,9 +118,11 @@ class RunSkillScriptTool(BaseTool):
             files[f"inputs/{name}"] = path.read_bytes()
 
         args: List[str] = [str(a) for a in (kwargs.get("args") or [])][:30]
+        skill_label = next((n for n, b in bundles.items() if b is match), "?")
         try:
             result = backend.run(files, script, args, sandbox.default_timeout())
         except sandbox.SandboxUnavailable as e:
+            audit.warning(f"沙箱不可用: user={ctx.user_id} agent={ctx.agent_id} skill={skill_label} script={script} err={e}")
             return str(e)
 
         lines = []
@@ -118,12 +135,19 @@ class RunSkillScriptTool(BaseTool):
         if (result.exit_code != 0 or result.timed_out) and result.stderr.strip():
             lines.append("错误输出：\n" + result.stderr[-MAX_STDERR_CHARS:])
 
-        saved = []
+        saved, not_saved = [], []
         for rel, data in result.outputs:
             try:
                 saved.append(attachment_service.save(ctx.user_id, os.path.basename(rel), data, check_ext=False))
-            except attachment_service.AttachmentError:
-                continue
+            except attachment_service.AttachmentError as e:
+                not_saved.append(f"{os.path.basename(rel)}（{e}）")
+        audit.info(
+            f"运行完成: user={ctx.user_id} agent={ctx.agent_id} skill={skill_label} script={script} "
+            f"args={len(args)} inputs={len(used_names)} exit={result.exit_code} timeout={result.timed_out} "
+            f"seconds={result.duration} outputs={len(result.outputs)} saved={len(saved)}"
+        )
+        if not_saved:
+            lines.append("这些生成的文件没能保存：" + "；".join(not_saved))
         if saved:
             lines.append(
                 "生成的文件（回答时请原样使用这些链接格式交给用户）：\n"

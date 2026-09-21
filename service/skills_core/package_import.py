@@ -27,6 +27,7 @@ from service.skills.loader import SKILLS_ROOT, invalidate_skill_config
 from utils.logger_handler import get_logger
 
 from .common import _safe_skill_stem, _skill_to_dict
+from .script_report import analyze_bundle
 from .validation import validate_skill_config_file
 
 logger = get_logger("skill_service")
@@ -192,6 +193,23 @@ def import_skill_bundle(
 
 
 # ---------------------------------------------------------------- 单个 Skill
+
+def _report_note(report: Dict[str, Any]) -> str:
+    total, ok = report["total"], len(report["runnable"])
+    extra = []
+    if report["missing_packages"]:
+        extra.append("缺少依赖：" + "、".join(report["missing_packages"][:8]) + ("等" if len(report["missing_packages"]) > 8 else ""))
+    if report["network"]:
+        extra.append(f"{report['network']} 个需要联网（沙箱没有外网）")
+    if report["system"]:
+        extra.append(f"{report['system']} 个会调用系统命令，沙箱里只有基础命令，可能失败")
+    tail = "；".join(extra)
+    if report["status"] == "ready":
+        return f"脚本兼容性检查：{total} 个都可以在沙箱里运行" + (f"（{tail}）" if tail else "")
+    if report["status"] == "partial":
+        return f"脚本兼容性检查：{total} 个里 {ok} 个可以在沙箱里运行；{tail}。不能运行的脚本不会交给助手"
+    return f"脚本兼容性检查：没有一个脚本能在沙箱里运行（{tail}），只会按文字说明工作"
+
 
 def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
                  own: Dict[str, zipfile.ZipInfo], label: str, is_public: int,
@@ -370,8 +388,13 @@ def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
         if not manifest:
             runtime_config["origin"] = "official"  # 运行环境说明（能不能跑脚本）在绑定到助手时按当前沙箱状态生成
         if py_scripts:
+            py_scripts = py_scripts[:200]
+            report = analyze_bundle(bundle_dir, py_scripts)
             runtime_config["scripts_root"] = bundle_dir
-            runtime_config["scripts"] = py_scripts[:200]
+            runtime_config["scripts"] = py_scripts
+            runtime_config["runnable_scripts"] = report["runnable"]
+            runtime_config["script_report"] = {k: report[k] for k in ("status", "total", "missing_packages", "network", "system", "problems")}
+            notes.append(_report_note(report))
         with open(yml_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(runtime_config, f, allow_unicode=True, sort_keys=False)
         invalidate_skill_config(config_file)
@@ -396,6 +419,8 @@ def _install_one(db, user_id: int, zf: zipfile.ZipFile, root: str,
     result["resource_count"] = len(saved)
     result["prompt_resource_count"] = len(allowed)
     result["script_count"] = len(py_scripts)
+    result["script_status"] = runtime_config.get("script_report", {}).get("status", "none")
+    result["script_runnable"] = len(runtime_config.get("runnable_scripts", []))
     return result
 
 

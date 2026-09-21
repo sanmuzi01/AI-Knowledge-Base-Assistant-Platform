@@ -2,17 +2,24 @@
 fastapi==0.140.13
 uvicorn==0.52.0
 
-# 官方 Skill 脚本最常用的库（只列 Python 生态里处理文件/数据的；不含 Node、LibreOffice）
-pypdf
-pdfplumber
-reportlab
-openpyxl
-python-docx
-python-pptx
-pandas
-numpy
-pillow
-pyyaml
-lxml
-beautifulsoup4
-markdown
+# 官方 Skill 脚本最常用的库（只列 Python 生态里处理文件/数据的；不含 Node、LibreOffice）。
+# 改这个文件必须同步 service/skills_core/script_report.py 里的 PACKAGE_MODULES，
+# 否则"可运行"标签会和沙箱里实际装了什么对不上（tests/test_skill_sandbox.py 会校验）。
+#
+# 版本：下面锁死的是本地开发环境验证过的版本；标 >= 的几个当时没法在本机验证，
+# 首次构建后请执行 `docker compose ... run --rm sandbox pip freeze` 把结果补进来，
+# 这样重建镜像时行为不会悄悄变化。
+pypdf==6.14.2
+pdfplumber>=0.11
+reportlab>=4.2
+openpyxl==3.1.5
+python-docx==1.2.0
+python-pptx>=1.0
+pandas==3.0.5
+numpy==2.3.5
+pillow==12.3.0
+pyyaml==6.0.2
+lxml==6.1.1
+beautifulsoup4>=4.12
+markdown==3.10.3
+defusedxml>=0.7

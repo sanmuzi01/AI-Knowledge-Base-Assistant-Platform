@@ -217,7 +217,7 @@ def install_public_skill(db: Session, user_id: int, skill_id: int, commit: bool 
             "system_prompt": cfg.get("system_prompt", ""),
         }
         # 脚本包是共享的只读目录（安装的只是一份指向它的配置），不复制文件
-        for key in ("origin", "scripts_root", "scripts"):
+        for key in ("origin", "scripts_root", "scripts", "runnable_scripts", "script_report"):
             if cfg.get(key):
                 runtime_config[key] = cfg[key]
         with open(config_path, "w", encoding="utf-8") as f:

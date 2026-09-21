@@ -49,6 +49,11 @@ def save(user_id: int, filename: str, content: bytes, check_ext: bool = True) ->
         raise AttachmentError(f"文件超过 {MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限")
     user_dir = _root() / f"u{int(user_id)}"
     _purge_expired(user_dir)
+    used_bytes, used_files = _usage(user_dir)
+    if used_files >= _limit("ATTACHMENT_USER_MAX_FILES", 50):
+        raise AttachmentError("你的文件数量已达上限，请等旧文件过期（保留 %d 天）后再上传" % (_ttl_seconds() // 86400))
+    if used_bytes + len(content) > _limit("ATTACHMENT_USER_MAX_MB", 100) * 1024 * 1024:
+        raise AttachmentError("你的文件空间已满，请等旧文件过期（保留 %d 天）后再上传" % (_ttl_seconds() // 86400))
     att_id = uuid.uuid4().hex[:24]
     folder = user_dir / att_id
     folder.mkdir(parents=True, exist_ok=True)
@@ -65,6 +70,27 @@ def resolve(user_id: int, att_id: str) -> Optional[Tuple[Path, str]]:
         return None
     files = [p for p in folder.iterdir() if p.is_file()]
     return (files[0], files[0].name) if files else None
+
+
+def _limit(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _usage(user_dir: Path) -> Tuple[int, int]:
+    """该用户当前占用的 (字节数, 文件数)。"""
+    if not user_dir.is_dir():
+        return 0, 0
+    total = count = 0
+    for child in user_dir.iterdir():
+        if child.is_dir():
+            for f in child.iterdir():
+                if f.is_file():
+                    total += f.stat().st_size
+                    count += 1
+    return total, count
 
 
 def _purge_expired(user_dir: Path) -> None:

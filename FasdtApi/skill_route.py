@@ -70,12 +70,20 @@ class SkillTemplateSave(BaseModel):
     tool_names: List[str] = Field(default_factory=list)
 
 
+def _require_admin_to_publish(user: User, is_public) -> None:
+    """公开到能力商店 = 摆给所有用户，只有管理员可以（商店里的 Skill 都是管理员审核过的）。
+    取消公开（is_public=0）谁都可以。"""
+    if is_public == 1 and not is_admin_user(user):
+        raise InvalidInput("只有管理员可以把能力公开到能力商店，请联系管理员上架")
+
+
 @router.post("/", summary="创建Skill")
 def api_create_skill(
     data: SkillCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    _require_admin_to_publish(current_user, data.is_public)
     skill = create_skill(
         db=db,
         user_id=current_user.id,
@@ -316,6 +324,7 @@ def api_update_skill(
     current_user: User = Depends(get_current_user),
 ):
     payload = data.model_dump(exclude_none=True)
+    _require_admin_to_publish(current_user, payload.get("is_public"))
     config_payload = {}
     for key in ("system_prompt", "tool_names", "permissions"):
         if key in payload:

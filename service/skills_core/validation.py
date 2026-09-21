@@ -53,6 +53,13 @@ def validate_skill_config_file(config_file: str) -> Dict[str, Any]:
         "resources": [],
         "resource_count": 0,
         "allowed_resource_count": 0,
+        "script_count": 0,
+        "script_status": "none",
+        "script_runnable": 0,
+        "script_missing_packages": [],
+        "script_network": 0,
+        "script_system": 0,
+        "sandbox_enabled": False,
     }
     try:
         file_path = _get_yml_path(config_file)
@@ -121,7 +128,16 @@ def validate_skill_config_file(config_file: str) -> Dict[str, Any]:
         if script_count:
             from service import sandbox
 
-            if not sandbox.is_enabled():
+            report = cfg.get("script_report") or {}
+            runnable = cfg.get("runnable_scripts")
+            result["sandbox_enabled"] = sandbox.is_enabled()
+            # none 没有脚本 / ready 全可运行 / partial 部分 / unsupported 都不行 / unknown 老数据没有检查结果
+            result["script_status"] = report.get("status", "unknown")
+            result["script_runnable"] = len(runnable) if runnable is not None else script_count
+            result["script_missing_packages"] = report.get("missing_packages", [])
+            result["script_network"] = report.get("network", 0)
+            result["script_system"] = report.get("system", 0)
+            if not result["sandbox_enabled"]:
                 result["warnings"].append(f"带 {script_count} 个 Python 脚本，但脚本沙箱未开启，暂时只按文字说明工作")
     except Exception as e:
         result["ok"] = False

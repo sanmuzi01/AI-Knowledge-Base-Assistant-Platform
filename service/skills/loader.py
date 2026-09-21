@@ -192,6 +192,13 @@ def _load_skill_config_uncached(config_file: str, file_path: str)->Dict[str,Any]
             _safe_join(config["scripts_root"], rel)
             scripts.append(rel)
         config["scripts"] = scripts
+        runnable_raw = config.get("runnable_scripts")
+        if runnable_raw is not None:
+            if not isinstance(runnable_raw, list) or any(str(r).replace("\\", "/") not in scripts for r in runnable_raw):
+                raise SkillValidationError("runnable_scripts 必须是 scripts 的子集")
+            config["runnable_scripts"] = [str(r).replace("\\", "/") for r in runnable_raw]
+        if not isinstance(config.get("script_report"), dict):
+            config.pop("script_report", None)
     #4，tools字段校验+规范化
     tools_raw = config["tools"]
     if not isinstance(tools_raw,list):

@@ -9,6 +9,8 @@ export interface Skill {
   is_public: number
   created_at?: string
   config?: SkillConfig | null
+  /** 能力商店里：发布者是管理员（= 经管理员审核上架） */
+  is_official?: boolean
 }
 
 export interface SkillTemplate {
@@ -68,6 +70,16 @@ export interface SkillValidation {
   name: string
   config_file: string
   is_public: number
+  /** 带几个 Python 脚本；0 表示纯说明型能力 */
+  script_count?: number
+  /** none 无脚本 / ready 全部可运行 / partial 部分 / unsupported 都不行 / unknown 老数据没检查过 */
+  script_status?: 'none' | 'ready' | 'partial' | 'unsupported' | 'unknown'
+  script_runnable?: number
+  script_missing_packages?: string[]
+  script_network?: number
+  script_system?: number
+  /** 服务器上脚本沙箱是否已开启 */
+  sandbox_enabled?: boolean
 }
 
 /** 后端返回包装：{code, msg, data} */

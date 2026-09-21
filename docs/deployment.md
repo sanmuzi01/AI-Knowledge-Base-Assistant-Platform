@@ -276,3 +276,35 @@ docker compose -f docker-compose.prod.yml exec sandbox python -c \
 
 用户上传的附件和脚本生成的文件存在 `app_data` 卷的 `/app/data/attachments/`，按用户隔离，
 默认保留 7 天（`ATTACHMENT_TTL_DAYS`），过期文件在该用户下次上传时清理。
+
+### 谁能带脚本、上架和额度
+
+- **只有管理员**能导入带脚本的 Skill，也只有管理员能把能力公开到「能力商店」（商店里的都算"官方"，标着「官方」）。
+  普通用户导入的包只保留文字说明。`SANDBOX_ALLOW_USER_SCRIPTS` 保持 `false`；要开放用户自带脚本，
+  须先做到文件隔离、依赖管理、审计和配额都完善。
+- 每个用户默认 60 秒内最多运行 10 次脚本（`SANDBOX_RATE_LIMIT` / `SANDBOX_RATE_WINDOW_SECONDS`）；
+  沙箱同时只跑 2 个脚本（全站共用），超出会提示"沙箱正忙"。
+- 每人附件总量默认 100MB、最多 50 个文件（`ATTACHMENT_USER_MAX_MB` / `ATTACHMENT_USER_MAX_FILES`），
+  脚本生成的文件也占这份额度，满了会明确告诉用户没保存。
+- **审计**：每次脚本运行、被限频、沙箱不可用都会记到 `logs/sandbox_audit_*.log`
+  （用户、助手、Skill、脚本、参数个数、退出码、耗时、产出文件数）。
+
+### 脚本能不能跑：导入时的静态检查
+
+导入 Skill 时会读一遍每个 `.py` 的 `import`，对照沙箱镜像里装的库，标出：**缺依赖**、**要联网**、**会调系统命令**。
+结果显示在技能卡片上：「脚本可运行」/「部分脚本可运行 x/y」/「脚本暂不支持」/「脚本需管理员启用沙箱」，
+助手也只会被告知能跑的那些脚本。这是**静态判断**，不等于实测能跑（动态 import、运行时拼出来的命令查不出来），
+所以开启沙箱后仍要挑代表性的 Skill 实际跑一遍。
+
+**改沙箱依赖时，两处必须同步**：`sandbox/requirements.txt` 和 `service/skills_core/script_report.py` 里的
+`PACKAGE_MODULES`（测试会校验两边一致）。想让更多 Skill 能跑，就是往这两处加库、重建沙箱镜像、
+然后重新导入这些 Skill 让检查结果刷新。
+
+依赖版本：`sandbox/requirements.txt` 里 `==` 的是本地验证过的版本，`>=` 的几个（pdfplumber、reportlab、
+python-pptx、beautifulsoup4）首次构建后请用 `docker compose ... run --rm sandbox pip freeze` 补成精确版本；
+镜像里也有一份 `/opt/installed-packages.txt` 记录实际装了什么。
+
+### 内存
+
+沙箱容器上限 1GB，会和 MySQL、向量库、API、Worker 同机运行。开启前先确认服务器可用内存足够
+（2 核 4G 的机器建议把沙箱内存上限降到 512MB，并观察一段时间）。

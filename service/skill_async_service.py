@@ -19,8 +19,26 @@ async def list_user_skills(db, user_id: int) -> List[Dict]:
 
 
 async def list_public_skills(db) -> List[Dict]:
+    """能力商店列表。is_official：发布者是管理员（= 经管理员审核上架）。
+    以前普通用户也能公开，那批老数据发布者不是管理员，所以不能一概当官方。"""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from models.init_db import User
+    from service.admin_service import is_admin_user
+
     skills = await dao.list_public_skills_async(db)
-    return [_skill_to_dict(skill) for skill in skills]
+    owner_ids = {s.user_id for s in skills}
+    admin_ids = set()
+    if owner_ids:
+        result = await db.execute(select(User).where(User.id.in_(owner_ids)).options(selectinload(User.roles)))
+        admin_ids = {u.id for u in result.unique().scalars().all() if is_admin_user(u)}
+    items = []
+    for skill in skills:
+        item = _skill_to_dict(skill)
+        item["is_official"] = skill.user_id in admin_ids
+        items.append(item)
+    return items
 
 
 async def get_skill(db, skill_id: int, user_id: int = None) -> Optional[Dict]:

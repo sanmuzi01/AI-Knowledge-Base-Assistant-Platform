@@ -141,7 +141,7 @@ def _write_skill_config(config_file: str, name: str, description: str,
             "system_prompt": system_prompt,
         }
         # 导入的 Skill 自带的脚本包信息：编辑提示词/工具时不能丢
-        for key in ("origin", "scripts_root", "scripts"):
+        for key in ("origin", "scripts_root", "scripts", "runnable_scripts", "script_report"):
             if old_cfg.get(key):
                 runtime_config[key] = old_cfg[key]
         with open(config_path, "w", encoding="utf-8") as f:

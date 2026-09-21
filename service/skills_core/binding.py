@@ -161,7 +161,8 @@ def get_agent_skills_merged_config(db: Session, agent_id: int) -> Dict[str, Any]
                 merged_defaults[name] = defaults
         # 带脚本的 Skill：沙箱开着就告诉模型怎么跑，否则老实说跑不了
         env_note = ""
-        scripts = cfg.get("scripts") or []
+        # 只把静态检查通过的脚本交给助手；老配置没有检查结果时退回全部脚本
+        scripts = cfg.get("runnable_scripts") if cfg.get("runnable_scripts") is not None else (cfg.get("scripts") or [])
         if scripts and sandbox_on and cfg.get("scripts_root"):
             skill_bundles[cfg["name"]] = {"root": cfg["scripts_root"], "scripts": list(scripts)}
             env_note = _script_section(cfg["name"], scripts)

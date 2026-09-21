@@ -137,7 +137,12 @@
                   <p class="truncate text-xs text-slate-500">{{ skill.description || '可添加到助手的工作能力' }}</p>
                 </div>
               </div>
-              <span :class="skill.is_public === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'" class="shrink-0 rounded px-2 py-1 text-xs">
+              <span
+                v-if="activeTab === 'public' && skill.is_official"
+                class="shrink-0 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"
+                title="由管理员审核上架"
+              >官方</span>
+              <span v-else :class="skill.is_public === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'" class="shrink-0 rounded px-2 py-1 text-xs">
                 {{ skill.is_public === 1 ? '公开' : '私有' }}
               </span>
             </div>
@@ -175,6 +180,15 @@
                   class="rounded bg-white/70 px-1.5 py-0.5 text-[11px]"
                 >
                   可联网
+                </span>
+              </div>
+              <div v-if="scriptBadge(skill.id)" class="mt-2">
+                <span
+                  :class="scriptBadge(skill.id)!.cls"
+                  class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium"
+                  :title="scriptBadge(skill.id)!.title"
+                >
+                  {{ scriptBadge(skill.id)!.text }}
                 </span>
               </div>
             </div>
@@ -516,7 +530,7 @@
             </div>
           </div>
 
-          <label class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
+          <label v-if="isAdmin" class="flex items-center justify-between rounded border border-slate-200 px-3 py-2">
             <span>
                   <span class="block text-sm font-medium text-slate-800">公开给其他用户使用</span>
               <span class="block text-xs text-slate-500">其他用户可以在公开列表中使用</span>
@@ -649,6 +663,13 @@
               </p>
             </div>
           </div>
+          <div v-if="previewValidation.script_count">
+            <p class="mb-2 text-xs font-medium text-slate-500">Python 脚本</p>
+            <p class="text-xs leading-relaxed text-slate-600">{{ scriptSummary(previewValidation) }}</p>
+            <p v-if="previewValidation.script_missing_packages?.length" class="mt-1.5 text-xs text-slate-500">
+              沙箱里没有的依赖：{{ previewValidation.script_missing_packages.join('、') }}
+            </p>
+          </div>
           <div v-if="previewValidation.errors.length" class="space-y-2">
             <p class="text-xs font-medium text-red-600">错误</p>
             <p v-for="err in previewValidation.errors" :key="err" class="rounded bg-red-50 px-3 py-2 text-xs text-red-700">{{ err }}</p>
@@ -764,6 +785,34 @@ const loadValidations = async (skills: Skill[]) => {
   } finally {
     validating.value = false
   }
+}
+
+// 脚本状态标签：让用户在安装前就知道这个能力的脚本能不能用
+const scriptBadge = (skillId: number) => {
+  const v = validationMap.value[skillId]
+  if (!v || !v.script_count) return null
+  const missing = v.script_missing_packages?.length ? `缺少依赖：${v.script_missing_packages.join('、')}` : ''
+  const reasons = [missing, v.script_network ? `${v.script_network} 个脚本需要联网` : ''].filter(Boolean).join('；')
+  if (v.script_status === 'unsupported') {
+    return { text: '脚本暂不支持', cls: 'bg-red-100 text-red-700', title: `沙箱里跑不了这个能力的脚本。${reasons}。安装后只按文字说明工作` }
+  }
+  if (!v.sandbox_enabled) {
+    return { text: '脚本需管理员启用沙箱', cls: 'bg-amber-100 text-amber-800', title: '带 Python 脚本，但服务器还没开启脚本沙箱，暂时只按文字说明工作' }
+  }
+  if (v.script_status === 'ready') return { text: '脚本可运行', cls: 'bg-emerald-100 text-emerald-700', title: '脚本可以在隔离沙箱里运行' }
+  if (v.script_status === 'partial') {
+    return { text: `部分脚本可运行 ${v.script_runnable}/${v.script_count}`, cls: 'bg-amber-100 text-amber-800', title: `其余脚本跑不了。${reasons}` }
+  }
+  return { text: '脚本未检查', cls: 'bg-slate-100 text-slate-600', title: '这个能力是旧版本导入的，没有兼容性检查结果，重新导入可获得' }
+}
+
+const scriptSummary = (v: SkillValidation) => {
+  const total = v.script_count || 0
+  if (v.script_status === 'unsupported') return `${total} 个脚本都不能在沙箱里运行，只按文字说明工作。`
+  const state = v.sandbox_enabled ? '沙箱已开启' : '沙箱未开启（管理员启用后生效）'
+  if (v.script_status === 'partial') return `${total} 个脚本里 ${v.script_runnable} 个可以运行，其余跑不了。${state}。`
+  if (v.script_status === 'ready') return `${total} 个脚本都可以运行。${state}。`
+  return `${total} 个脚本，没有兼容性检查结果。${state}。`
 }
 
 const validationText = (skillId: number) => {
