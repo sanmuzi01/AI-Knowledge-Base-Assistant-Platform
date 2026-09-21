@@ -140,14 +140,8 @@ def send_verification_code(phone: str, client_ip: str = "", scene: str = "regist
     interval_seconds = _env_int("SMS_CODE_SEND_INTERVAL_SECONDS", 60)
 
     try:
-        require_limit(
-            key=f"sms:{scene}:phone:{normalized}",
-            limit_env="SMS_CODE_PHONE_LIMIT",
-            default_limit=1,
-            window_env="SMS_CODE_PHONE_WINDOW_SECONDS",
-            default_window=interval_seconds,
-            label="验证码发送",
-        )
+        # 顺序：先查"来源"再查"号码"。被封的 IP 不能顺带占用别人号码的冷却时间；
+        # 全局上限放最后一道之前，最多把短信费用封顶（0 表示关闭）。
         if client_ip:
             require_limit(
                 key=f"sms:{scene}:ip:{client_ip}",
@@ -158,10 +152,34 @@ def send_verification_code(phone: str, client_ip: str = "", scene: str = "regist
                 label="验证码发送",
             )
         require_limit(
+            key=f"sms:{scene}:phone:{normalized}",
+            limit_env="SMS_CODE_PHONE_LIMIT",
+            default_limit=1,
+            window_env="SMS_CODE_PHONE_WINDOW_SECONDS",
+            default_window=interval_seconds,
+            label="验证码发送",
+        )
+        require_limit(
             key=f"sms:{scene}:daily:{normalized}",
             limit_env="SMS_CODE_DAILY_LIMIT",
             default_limit=10,
             window_env="SMS_CODE_DAILY_WINDOW_SECONDS",
+            default_window=86400,
+            label="验证码发送",
+        )
+        require_limit(
+            key="sms:global:hourly",
+            limit_env="SMS_CODE_GLOBAL_HOURLY_LIMIT",
+            default_limit=200,
+            window_env="SMS_CODE_GLOBAL_HOURLY_WINDOW_SECONDS",
+            default_window=3600,
+            label="验证码发送",
+        )
+        require_limit(
+            key="sms:global:daily",
+            limit_env="SMS_CODE_GLOBAL_DAILY_LIMIT",
+            default_limit=1000,
+            window_env="SMS_CODE_GLOBAL_DAILY_WINDOW_SECONDS",
             default_window=86400,
             label="验证码发送",
         )
@@ -201,6 +219,24 @@ def verify_verification_code(phone: str, code: str, scene: str = "register", con
     clean_code = re.sub(r"\D", "", code or "")
     if not re.fullmatch(r"\d{6}", clean_code):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="请输入 6 位短信验证码")
+
+    # 单个验证码只能错 5 次，但"读次数→写次数"不是原子的，并发请求能绕过；
+    # 这里再按手机号做一层原子计数（Redis INCR），把窗口内的猜测总量封顶。
+    try:
+        require_limit(
+            key=f"sms:verify:{scene}:{normalized}",
+            limit_env="SMS_CODE_VERIFY_LIMIT",
+            default_limit=10,
+            window_env="SMS_CODE_VERIFY_WINDOW_SECONDS",
+            default_window=600,
+            label="验证码校验",
+        )
+    except LimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=exc.message,
+            headers={"Retry-After": str(exc.retry_after)},
+        )
 
     record = verification_cache.get(_cache_key(scene, normalized))
     if not record:

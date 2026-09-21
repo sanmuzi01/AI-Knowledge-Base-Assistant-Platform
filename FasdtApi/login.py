@@ -149,10 +149,22 @@ async def send_register_sms_code(
         async_db=Depends(get_async_db),
 ):
     phone = normalize_phone(data.phone)
+    client_ip = request.client.host if request.client else ""
+    # 查库之前先限流：否则对"已注册"的号码可以无限次探测，一次短信都不会发也就不会被发送环节的限制拦住。
+    try:
+        require_limit(
+            key=f"sms:register-probe:ip:{client_ip or 'unknown'}",
+            limit_env="SMS_CODE_IP_LIMIT",
+            default_limit=20,
+            window_env="SMS_CODE_IP_WINDOW_SECONDS",
+            default_window=3600,
+            label="验证码发送",
+        )
+    except LimitExceeded as e:
+        raise _limit_error(e)
     existing = await get_user_by_phone_async(async_db, phone)
     if existing:
         raise InvalidInput("手机号已经注册")
-    client_ip = request.client.host if request.client else ""
     return await async_send_register_code(phone, client_ip)
 
 
@@ -193,8 +205,21 @@ async def send_reset_password_sms_code(
 @router.post("/reset-password", summary="通过手机验证码重置密码")
 async def reset_password(
         data: ResetPasswordRequest,
+        request: Request,
         async_db=Depends(get_async_db),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        require_limit(
+            key=f"reset-password:ip:{client_ip}",
+            limit_env="RESET_PASSWORD_RATE_LIMIT",
+            default_limit=10,
+            window_env="RESET_PASSWORD_RATE_WINDOW_SECONDS",
+            default_window=3600,
+            label="重置密码",
+        )
+    except LimitExceeded as e:
+        raise _limit_error(e)
     return await auth_async_service.reset_password_with_phone(
         async_db, data.phone, data.sms_code, data.new_password,
     )
