@@ -27,5 +27,16 @@ data/attachments/
 # 本机导入的 Skill（yml 里是本机绝对路径；服务器上它们在各自的 docker 卷里），不入库
 skills/imported/
 skills_packages/imported/
+# 用户在页面上自己创建的 Skill（含本地跑 E2E 冒烟测试时创建的），同样是运行时数据，不入库
+skills/user_created/
 # 例外：预制的 Skill 精选包可以入库（上面的 *.zip 规则会忽略其他压缩包）
 !skill-packs/*.zip
+
+# scripts/e2e_smoke.py 的运行产物：进程日志、失败截图/DOM 快照、内嵌 ChromaDB 数据
+tests_e2e/.e2e_data/
+
+# 每个 Agent 的系统提示词 yaml：运行时按 agent_id 生成，不是仓库内容。
+# 1.yaml / 5.yaml 是 scripts/seed_demo.py 用的内置演示助手，那两个例外要保留追踪。
+prompt/prompts/*.yaml
+!prompt/prompts/1.yaml
+!prompt/prompts/5.yaml

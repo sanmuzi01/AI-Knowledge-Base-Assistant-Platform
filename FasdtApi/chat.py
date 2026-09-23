@@ -67,9 +67,15 @@ async def chat(
         current_user: User = Depends(get_current_user_async),
 ):
     """同步对话。conversation_id=None 时自动新建会话并返回 conversation_id。"""
+    # 提前把 id 存成普通 int：下面这次请求里 service 层会提交好几次事务（AsyncSession 默认
+    # expire_on_commit=True，每提交一次就把 current_user 这个 ORM 对象的所有属性标记为"过期"），
+    # 之后再读 current_user.id 会触发一次隐式懒加载去刷新它——如果这次访问发生在请求本来的
+    # greenlet 上下文之外（比如流式响应收尾、生成器清理阶段），SQLAlchemy 找不到桥接的
+    # greenlet 就会直接崩：MissingGreenlet。先存成 int，后面全用这个值，彻底不碰那次懒加载。
+    user_id = current_user.id
     try:
         require_limit(
-            key=f"chat:user:{current_user.id}",
+            key=f"chat:user:{user_id}",
             limit_env="CHAT_RATE_LIMIT",
             default_limit=20,
             window_env="CHAT_RATE_WINDOW_SECONDS",
@@ -79,10 +85,10 @@ async def chat(
     except LimitExceeded as e:
         raise _limit_error(e)
     user_message = _message_with_attachments(current_user, request)
-    quota_before = await quota_service.enforce_quota_async(db, current_user.id)
+    quota_before = await quota_service.enforce_quota_async(db, user_id)
     try:
         with concurrency_guard(
-            key=f"agent_run:user:{current_user.id}",
+            key=f"agent_run:user:{user_id}",
             limit_env="USER_MAX_CONCURRENT_AGENT_RUNS",
             default_limit=2,
             ttl_env="AGENT_RUN_CONCURRENCY_TTL_SECONDS",
@@ -102,7 +108,7 @@ async def chat(
         raise PermissionDenied(str(e))
     if "message" in result and "answer" not in result:
         raise InvalidInput(result["message"])
-    await quota_service.check_and_notify_threshold_async(db, current_user.id, quota_before["used_tokens"])
+    await quota_service.check_and_notify_threshold_async(db, user_id, quota_before["used_tokens"])
     return result
 
 @router.post("/{agent_id}/stream", summary="发送对话（SSE流式）")
@@ -116,9 +122,13 @@ async def chat_stream(
     事务：路由层不统一 commit，chat_service 内部每步 flush、存 AI 消息后 commit 一次；
     LangGraph 同步流经 worker 线程 + asyncio.Queue 桥回。
     """
+    # 提前把 id 存成普通 int，原因见 chat()：流式响应收尾时（limited_generator 的 finally 块，
+    # 可能跑在生成器清理阶段而不是本次请求原本的 greenlet 上下文里）如果这时候才第一次去读
+    # current_user.id，遇上属性因为中途 commit 过而"过期"，隐式懒加载会直接 MissingGreenlet 崩掉。
+    user_id = current_user.id
     try:
         require_limit(
-            key=f"chat:user:{current_user.id}",
+            key=f"chat:user:{user_id}",
             limit_env="CHAT_RATE_LIMIT",
             default_limit=20,
             window_env="CHAT_RATE_WINDOW_SECONDS",
@@ -128,10 +138,10 @@ async def chat_stream(
     except LimitExceeded as e:
         raise _limit_error(e)
     user_message = _message_with_attachments(current_user, request)
-    quota_before = await quota_service.enforce_quota_async(db, current_user.id)
+    quota_before = await quota_service.enforce_quota_async(db, user_id)
     try:
         lease_guard = concurrency_guard(
-            key=f"agent_run:user:{current_user.id}",
+            key=f"agent_run:user:{user_id}",
             limit_env="USER_MAX_CONCURRENT_AGENT_RUNS",
             default_limit=2,
             ttl_env="AGENT_RUN_CONCURRENCY_TTL_SECONDS",
@@ -159,7 +169,7 @@ async def chat_stream(
                 await generator.aclose()
             finally:
                 lease_guard.__exit__(None, None, None)
-            await quota_service.check_and_notify_threshold_async(db, current_user.id, quota_before["used_tokens"])
+            await quota_service.check_and_notify_threshold_async(db, user_id, quota_before["used_tokens"])
 
     return StreamingResponse(
         limited_generator(),

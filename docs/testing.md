@@ -86,6 +86,50 @@ npm run audit:py
 ```
 不带 `--ignore-vuln` 直接跑，看到的就是全部已知漏洞。
 
+## 浏览器冒烟测试（7 个核心流程）
+
+```powershell
+.venv\Scripts\python.exe scripts\e2e_smoke.py                  # 无头跑一遍
+.venv\Scripts\python.exe scripts\e2e_smoke.py --headed          # 弹出浏览器窗口，方便看
+.venv\Scripts\python.exe scripts\e2e_smoke.py --keep-services   # 结束后不关前后端，方便手动排查
+```
+
+真实前端（`vite dev`）+ 真实后端（真实 FastAPI 路由、真实 MySQL、内嵌 ChromaDB）+ 真实浏览器
+（Playwright + Chromium），串起：登录、创建 Agent、绑定知识库空间、发起 SSE 聊天并等回答生成完整、
+查看 RAG 引用来源、普通用户绑定公开 Skill、管理员编辑并回滚 Skill——七个环节共用一套数据，
+一次跑通就是对"这些功能真的接得上"最直接的证据。
+
+**两处换成假实现**（`tests_e2e/fakes.py`），别的都走真实链路：
+
+- 大模型：`service.tools.executor.create_langchain_llm` 换成 LangChain 官方自带的测试替身
+  `FakeListChatModel`（固定回一句话），不发真实网络请求，不花钱。手写一个假 HTTP 服务器去精确
+  模仿 LangChain `ChatOpenAI` 的流式协议试过，细节太容易对不上，改用官方测试替身后完全没有这个问题。
+- 向量化：`service.rag.embedding_service._get_client[_async]` 换成本地哈希词袋 Embedding
+  （中文按单字切、英文数字按连续串切，是词袋能匹配上的关键——整句当一个 token 切，两句几乎永远
+  零重合）。ChromaDB 本身、检索排序、相似度阈值全部走真实逻辑。
+
+后台任务（知识库文档入库）用 `TASK_EXECUTION_MODE=worker` + 进程内一个轮询线程跑
+`service.background_worker.run_once()`——和真的独立 Worker 进程做一样的事，只是不用另开进程
+（ChromaDB 内嵌 PersistentClient 要求全程只有一个进程碰它）。**踩过的坑**：一开始图省事用
+`TASK_EXECUTION_MODE=inline`（FastAPI `BackgroundTasks` 直接在本次请求里跑），实测在这个项目的
+中间件链下背景任务从来不执行，任务永远停在 `queued`——这条路径本来就只有"本地开发"在用、
+生产和大多数本地开发也是起独立 Worker 进程，几乎没有真正被走过。
+
+**这条测试顺手挖出的两个真实生产 bug**（不是测试环境特有的，已经在 `FasdtApi/chat.py` 修掉）：
+
+1. 聊天接口（同步 / 流式两个路由）在收尾阶段重复访问 `current_user.id`。`AsyncSession` 默认
+   `expire_on_commit=True`，本次请求中途只要有一次提交，`current_user` 这个 ORM 对象的所有属性
+   就被标记为"过期"；流式响应收尾（生成器 `finally` 块）时才第一次真正触发这次过期后的隐式懒加载，
+   如果这次访问发生在请求本来的 greenlet 上下文之外，SQLAlchemy 找不到桥接会直接
+   `MissingGreenlet` 崩掉，前端看到"发送失败：服务暂时异常"。修法是在路由最开头把
+   `user_id = current_user.id` 存成普通 int，后面全用这个值，不再重复读那个属性。
+2. `agent_runtime.py` 的异常日志只打了 `error={e}`，遇到消息本身是空字符串的异常（比如这次的
+   `NotImplementedError`）日志里什么都看不出来。顺手加上了异常类型和完整堆栈
+   （`logger.error(..., exc_info=True)`），后续再出问题排查会快很多。
+
+CI 里独立一个 `e2e` job（`.github/workflows/ci.yml`），失败时把失败截图和页面 DOM 快照
+（`tests_e2e/.e2e_data/fail_*.png` / `.html`）打包成 artifact 方便下载查看。
+
 ## 路由级测试的数据清理
 
 `tests/_route_client.py` 建的 `rt_*` 用户是**真实落库**的。清理机制：
@@ -96,6 +140,9 @@ npm run audit:py
 - 进程退出兜底：`atexit` 里再跑一次 `cleanup()`，`setUpClass` 崩了 / Ctrl+C 也不会漏。
 - 手动清历史残留：`.venv\Scripts\python.exe scripts\purge_test_users.py --dry-run`（统计）/
   `--yes`（删掉库里**所有** `rt_%` 用户，真实用户不动）。
+
+`scripts/e2e_smoke.py` 建的是 `e2e_*` 用户（同一套级联清理逻辑，见 `tests_e2e/fixtures.py::purge_e2e_data`，
+内部直接复用这里的 `_purge_users`），每次跑完（不管流程成不成功）都会自动清一遍，不需要额外操心。
 
 ## 后续应补充
 

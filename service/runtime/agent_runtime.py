@@ -600,7 +600,7 @@ async def run_stream_with_history_async(
             await _finalize_run_async(db, run_id, "cancelled", error_msg="用户停止生成")
         raise
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Agent[stream] 运行失败(async): run_id={run_id}, error={e}")
+        logger.error(f"Agent[stream] 运行失败(async): run_id={run_id}, error={type(e).__name__}: {e}", exc_info=True)
         try:
             await db.rollback()
         except Exception:  # noqa: BLE001
