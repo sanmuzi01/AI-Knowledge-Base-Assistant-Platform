@@ -1,0 +1,30 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["frontend", "sandbox", ".venv", "prompt/prompts"]
+
+[tool.ruff.lint]
+# 只挡"大概率是 bug"的这一档：语法错误（E9）+ pyflakes 全套（F，未使用的导入/变量、
+# 用到没定义的名字、重复定义等）。不开 pyupgrade / bugbear / bandit 这些风格和现代化建议——
+# 那些一次性能扫出几千条，多数是"能跑但不够新"，不是 bug，硬开会把 CI 变成没人看的噪音。
+# 想扩大检查范围时，从 select 里加一类，跑一遍看现状有多少违规，再决定是清干净还是先不开。
+select = ["E9", "F"]
+
+[tool.coverage.run]
+branch = true
+source = ["FasdtApi", "service", "models", "utils"]
+# scripts/ 是运维用的一次性脚本（备份、迁移、验收），不是被测试覆盖的业务代码，
+# 覆盖率放进去只会拉低数字，看不出真实的业务代码质量。
+# utils/log_to_csv.py 同理：读本地日志文件转 CSV 的一次性运维脚本，没有任何路由/服务调它，
+# 只是历史原因放在了 utils/ 下，不是应用运行时会走到的业务代码。
+omit = ["*/__pycache__/*", "*/migrations/*", "utils/log_to_csv.py"]
+
+[tool.coverage.report]
+# 只有真的没跑到的分支/整体缺失才算漏，这两类基本不可能被测到、纳入统计只会制造噪音：
+# - pragma: no cover 手动标注的行（比如防御性的 else 分支）
+# - 只在 `if __name__ == "__main__":` 里的脚本入口
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

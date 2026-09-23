@@ -356,13 +356,8 @@ class ReActEngine:
                             yield make_thinking(content)
                             yield make_answer(content)
 
-                        # 同时更新 step_callback（保持原写DB轨迹的能力不变）
-                        step_info = {
-                            "step_type": "thought",
-                            "content": content,
-                            "tool_calls": tool_calls or None,
-                        }
-                        # _agent_node already records this thought once.
+                        # step_callback 不在这里重复调用：_agent_node 已经记过一次这个 thought，
+                        # 这里再调会让同一步骤在轨迹里出现两次。
 
                         # 累积最终 messages（供收尾用）
                     if "messages" in node_output:

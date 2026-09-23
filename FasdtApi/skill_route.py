@@ -34,9 +34,7 @@ from service.skill_service import (
     list_templates,
     unbind_skill,
     update_agent_skills,
-    update_skill,
     update_skill_with_config,
-    update_skill_config,
     update_template,
 )
 

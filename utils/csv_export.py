@@ -5,7 +5,7 @@
 """
 import csv
 import io
-from typing import Any, Iterable, List, Sequence
+from typing import Any, Iterable, Sequence
 
 from fastapi import Response
 

@@ -6,9 +6,6 @@ Embedding 工厂：根据模型名创建对应的嵌入客户端
 加新厂商时：新增 xxx_embedding.py + 在 _MODEL_MAP 加一行，其他代码不动。
 """
 from service.rag.embedding.base import BaseEmbedding, EmbeddingRegistry
-from service.rag.embedding.zhipu_embedding import ZhipuEmbedding
-from service.rag.embedding.openai_embedding import OpenAIEmbedding
-from service.rag.embedding.bge_embedding import BGEEmbedding
 from utils.logger_handler import get_logger
 
 logger = get_logger("embedding_factory")

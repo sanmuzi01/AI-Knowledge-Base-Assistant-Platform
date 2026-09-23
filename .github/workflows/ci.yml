@@ -48,11 +48,32 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Byte-compile sources
+        run: python -m compileall -q FasdtApi service models utils scripts tests
+
+      - name: Lint (ruff)
+        run: ruff check FasdtApi service models utils scripts tests
+
+      - name: Dependency vulnerability scan (pip-audit)
+        # 只忽略"当前没有可升级版本"的漏洞（每条都写明原因，定期复查——上游出新版本就摘掉对应 --ignore-vuln）。
+        # 其余漏洞（有修复版本却没升级）会让这一步失败，阻断 PR：见 requirements.txt 和 docs/testing.md「依赖漏洞扫描」。
+        run: |
+          pip-audit -r requirements.txt \
+            --ignore-vuln PYSEC-2026-286 \
+            --ignore-vuln PYSEC-2026-311 \
+            --ignore-vuln PYSEC-2026-3814 \
+            --ignore-vuln PYSEC-2026-3815 \
+            --ignore-vuln PYSEC-2026-3813 \
+            --ignore-vuln PYSEC-2026-1325
 
       - name: Wait for MySQL
         run: |
@@ -63,17 +84,28 @@ jobs:
             echo "waiting for mysql... ($i)"; sleep 2
           done
 
-      - name: Byte-compile sources
-        run: python -m compileall -q FasdtApi service models utils scripts tests
-
       - name: Bootstrap database (schema + idempotent migration smoke test)
         run: |
           python -c "from models.init_db import bootstrap_database; bootstrap_database(force=True)"
           # 再跑一次（新进程），验证幂等：不应报错、不应重复建列/索引
           python -c "from models.init_db import bootstrap_database; bootstrap_database(force=True)"
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Run unit tests with coverage
+        run: |
+          coverage run -m unittest discover -s tests -p "test_*.py" -v
+          # 先出报告文件，再判是否达标——判定失败时也要能下载到 coverage.xml 看是哪里掉的
+          coverage xml
+          # 起点先设 64%（当前真实基线约 64.6%，没有靠排除业务代码硬凑到 65%），
+          # 后续随测试补齐逐步调高，目标 75%——调整方法见 docs/testing.md。
+          coverage report --fail-under=64
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
 
   frontend:
     runs-on: ubuntu-latest
@@ -92,6 +124,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Dependency vulnerability scan (npm audit)
+        # 只挡 high/critical；moderate 及以下（目前是 echarts 一条 XSS，升级到 6.x 是破坏性大版本，
+        # 见 docs/testing.md）只报告不阻断，避免 CI 被"暂时改不动"的中低危漏洞长期卡住。
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Type-check and build
         run: npm run build

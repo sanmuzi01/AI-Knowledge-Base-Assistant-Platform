@@ -2,7 +2,6 @@ from utils.timeutil import utcnow
 import json
 import os
 import uuid
-from datetime import datetime
 from typing import Dict, List
 
 from utils.path_tool import get_abs_path

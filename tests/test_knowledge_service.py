@@ -9,7 +9,7 @@
 """
 import unittest
 from types import SimpleNamespace
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from service import knowledge_service
 

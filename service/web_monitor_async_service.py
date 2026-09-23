@@ -2,7 +2,6 @@
 
 from utils.timeutil import utcnow
 import hashlib
-from datetime import datetime
 from typing import Dict
 
 from sqlalchemy import select

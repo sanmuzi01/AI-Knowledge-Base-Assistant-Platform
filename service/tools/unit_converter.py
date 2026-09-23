@@ -109,9 +109,9 @@ class UnitConverterTool(BaseTool):
             }, ensure_ascii=False)
 
         for table in _CATEGORY_TABLES.values():
-            if from_unit in table and to_unit in table:
-                base = value * table[from_unit]
-                result = base / table[to_unit]
+            if from_key in table and to_key in table:
+                base = value * table[from_key]
+                result = base / table[to_key]
                 return json.dumps({
                     "value": value, "from_unit": from_unit, "to_unit": to_unit,
                     "result": round(result, 6),

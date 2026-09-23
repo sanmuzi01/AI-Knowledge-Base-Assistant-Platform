@@ -34,7 +34,7 @@ class BGEReranker(BaseReranker):
             logger.info(f"加载BGE Rerank模型: {self.model_name}（首次加载较慢，约几GB）")
             # CrossEncoder = Cross-Encoder = 同时输入query和doc一起编码打
             self._model = CrossEncoder(self.model_name)
-            logger.info(f"BGE Rerank模型加载完成")
+            logger.info("BGE Rerank模型加载完成")
         return self._model
     def rerank(self,query:str,documents:List[str],top_n:int=3)->List[Tuple[int,float]]:
         """对documents重新打分排序，返回 (原始索引, 分数) 的列表，按分数从高到低

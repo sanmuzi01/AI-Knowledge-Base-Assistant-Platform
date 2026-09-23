@@ -1,4 +1,4 @@
-from typing import Optional,List,Any,Dict
+from typing import Optional,List
 from sqlalchemy.orm import Session
 from utils.logger_handler import get_logger
 from models.init_db import Skill,Agent,agent_skill

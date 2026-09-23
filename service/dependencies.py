@@ -1,5 +1,4 @@
 from utils.timeutil import utcnow
-from datetime import datetime
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

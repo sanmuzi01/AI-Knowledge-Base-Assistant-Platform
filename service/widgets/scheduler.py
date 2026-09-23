@@ -55,7 +55,7 @@ async def run_due_widgets(db, now: datetime = None, limit: int = None) -> dict:
     lease_until = now + timedelta(minutes=_lease_minutes())
 
     due = len(widgets)
-    ran = skipped = failed = paused = 0
+    ran = skipped = failed = 0
 
     for widget in widgets:
         widget_id = widget.id

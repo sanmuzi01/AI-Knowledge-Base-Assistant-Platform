@@ -12,7 +12,6 @@ import asyncio
 from typing import Any, Dict, List, Optional
 
 from utils.logger_handler import get_logger
-from utils.timeutil import utcnow
 
 from models import notification_channel_async_dao as dao
 from service.exceptions import InvalidInput, NotFound

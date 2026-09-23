@@ -1,7 +1,7 @@
 """Skill 模板的增删改查。"""
 from typing import Any, Dict, List, Optional
 
-from service.skills.loader import get_template_path, invalidate_skill_config, list_available_templates, load_skill_config
+from service.skills.loader import invalidate_skill_config, list_available_templates, load_skill_config
 from utils.logger_handler import get_logger
 
 from .common import _can_use_template, _safe_skill_stem

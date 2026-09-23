@@ -1,8 +1,8 @@
 """操作日志异步查询服务。"""
 
 from utils.timeutil import utcnow
-from datetime import datetime, timedelta
-from typing import Dict, List
+from datetime import timedelta
+from typing import Dict
 
 from sqlalchemy import func, or_, select
 

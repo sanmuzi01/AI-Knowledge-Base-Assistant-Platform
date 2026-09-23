@@ -1,7 +1,6 @@
 from utils.timeutil import utcnow
 from typing import List
 from typing import Generator
-from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Table, Index, Float
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import declarative_base, sessionmaker, Mapped, relationship

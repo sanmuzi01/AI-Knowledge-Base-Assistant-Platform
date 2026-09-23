@@ -1,7 +1,6 @@
 """异步认证服务。"""
 
 from utils.timeutil import utcnow
-from datetime import datetime
 import time
 
 from fastapi import HTTPException, status

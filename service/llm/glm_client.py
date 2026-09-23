@@ -82,7 +82,7 @@ class GLMClient(BaseLLM):
             raise Exception(f"大模型请求失败{e}")
         except(KeyError,IndexError,json.JSONDecodeError) as e:
             logger.error(f"[GLM] 响应解析失败: {e}, 原始响应: {response.text[:500]}")
-            raise Exception(f"大模型响应解析失败")
+            raise Exception("大模型响应解析失败")
 
     #流式对话
     def stream_chat(
@@ -122,7 +122,7 @@ class GLMClient(BaseLLM):
                             content = delta.get("content","")
                             if content:
                                 yield content
-                        except json.JSONDecodeError as e:
+                        except json.JSONDecodeError:
                             continue
             logger.info("[GLM] 流式响应完成")
         except requests.exceptions.RequestException as e:

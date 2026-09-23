@@ -60,7 +60,7 @@ Agent Runtime 只认这个结构，不关心来源。
 - resources/ 中的文件运行时只读，且路径不能逃逸出 resources/
 """
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclass

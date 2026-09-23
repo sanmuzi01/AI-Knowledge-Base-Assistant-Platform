@@ -86,7 +86,7 @@ class AdminUsersPaginationTest(unittest.TestCase):
 class AdminTasksPaginationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from models.init_db import SessionLocal, User, BackgroundTask
+        from models.init_db import SessionLocal, BackgroundTask
 
         cls.user = rc.create_user("rt-adminpg-task")
         db = SessionLocal()

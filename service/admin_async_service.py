@@ -1,7 +1,7 @@
 """管理员后台异步统计服务。"""
 
 from utils.timeutil import utcnow
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List
 
 from fastapi import HTTPException, status

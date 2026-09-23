@@ -11,7 +11,6 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from service import auth_service
-from service.password_policy import PasswordPolicyError
 
 
 def _fake_user(**overrides):

@@ -9,7 +9,6 @@ import models.user_widget_async_dao as real_dao
 from service.widgets import runner
 from service.widgets.connectors import CONNECTORS
 from service.widgets.connectors.base import BaseConnector
-from service.widgets.processors import PROCESSORS
 
 
 class _OkConnector(BaseConnector):

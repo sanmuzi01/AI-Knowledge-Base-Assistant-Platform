@@ -21,7 +21,7 @@ class ParseXlsxTest(unittest.TestCase):
         ws1.title = "价目表"
         ws1.append(["套餐", "价格"])
         ws1.append(["专业版", "39元/月"])
-        ws2 = wb.create_sheet("空表")  # 完全空白的第二个工作表
+        wb.create_sheet("空表")  # 完全空白的第二个工作表
         wb.save(path)
 
     def test_sheet_rows_joined_with_pipe_and_sheet_name_kept(self):
@@ -152,7 +152,7 @@ class ParsePdfWithOcrFallbackTest(unittest.TestCase):
 
         with patch("pypdf.PdfReader") as mock_reader_cls, \
              patch("service.llm.vision_ocr.resolve_vision_model",
-                   return_value=("glm-4v", "fake-key", None)) as mock_resolve, \
+                   return_value=("glm-4v", "fake-key", None)), \
              patch("service.llm.vision_ocr.ocr_image", return_value="OCR文字") as mock_ocr, \
              patch("pymupdf.open", return_value=fake_doc), \
              patch.object(rag_service, "MAX_OCR_PAGES_PER_DOCUMENT", 2):

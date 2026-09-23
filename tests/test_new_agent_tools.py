@@ -113,6 +113,12 @@ class UnitConverterToolTest(unittest.TestCase):
         result = json.loads(self.tool.execute(value=1, from_unit="kg", to_unit="m"))
         self.assertIn("error", result)
 
+    def test_unit_lookup_is_case_and_whitespace_insensitive(self):
+        # 模型传参不一定和表里的 key 大小写一致（比如 "KM" 而不是 "km"）；表里的 key 全是小写，
+        # 查表前必须先归一化，否则会被误判成"不支持换算"
+        result = json.loads(self.tool.execute(value=2, from_unit=" KM ", to_unit="M"))
+        self.assertEqual(result["result"], 2000.0)
+
     def test_missing_params_reports_error(self):
         result = json.loads(self.tool.execute(value=1, from_unit="kg"))
         self.assertIn("error", result)

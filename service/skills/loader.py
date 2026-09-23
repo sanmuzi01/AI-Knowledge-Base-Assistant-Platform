@@ -14,7 +14,7 @@ Skill配置加载器
 """
 import os
 import yaml
-from typing import Optional,Dict,List,Any
+from typing import Dict,List,Any
 
 from utils.logger_handler import get_logger
 from utils.cache import skill_cache

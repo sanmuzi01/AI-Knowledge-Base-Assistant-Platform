@@ -7,7 +7,7 @@
 自然语言那条路（designer）保留为「高级」入口，不在这里。
 """
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict, List
 
 from service.widgets import schema
 from service.widgets.validator import validate_and_normalize

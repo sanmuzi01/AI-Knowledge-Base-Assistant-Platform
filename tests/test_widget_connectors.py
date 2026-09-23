@@ -2,7 +2,6 @@
 
 import unittest
 from datetime import datetime
-from types import SimpleNamespace
 
 from service.widgets.connectors import CONNECTORS
 from service.widgets.connectors.catalog import CATALOG_PROVIDERS

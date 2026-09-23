@@ -7,7 +7,7 @@ LangGraph 期望的工具是 langchain_core.tools.BaseTool
 2. 在执行时，如果工具 requires_context=True，自动注入 ToolContext
 3. 保留我们所有的用户隔离/Key隔离/prompt覆盖机制
 """
-from typing import Any,List,Optional,Dict,Type
+from typing import List,Optional,Type
 from pydantic import BaseModel, create_model
 from langchain_core.tools import BaseTool as LCBaseTool, StructuredTool
 from service.tools.base import BaseTool, ToolContext, ToolPermissionError

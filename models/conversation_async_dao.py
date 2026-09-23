@@ -1,7 +1,6 @@
 """会话异步 DAO。"""
 
 from utils.timeutil import utcnow
-from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import select

@@ -16,7 +16,6 @@
       ↓ 内部使用
   ChatOpenAI + LangChain Tools (只含Skill绑定的工具)
 """
-from typing import Optional, List
 from service.llm.langchain_adapter import create_langchain_llm
 from service.tools.base import ToolContext
 from service.tools.langchain_adapter import adapt_tools_by_names

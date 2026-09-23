@@ -1,6 +1,5 @@
 from utils.timeutil import utcnow
 import bcrypt
-from datetime import datetime
 from fastapi import HTTPException, status
 from models.user_dao import get_user_by_name, get_user_by_phone, create_user, update_user_password
 from sqlalchemy.exc import IntegrityError

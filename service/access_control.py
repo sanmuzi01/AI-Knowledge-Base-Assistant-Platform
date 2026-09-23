@@ -11,7 +11,6 @@ from models.background_task_dao import get_task_by_id
 from models.conversation_dao import get_conversation_by_id
 from models.knowledge_dao import get_knowledge_by_id
 from models.memory_dao import get_memory_by_id
-from models.skill_dao import get_skill_by_id
 from models.init_db import Agent, AgentRun, BackgroundTask, Conversation, Knowledge, Memory, Skill
 
 

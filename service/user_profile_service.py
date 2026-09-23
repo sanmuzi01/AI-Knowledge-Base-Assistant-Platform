@@ -1,5 +1,4 @@
 from utils.timeutil import utcnow
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from models.user_profile_dao import get_user_profile, upsert_user_profile

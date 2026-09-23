@@ -1,9 +1,7 @@
 """知识库空间：同步辅助（迁移脚本 / 后台任务 / 无 space 上传时兜底用）。"""
 
-from typing import Optional
 
 from models import knowledge_space_dao as dao
-from utils.timeutil import utcnow
 
 
 def ensure_default_space_for_agent(db, user_id: int, agent_id: int, agent_name: str = "") -> int:

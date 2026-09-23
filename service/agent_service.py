@@ -1,7 +1,7 @@
 from typing import List, Optional,Dict,Any
 from sqlalchemy.exc import IntegrityError
 from prompt.prompt_manager import create_prompt_file, read_prompt_file, update_prompt_file, delete_prompt_file
-from models.agent_dao import get_agent_by_id, list_agents_by_user, create_agent, update_agent, delete_agent, get_selected_agent_by_user
+from models.agent_dao import get_agent_by_id, list_agents_by_user, create_agent, update_agent, get_selected_agent_by_user
 from models.user_dao import update_selected_agent
 from models.init_db import Agent
 from sqlalchemy.exc import SQLAlchemyError
@@ -228,7 +228,7 @@ def delete_preview(db, user, agent_id: int) -> Optional[Dict[str, Any]]:
     """返回删除该 Agent 会波及的数据量；无权限/不存在时返回 None"""
     from models.agent_dao import get_agent_by_id
     from models.conversation_dao import list_conversations_by_agent
-    from models.init_db import agent_skill, BackgroundTask, Knowledge, AgentRun
+    from models.init_db import BackgroundTask, Knowledge, AgentRun
 
     agent = get_agent_by_id(db, agent_id)
     if not agent or agent.user_id != user.id:

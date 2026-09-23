@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 .venv_codex/
 logs/
+.coverage
+coverage.xml
+htmlcov/
 vector_db/
 knowledge_files/
 static/charts/

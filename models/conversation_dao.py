@@ -5,7 +5,6 @@
 """
 from utils.timeutil import utcnow
 from typing import List, Optional
-from datetime import datetime
 from models.init_db import Conversation, Message
 # ========== Conversation 相关 ==========
 def create_conversation(

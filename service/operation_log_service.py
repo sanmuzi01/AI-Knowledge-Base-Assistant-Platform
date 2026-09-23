@@ -1,5 +1,5 @@
 from utils.timeutil import utcnow
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 from sqlalchemy import or_

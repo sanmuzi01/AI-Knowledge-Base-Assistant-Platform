@@ -1,0 +1,5 @@
+# 只在本地开发和 CI 里用的工具，不进生产镜像（Dockerfile 只装 requirements.txt）。
+-r requirements.txt
+coverage==7.16.1
+ruff==0.16.8
+pip-audit==2.10.1
