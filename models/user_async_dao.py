@@ -85,7 +85,29 @@ async def update_user_login_seen_async(db: AsyncSession, user_id: int, login_at:
 
 
 async def update_user_password_async(db: AsyncSession, user_id: int, password: str) -> None:
-    """异步更新用户密码。"""
+    """异步更新用户密码，同时让这个用户此前签发的所有 token 一起失效。
 
-    await db.execute(update(User).where(User.id == user_id).values(password=password))
+    用户改密码 / 短信重置密码 / 管理员重置密码都走这里。auth_version 用 SQL 表达式
+    `auth_version + 1` 原地自增而不是"读出来再加一写回去"，避免两个请求（比如用户自己
+    正在改密码、管理员同时把它强制下线）并发时其中一次自增被覆盖丢失。
+    """
+
+    await db.execute(
+        update(User)
+        .where(User.id == user_id)
+        .values(password=password, auth_version=User.auth_version + 1, password_changed_at=utcnow())
+    )
     await db.commit()
+
+
+async def bump_auth_version_async(db: AsyncSession, user_id: int) -> bool:
+    """不改密码，只让这个用户已签发的 token 全部失效（强制下线 / 退出所有设备）。
+
+    返回是否命中了用户（rowcount），调用方据此决定要不要 404。
+    """
+
+    result = await db.execute(
+        update(User).where(User.id == user_id).values(auth_version=User.auth_version + 1)
+    )
+    await db.commit()
+    return result.rowcount > 0

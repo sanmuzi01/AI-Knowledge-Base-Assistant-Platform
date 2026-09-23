@@ -11,6 +11,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from service import auth_service
+from service.password_policy import PasswordPolicyError
 
 
 def _fake_user(**overrides):
@@ -21,6 +22,7 @@ def _fake_user(**overrides):
         password=auth_service.hash_password("correct-horse"),
         age=20,
         is_disabled=0,
+        auth_version=0,
         selected_agent_id=None,
         roles=[],
         last_login_at=None,
@@ -92,7 +94,18 @@ class LoginTest(unittest.TestCase):
         self.assertFalse(result["is_admin"])
         self.assertTrue(db.committed)
         self.assertIsNotNone(user.last_login_at)
-        mock_token.assert_called_once_with({"user_id": 1, "username": "alice"})
+        mock_token.assert_called_once_with({"user_id": 1, "username": "alice", "ver": 0})
+
+    def test_login_token_carries_the_users_current_auth_version(self):
+        """auth_version 不是 0 时（改过密码 / 被强制下线过），新登录的 token 要带上最新版本号。"""
+        db = _FakeDb()
+        user = _fake_user(auth_version=3)
+        with patch.object(auth_service, "get_user_by_name", return_value=user), \
+             patch.object(auth_service, "create_access_token", return_value="fake.jwt.token") as mock_token, \
+             patch.object(auth_service, "role_names", return_value=["user"]), \
+             patch.object(auth_service, "current_user_payload", return_value={"is_admin": False}):
+            auth_service.login(db, "alice", "correct-horse")
+        mock_token.assert_called_once_with({"user_id": 1, "username": "alice", "ver": 3})
 
     def test_login_rejects_non_bcrypt_stored_password(self):
         """存量明文口令不再被接受：必须先跑 migrate_plaintext_passwords。"""
@@ -139,7 +152,7 @@ class RegisterTest(unittest.TestCase):
         db = _FakeDb()
         with patch.object(auth_service, "verify_register_code", return_value="13900000001"), \
              patch.object(auth_service, "get_user_by_name", return_value=_fake_user()):
-            result = auth_service.register(db, "alice", "pw123456", 22, "13900000001", "000000", accepted_terms=True)
+            result = auth_service.register(db, "alice", "pw123456789", 22, "13900000001", "000000", accepted_terms=True)
         self.assertEqual(result, {"message": "用户已经存在"})
 
     def test_register_rejects_duplicate_phone(self):
@@ -147,7 +160,7 @@ class RegisterTest(unittest.TestCase):
         with patch.object(auth_service, "verify_register_code", return_value="13900000001"), \
              patch.object(auth_service, "get_user_by_name", return_value=None), \
              patch.object(auth_service, "get_user_by_phone", return_value=_fake_user()):
-            result = auth_service.register(db, "bob", "pw123456", 22, "13900000001", "000000", accepted_terms=True)
+            result = auth_service.register(db, "bob", "pw123456789", 22, "13900000001", "000000", accepted_terms=True)
         self.assertEqual(result, {"message": "手机号已经注册"})
 
     def test_register_success_creates_user_and_consumes_code(self):
@@ -157,7 +170,7 @@ class RegisterTest(unittest.TestCase):
              patch.object(auth_service, "get_user_by_name", return_value=None), \
              patch.object(auth_service, "get_user_by_phone", return_value=None), \
              patch.object(auth_service, "create_user", return_value=new_user) as mock_create:
-            result = auth_service.register(db, "bob", "pw123456", 22, "13900000001", "000000", accepted_terms=True)
+            result = auth_service.register(db, "bob", "pw123456789", 22, "13900000001", "000000", accepted_terms=True)
 
         self.assertEqual(result["message"], "注册成功")
         self.assertEqual(result["user_id"], 2)
@@ -166,6 +179,32 @@ class RegisterTest(unittest.TestCase):
         self.assertEqual(mock_verify.call_count, 2)
         self.assertEqual(mock_verify.call_args_list[0].kwargs.get("consume"), False)
         self.assertEqual(mock_verify.call_args_list[1].kwargs.get("consume"), True)
+
+    def test_register_rejects_weak_password_before_touching_the_database(self):
+        """密码策略检查放在最前面：太弱的密码连验证码校验、查库都不会走到。"""
+        db = _FakeDb()
+        with patch.object(auth_service, "verify_register_code") as mock_verify, \
+             patch.object(auth_service, "get_user_by_name") as mock_get_user:
+            with self.assertRaises(HTTPException) as ctx:
+                auth_service.register(db, "bob", "123456", 22, "13900000001", "000000", accepted_terms=True)
+        self.assertEqual(ctx.exception.status_code, 400)
+        mock_verify.assert_not_called()
+        mock_get_user.assert_not_called()
+
+    def test_register_rejects_password_equal_to_username(self):
+        # 用户名也要够 10 位，否则会先被"密码太短"挡住，测不到"等于用户名"这条规则
+        db = _FakeDb()
+        with self.assertRaises(HTTPException) as ctx:
+            auth_service.register(db, "bob1234567", "bob1234567", 22, "13900000001", "000000", accepted_terms=True)
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("用户名", ctx.exception.detail)
+
+    def test_register_rejects_password_equal_to_phone(self):
+        db = _FakeDb()
+        with self.assertRaises(HTTPException) as ctx:
+            auth_service.register(db, "bob", "13900000001", 22, "13900000001", "000000", accepted_terms=True)
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("手机号", ctx.exception.detail)
 
 
 class ChangePasswordTest(unittest.TestCase):
@@ -189,8 +228,35 @@ class ChangePasswordTest(unittest.TestCase):
         with patch.object(auth_service, "update_user_password") as mock_update:
             result = auth_service.change_password(db, user, "correct-horse", "new-password")
         self.assertEqual(result, {"message": "修改成功"})
+        # 提交（以及 auth_version+1 让旧 token 失效）现在发生在 update_user_password 内部，
+        # change_password 自己不再重复 commit，所以这里只断言调用参数，不再断言 db.committed
         mock_update.assert_called_once()
-        self.assertTrue(db.committed)
+        called_db, called_user, called_hash = mock_update.call_args[0]
+        self.assertIs(called_db, db)
+        self.assertIs(called_user, user)
+        self.assertTrue(auth_service.password_matches("new-password", called_hash))
+
+    def test_change_password_rejects_weak_new_password(self):
+        db = _FakeDb()
+        user = _fake_user()
+        result = auth_service.change_password(db, user, "correct-horse", "short")
+        self.assertIn("长度", result["message"])
+        self.assertFalse(db.committed)
+
+    def test_change_password_rejects_new_password_equal_to_username(self):
+        # 用户名长度也要够 10 位，否则会先被"密码太短"挡住，测不到"等于用户名"这条规则
+        db = _FakeDb()
+        user = _fake_user(name="alice12345")
+        result = auth_service.change_password(db, user, "correct-horse", user.name)
+        self.assertIn("用户名", result["message"])
+
+    def test_change_password_policy_runs_before_the_same_as_old_check(self):
+        """先判断"这个密码本身够不够格"，再判断"是不是跟旧密码一样"——弱密码即使凑巧等于旧密码，
+        提示也应该是"太弱"，而不是掩盖成"和旧密码相同"。"""
+        db = _FakeDb()
+        user = _fake_user(password=auth_service.hash_password("123456"))
+        result = auth_service.change_password(db, user, "123456", "123456")
+        self.assertIn("长度", result["message"])
 
 
 if __name__ == "__main__":

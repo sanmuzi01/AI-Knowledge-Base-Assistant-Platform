@@ -36,18 +36,10 @@ def _touch_user_seen(user_id: int) -> bool:
         db.close()
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    """
-    解析 token，返回当前登录用户
-    :raises HTTPException: token 无效/过期/用户不存在时抛 401
-    :return: User 对象
-    """
-    # 从 HTTPBearer 返回的凭证中提取 token 字符串
+def _decode_payload(credentials: HTTPAuthorizationCredentials) -> dict:
+    """解析 Bearer Token，返回完整 payload（含 user_id、ver）。"""
+
     token = credentials.credentials
-    # 1. 解析 token
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(
@@ -55,15 +47,43 @@ def get_current_user(
             detail="token 无效或已过期",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # 2. 从 payload 取 user_id
-    user_id = payload.get("user_id")
-    if user_id is None:
+    if payload.get("user_id") is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="token 中缺少用户信息",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # 3. 查询用户是否存在（防止用户已注销但 token 还有效）
+    return payload
+
+
+def _check_session_version(user, payload: dict) -> None:
+    """token 里签发时的版本号要和用户当前的版本号一致，否则是一个"已经失效"的旧 token。
+
+    改密码 / 管理员重置密码 / 管理员强制下线 / 用户"退出所有设备" 都会让 auth_version + 1，
+    在此之前签发的 token（ver 还是旧值）从这一刻起全部失效，不需要等自然过期。
+    """
+    token_ver = payload.get("ver", 0)
+    user_ver = getattr(user, "auth_version", 0) or 0
+    if token_ver != user_ver:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态已失效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    """
+    解析 token，返回当前登录用户
+    :raises HTTPException: token 无效/过期/用户不存在/已被吊销时抛 401
+    :return: User 对象
+    """
+    payload = _decode_payload(credentials)
+    user_id = payload.get("user_id")
+    # 查询用户是否存在（防止用户已注销但 token 还有效）
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(
@@ -71,6 +91,7 @@ def get_current_user(
             detail="用户不存在",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _check_session_version(user, payload)
     if getattr(user, "is_disabled", 0) == 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -81,29 +102,7 @@ def get_current_user(
     if not last_seen_at or (now - last_seen_at).total_seconds() > 30:
         if _touch_user_seen(user.id):
             db.refresh(user)
-    # 4. 返回用户对象
     return user
-
-
-def _user_id_from_credentials(credentials: HTTPAuthorizationCredentials) -> int:
-    """解析 Bearer Token 并返回 user_id。"""
-
-    token = credentials.credentials
-    payload = decode_access_token(token)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="token 无效或已过期",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    user_id = payload.get("user_id")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="token 中缺少用户信息",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user_id
 
 
 async def get_current_user_async(
@@ -112,14 +111,15 @@ async def get_current_user_async(
 ):
     """异步当前用户依赖。"""
 
-    user_id = _user_id_from_credentials(credentials)
-    user = await get_user_by_id_async(async_db, user_id)
+    payload = _decode_payload(credentials)
+    user = await get_user_by_id_async(async_db, payload.get("user_id"))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _check_session_version(user, payload)
     if getattr(user, "is_disabled", 0) == 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

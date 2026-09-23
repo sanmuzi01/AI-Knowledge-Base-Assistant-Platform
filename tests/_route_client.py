@@ -57,12 +57,34 @@ def make_client():
     return TestClient(app)
 
 
-def create_user(name_prefix: str, password: str = "Passw0rd!", *, admin: bool = False) -> dict:
+def mint_token(uid: int) -> str:
+    """按数据库里这个用户当前的 auth_version 签发一个新 token。
+
+    改密码 / 强制下线之后重新登录，或者测试"新 token 能正常用"，都用这个而不是自己拼 payload——
+    否则很容易忘记带上最新的 ver，测出来的其实不是真实场景。
+    """
+    from models.init_db import SessionLocal
+    from models.user_dao import get_user_by_id
+    from service.auth import create_access_token
+
+    db = SessionLocal()
+    try:
+        user = get_user_by_id(db, uid)
+        ver = getattr(user, "auth_version", 0) or 0
+    finally:
+        db.close()
+    return create_access_token({"user_id": uid, "ver": ver})
+
+
+def auth_headers(uid: int) -> dict:
+    return {"Authorization": f"Bearer {mint_token(uid)}"}
+
+
+def create_user(name_prefix: str, password: str = "Passw0rd!Secure", *, admin: bool = False) -> dict:
     """建一个测试用户，返回 {id, name, password, headers}。"""
     from models.init_db import SessionLocal
     from models.user_dao import create_user as dao_create_user
     from service.auth_service import hash_password
-    from service.auth import create_access_token
 
     name = f"rt_{name_prefix}_{_SUFFIX}"[:20]
     db = SessionLocal()
@@ -72,12 +94,11 @@ def create_user(name_prefix: str, password: str = "Passw0rd!", *, admin: bool = 
     finally:
         db.close()
     _created_user_ids.append(uid)
-    token = create_access_token({"user_id": uid})
     return {
         "id": uid,
         "name": name,
         "password": password,
-        "headers": {"Authorization": f"Bearer {token}"},
+        "headers": auth_headers(uid),
         "admin": admin,
     }
 

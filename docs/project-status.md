@@ -5,6 +5,13 @@
 ## 已完成能力
 
 - 用户系统：注册、登录、当前用户、修改密码、账号禁用。
+  **认证安全（token 版本号）**：`user.auth_version`，JWT 里带着签发时的版本号（`ver`），鉴权时两边一对，
+  不相等直接 401「登录状态已失效」——不用等 token 自然过期。改密码 / 短信重置密码 / 管理员重置密码
+  （`models/user_async_dao.py::update_user_password_async`，用 `auth_version = auth_version + 1` 原地自增，
+  和"强制下线"并发也不会丢更新）、管理员强制下线（`POST /admin/users/{id}/revoke-sessions`）、
+  用户自己退出所有设备（`POST /user/logout-all`）都会让旧 token 立即失效；普通"退出登录"不牵扯这套，
+  前端删本地 token 就够了。统一密码策略 `service/password_policy.py`（10~72 位、不等于用户名/手机号、
+  不是常见弱密码、不能和旧密码相同），注册、改密码、找回密码、管理员重置密码四个入口共用同一份判断。
 - 管理员后台：用户管理、任务管理、使用统计、操作日志、系统诊断。
 - Agent 管理：创建、编辑、复制、选择、删除预检、调试。
 - 聊天系统：同步聊天、SSE 流式聊天、会话管理、消息历史、会话导出。
@@ -139,7 +146,7 @@
 - `python -m compileall` 通过。
 - 前端 `npm run build`（含 vue-tsc 类型检查）通过。
 - FastAPI 应用导入与路由生成通过。
-- `python -m unittest`：504 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
+- `python -m unittest`：681 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
   quick_connect、chunk_size、RAG 节省统计、web_query 联网检索、工作台模板、计费配额、
   配额阈值提醒、告警推送、新增 Agent 工具、报表导出、知识库 OCR/Excel、LLM 客户端 SSRF
   防护、Agent 流水线、LangChain base_url 拼接测试，需本地 / CI MySQL）。

@@ -6,6 +6,7 @@ from models.user_dao import get_user_by_name, get_user_by_phone, create_user, up
 from sqlalchemy.exc import IntegrityError
 from service.auth import create_access_token
 from service.admin_service import current_user_payload, role_names
+from service.password_policy import PasswordPolicyError, check_password_policy
 from service.phone_verification_service import verify_register_code
 import time
 from utils.logger_handler import logger, log_user_behavior
@@ -70,10 +71,11 @@ def login(db, name: str, password: str):
     user.last_seen_at = now
     db.commit()
     db.refresh(user)
-    # 3. 登录成功，生成 token
+    # 3. 登录成功，生成 token（带上当前的 token 版本号，改密码/强制下线后旧 token 会因为版本号不一致而失效）
     token_data = {
         "user_id": user.id,
-        "username": user.name
+        "username": user.name,
+        "ver": getattr(user, "auth_version", 0) or 0,
     }
     access_token = create_access_token(token_data)
     # 4. 返回结果（带 token）
@@ -101,6 +103,12 @@ def register(db, name: str, password: str, age: int, phone: str, sms_code: str, 
         logger.warning("注册失败-保留用户名: name=admin")
         log_user_behavior(0, "register", "fail", start)
         return {"message": "admin 为系统保留账号，不能注册"}
+    try:
+        check_password_policy(password, username=name, phone=phone)
+    except PasswordPolicyError as e:
+        logger.warning(f"注册失败-密码不符合策略: name={name}")
+        log_user_behavior(0, "register", "fail", start)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     phone = verify_register_code(phone, sms_code, consume=False)
     # 1. 查询用户是否存在
     user = get_user_by_name(db,name)
@@ -134,13 +142,16 @@ def register(db, name: str, password: str, age: int, phone: str, sms_code: str, 
 
 
 def change_password(db, user, old_password: str, new_password: str):
-    """当前登录用户修改密码。"""
+    """当前登录用户修改密码。成功后旧 token 全部失效（见 update_user_password）。"""
     if not password_matches(old_password, user.password):
         logger.warning(f"修改密码失败-旧密码错误: user_id={user.id}")
         return {"message": "旧密码错误"}
+    try:
+        check_password_policy(new_password, username=user.name, phone=getattr(user, "phone", "") or "")
+    except PasswordPolicyError as e:
+        return {"message": str(e)}
     if old_password == new_password:
         return {"message": "新密码不能和旧密码相同"}
     update_user_password(db, user, hash_password(new_password))
-    db.commit()
     logger.info(f"修改密码成功: user_id={user.id}")
     return {"message": "修改成功"}

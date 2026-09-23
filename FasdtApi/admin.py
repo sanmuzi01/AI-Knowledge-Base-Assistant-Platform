@@ -8,6 +8,7 @@ from models.init_db import User
 from models.async_db import get_async_db
 from service import admin_async_service, admin_service
 from service.dependencies import get_current_admin_user_async
+from service.password_policy import MAX_LENGTH as PW_MAX_LENGTH, MIN_LENGTH as PW_MIN_LENGTH
 from service import operation_log_async_service
 from utils.csv_export import csv_response, rows_to_csv
 from utils.timeutil import utcnow
@@ -24,7 +25,8 @@ class UserStatusUpdate(BaseModel):
 
 
 class UserPasswordUpdate(BaseModel):
-    new_password: str = Field(min_length=6)
+    # 长度只是形状检查，能不能用由 service.password_policy 判断
+    new_password: str = Field(min_length=PW_MIN_LENGTH, max_length=PW_MAX_LENGTH)
 
 
 @router.get("/me", summary="查询当前管理员信息")
@@ -100,6 +102,22 @@ async def admin_reset_user_password(
     if not result:
         raise NotFound("用户不存在")
     return result
+
+
+@router.post("/users/{user_id}/revoke-sessions", summary="强制下线：让该用户已签发的所有 token 立即失效")
+async def admin_revoke_user_sessions(
+        user_id: int,
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_admin_user_async),
+):
+    """不改密码，只让该用户当前所有已登录的设备立即失效，用户下次请求会收到 401 要求重新登录。
+
+    典型场景：怀疑某个账号的 token 泄露、员工离职当天要立刻收权限——不用等 token 自然过期。
+    """
+    ok = await admin_async_service.force_logout_user(async_db, user_id)
+    if not ok:
+        raise NotFound("用户不存在")
+    return {"message": "已强制下线，该用户所有已登录设备下次请求都需要重新登录"}
 
 
 @router.delete("/users/{user_id}", summary="删除用户")

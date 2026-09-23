@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from service.exceptions import InvalidInput
 from pydantic import BaseModel,Field
 from service import auth_async_service
+from service.password_policy import MAX_LENGTH as PW_MAX_LENGTH, MIN_LENGTH as PW_MIN_LENGTH
 from service.phone_verification_service import normalize_phone
 from service.phone_verification_async_service import async_send_register_code, async_send_verification_code
 from models.async_db import get_async_db
@@ -30,7 +31,8 @@ class LoginUser(BaseModel):
     password:str= Field(min_length=6)
 class RegisterUser(BaseModel):
     name: str = Field(min_length=3, max_length=20)
-    password: str = Field(min_length=6)
+    # 长度只是形状检查，能不能用（不等于用户名/手机号、不是常见弱密码）由 service.password_policy 判断
+    password: str = Field(min_length=PW_MIN_LENGTH, max_length=PW_MAX_LENGTH)
     age: int = Field(ge=0, le=150)
     phone: str = Field(min_length=11, max_length=20)
     sms_code: str = Field(min_length=6, max_length=6)
@@ -41,13 +43,13 @@ class SendRegisterCodeRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=6, max_length=72)
+    new_password: str = Field(min_length=PW_MIN_LENGTH, max_length=PW_MAX_LENGTH)
 
 
 class ResetPasswordRequest(BaseModel):
     phone: str = Field(min_length=11, max_length=20)
     sms_code: str = Field(min_length=6, max_length=6)
-    new_password: str = Field(min_length=6, max_length=72)
+    new_password: str = Field(min_length=PW_MIN_LENGTH, max_length=PW_MAX_LENGTH)
 
 
 def _limit_error(exc: LimitExceeded) -> HTTPException:
@@ -332,3 +334,17 @@ async def change_password(
     if result["message"] != "修改成功":
         raise InvalidInput(result["message"])
     return result
+
+
+@router.post("/logout-all", summary="退出所有设备")
+async def logout_all_devices(
+        async_db=Depends(get_async_db),
+        current_user: User = Depends(get_current_user_async),
+):
+    """让当前用户已签发的所有 token（含这一台设备正在用的这个）立即失效，下次访问都要重新登录。
+
+    普通"退出登录"不用这个接口，前端直接丢弃本地 token 就够了；这个接口是给"我怀疑账号在别的
+    设备上也登录着"这种场景用的。
+    """
+    await auth_async_service.logout_all_devices(async_db, current_user.id)
+    return {"message": "已退出所有设备，请重新登录"}

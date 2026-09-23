@@ -1,3 +1,4 @@
+from utils.timeutil import utcnow
 from models.init_db import User
 from typing import Optional, List
 # 根据id查询
@@ -23,9 +24,11 @@ def create_user(db, name: str, password: str, age: int, phone: str = None) -> Us
     db.refresh(user)
     return user
 
-# 修改用户密码
+# 修改用户密码：同时让这个用户此前签发的所有 token 一起失效（auth_version + 1）
 def update_user_password(db, user: User, new_password: str) -> User:
     user.password = new_password
+    user.auth_version = (getattr(user, "auth_version", 0) or 0) + 1
+    user.password_changed_at = utcnow()
     db.commit()
     db.refresh(user)
     return user

@@ -88,6 +88,10 @@ class User(Base):
     is_disabled = Column(Integer, default=0)
     last_login_at = Column(DateTime, nullable=True)
     last_seen_at = Column(DateTime, nullable=True)
+    # token 版本号：改密码/管理员重置密码/管理员强制下线/用户"退出所有设备"都会 +1；
+    # JWT 里带着签发时的版本号，鉴权时两边一对，不相等就是旧 token，直接拒绝（见 service/dependencies.py）。
+    auth_version = Column(Integer, nullable=False, default=0, server_default="0")
+    password_changed_at = Column(DateTime, nullable=True)
     selected_agent_id = Column(Integer,ForeignKey("agent.id", name="fk_user_selected_agent"),nullable=True)    #关联关系
     roles:Mapped[List["Role"]]=relationship(secondary=association_table,lazy=False,back_populates="users")
     #1对1的关系
@@ -840,6 +844,11 @@ def _run_migrations():
          "ALTER TABLE knowledge ADD COLUMN chunk_size INT NULL COMMENT '用户自选切块大小(字符)，NULL=用默认'"),
         ("user_widgets", "last_alert_level",
          "ALTER TABLE user_widgets ADD COLUMN last_alert_level VARCHAR(10) NULL COMMENT 'ok/warn/alert，外部告警推送去重用'"),
+        # ---- 认证安全：token 版本号 ----
+        ("user", "auth_version",
+         "ALTER TABLE `user` ADD COLUMN auth_version INT NOT NULL DEFAULT 0 COMMENT 'token 版本号，改密码/强制下线时+1'"),
+        ("user", "password_changed_at",
+         "ALTER TABLE `user` ADD COLUMN password_changed_at DATETIME NULL COMMENT '最近一次修改密码时间'"),
     ]
     with engine.connect() as conn:
         for table, col, ddl in migrations:

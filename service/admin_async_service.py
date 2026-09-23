@@ -26,6 +26,7 @@ from models.init_db import (
     Skill,
     User,
 )
+from models.user_async_dao import bump_auth_version_async, update_user_password_async
 from service.admin_service import (
     ADMIN_ROLE_NAMES,
     ONLINE_WINDOW_SECONDS,
@@ -33,7 +34,8 @@ from service.admin_service import (
     _user_admin_payload,
     current_user_payload,
 )
-from service.auth_service import hash_password
+from service.auth_service import hash_password, password_matches
+from service.password_policy import PasswordPolicyError, check_not_same_as_old, check_password_policy
 
 
 async def _count(db, model) -> int:
@@ -328,16 +330,24 @@ async def set_user_disabled(db, user_id: int, disabled: bool, operator_id: int) 
 
 
 async def reset_user_password(db, user_id: int, new_password: str) -> Dict:
+    """管理员强制重置用户密码：同样走统一密码策略，成功后该用户旧 token 全部失效。"""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
     if not user:
         return {}
-    if len(new_password or "") < 6:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="密码至少需要 6 位")
-    user.password = await run_in_threadpool(hash_password, new_password)
-    await db.flush()
-    await db.commit()
+    try:
+        check_password_policy(new_password, username=user.name, phone=getattr(user, "phone", "") or "")
+        await run_in_threadpool(check_not_same_as_old, new_password, user.password, password_matches)
+    except PasswordPolicyError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    hashed = await run_in_threadpool(hash_password, new_password)
+    await update_user_password_async(db, user.id, hashed)
     return {"message": "密码已重置", "user_id": user.id}
+
+
+async def force_logout_user(db, user_id: int) -> bool:
+    """管理员强制下线：不改密码，只让该用户已签发的所有 token 立即失效。返回用户是否存在。"""
+    return await bump_auth_version_async(db, user_id)
 
 
 async def list_knowledge_spaces(db, limit: int = 500, offset: int = 0) -> Dict:
