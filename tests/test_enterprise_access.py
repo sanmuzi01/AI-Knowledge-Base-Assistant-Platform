@@ -3,18 +3,18 @@
 
 不经过 HTTP 层——这一步（Phase 3B 第 2 步）本来就还没往任何路由上接，见
 docs/enterprise-rbac-plan.md 第 3 节的说明。
+
+知识库空间的权限判断不在这个文件里：那部分复用的是已有的
+service/access_control.py（见 tests/test_access_control_team_admin.py），
+不是 enterprise_access.py 自己的逻辑——这里只测真正新增的 require_org_role/
+require_team_role。
 """
 import unittest
 
 from sqlalchemy import text
 
 from models.init_db import SessionLocal
-from service.enterprise_access import (
-    get_accessible_space_ids,
-    require_org_role,
-    require_space_permission,
-    require_team_role,
-)
+from service.enterprise_access import require_org_role, require_team_role
 from service.exceptions import NotFound, PermissionDenied
 from tests import _route_client as rc
 
@@ -35,14 +35,6 @@ def _add_org_member(db, org_id: int, user_id: int, code: str) -> None:
             "VALUES (:org, :uid, :role, 'active', NOW(), NOW())"
         ),
         {"org": org_id, "uid": user_id, "role": _role_id(db, "organization", code)},
-    )
-    db.commit()
-
-
-def _set_org_member_role(db, org_id: int, user_id: int, code: str) -> None:
-    db.execute(
-        text("UPDATE organization_members SET role_id=:role WHERE organization_id=:org AND user_id=:uid"),
-        {"role": _role_id(db, "organization", code), "org": org_id, "uid": user_id},
     )
     db.commit()
 
@@ -75,30 +67,6 @@ def _add_team_member(db, team_id: int, user_id: int, code: str) -> None:
             "VALUES (:t, :uid, :role, 'active', NOW(), NOW())"
         ),
         {"t": team_id, "uid": user_id, "role": _role_id(db, "team", code)},
-    )
-    db.commit()
-
-
-def _create_space(db, owner_user_id: int, name: str, team_id=None) -> int:
-    db.execute(
-        text(
-            "INSERT INTO knowledge_spaces (user_id, name, is_enabled, status, doc_count, chunk_count, "
-            "vector_migrated, team_id, created_at, updated_at) "
-            "VALUES (:uid, :name, 1, 'active', 0, 0, 1, :team_id, NOW(), NOW())"
-        ),
-        {"uid": owner_user_id, "name": name, "team_id": team_id},
-    )
-    db.commit()
-    return db.execute(text("SELECT id FROM knowledge_spaces WHERE name=:n ORDER BY id DESC LIMIT 1"), {"n": name}).scalar()
-
-
-def _add_space_member(db, space_id: int, user_id: int, role: str) -> None:
-    db.execute(
-        text(
-            "INSERT INTO space_members (space_id, user_id, role, created_at, updated_at) "
-            "VALUES (:s, :u, :r, NOW(), NOW())"
-        ),
-        {"s": space_id, "u": user_id, "r": role},
     )
     db.commit()
 
@@ -201,91 +169,6 @@ class RequireTeamRoleTest(unittest.TestCase):
         dep = require_team_role("member")
         with self.assertRaises(NotFound):
             dep(self.team_id, current_user=self._user_obj(self.other_org_user["id"]), db=self.db)
-
-
-@unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")
-class RequireSpacePermissionTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.db = SessionLocal()
-        cls.owner = rc.create_user("ea-space-owner")
-        cls.viewer = rc.create_user("ea-space-viewer")
-        cls.outsider = rc.create_user("ea-space-outsider")
-        cls.space_id = _create_space(cls.db, cls.owner["id"], "ea-test-space")
-        _add_space_member(cls.db, cls.space_id, cls.viewer["id"], "viewer")
-
-    @classmethod
-    def tearDownClass(cls):
-        # rc.cleanup() 按 owner 的 user_id 级联删 knowledge_spaces（连带 space_members），
-        # 不用在这里手动删——顺序也一样要它先跑，不然 space_members 会挡住。
-        cls.db.close()
-        rc.cleanup()
-
-    def _user_obj(self, uid):
-        from models.init_db import User
-        return self.db.get(User, uid)
-
-    def test_owner_passes_even_admin_requirement(self):
-        dep = require_space_permission("admin")
-        result = dep(self.space_id, current_user=self._user_obj(self.owner["id"]), db=self.db)
-        self.assertEqual(result.id, self.owner["id"])
-
-    def test_viewer_passes_viewer_requirement(self):
-        dep = require_space_permission("viewer")
-        result = dep(self.space_id, current_user=self._user_obj(self.viewer["id"]), db=self.db)
-        self.assertEqual(result.id, self.viewer["id"])
-
-    def test_viewer_fails_editor_requirement(self):
-        dep = require_space_permission("editor")
-        with self.assertRaises(PermissionDenied):
-            dep(self.space_id, current_user=self._user_obj(self.viewer["id"]), db=self.db)
-
-    def test_outsider_is_not_found(self):
-        dep = require_space_permission("viewer")
-        with self.assertRaises(NotFound):
-            dep(self.space_id, current_user=self._user_obj(self.outsider["id"]), db=self.db)
-
-
-@unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")
-class GetAccessibleSpaceIdsTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.db = SessionLocal()
-        cls.user = rc.create_user("ea-accessible")
-        cls.other = rc.create_user("ea-accessible-other")
-
-        cls.org_id = _create_org(cls.db, "ea-accessible-org", cls.user["id"])
-        _add_org_member(cls.db, cls.org_id, cls.user["id"], "member")
-        cls.team_id = _create_team(cls.db, cls.org_id, "ea-accessible-team", cls.user["id"])
-        _add_team_member(cls.db, cls.team_id, cls.user["id"], "admin")
-
-        cls.owned_space_id = _create_space(cls.db, cls.user["id"], "ea-owned-space")
-        cls.member_space_id = _create_space(cls.db, cls.other["id"], "ea-member-space")
-        _add_space_member(cls.db, cls.member_space_id, cls.user["id"], "viewer")
-        cls.team_admin_space_id = _create_space(
-            cls.db, cls.other["id"], "ea-team-admin-space", team_id=cls.team_id
-        )
-        cls.inaccessible_space_id = _create_space(cls.db, cls.other["id"], "ea-inaccessible-space")
-
-    @classmethod
-    def tearDownClass(cls):
-        # 顺序同前两个类：先 cleanup()（按 owner 级联删 knowledge_spaces/space_members，
-        # 也删 team_members/organization_members），teams/organizations 才没有子行引用。
-        rc.cleanup()
-        cls.db.execute(text("DELETE FROM teams WHERE id=:i"), {"i": cls.team_id})
-        cls.db.execute(text("DELETE FROM organizations WHERE id=:i"), {"i": cls.org_id})
-        cls.db.commit()
-        cls.db.close()
-
-    def test_three_sources_combined_without_duplicates_or_extras(self):
-        from models.init_db import User
-        user = self.db.get(User, self.user["id"])
-        ids = set(get_accessible_space_ids(self.db, user))
-        self.assertEqual(
-            ids,
-            {self.owned_space_id, self.member_space_id, self.team_admin_space_id},
-        )
-        self.assertNotIn(self.inaccessible_space_id, ids)
 
 
 if __name__ == "__main__":

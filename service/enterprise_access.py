@@ -1,4 +1,4 @@
-"""企业/部门/知识库空间的统一授权层（Phase 3B 第 2 步，docs/enterprise-rbac-plan.md 第 2 节）。
+"""企业/部门的统一授权层（Phase 3B 第 2 步，docs/enterprise-rbac-plan.md 第 2 节）。
 
 路由层直接 `Depends(require_org_role(...))` 这类工厂函数的返回值，不再各自手写
 "查一下 is_admin_user() 顶一下"这种权宜判断——那是本次改造要收敛掉的模式（见设计稿
@@ -7,10 +7,18 @@
 固定的校验顺序（设计稿 2.1 节，不因路由而变）：
     1. 是否属于该企业/部门（有效的 organization_members/team_members 行）—— 不通过 404
     2. 是否具有所需的角色等级 —— 不通过 403
-    3/4. 具体资源的访问权限、操作许可 —— 由 require_space_permission /
-         get_accessible_space_ids 或调用方自己的业务逻辑负责
 
-**这一步只落地这四个函数本身 + 单元测试，还没有接到任何路由上**——按设计稿第 3 节的
+**不含知识库空间的权限判断**：设计稿最初的草稿在这里重新实现了一套
+`require_space_permission`/`get_accessible_space_ids`，后来发现
+`service/access_control.py` 早就有 `get_owned_space[_async]`/`get_space_role[_async]`/
+`user_space_ids[_async]` 覆盖了完全一样的事情（owner + SpaceMember，"阶段6预留"接口），
+而且已经被 `service/knowledge_space/*` 全线在用——两套并存迟早会算出不一样的结果。
+已改成扩展 `service/access_control.py`（加"部门 team admin 也能看"这个新来源），
+不在这里重复一遍，见 [docs/enterprise-rbac-plan.md](../docs/enterprise-rbac-plan.md) 的
+执行记录。这里只留 `require_org_role`/`require_team_role`——这两个是真正新增的能力，
+之前没有任何模块做过组织/部门维度的判断。
+
+**这一步只落地这两个函数本身 + 单元测试，还没有接到任何路由上**——按设计稿第 3 节的
 模块清单逐个接入是下一步，接一个模块跑一遍那个模块的路由级测试，不是一次性全量替换。
 """
 from typing import Iterable, List, Optional
@@ -22,9 +30,6 @@ from sqlalchemy.orm import Session
 from models.init_db import User, get_db
 from service.dependencies import get_current_user
 from service.exceptions import NotFound, PermissionDenied
-
-_SPACE_ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
-_SPACE_OWNER_RANK = 99  # KnowledgeSpace.user_id（owner）视为高于 admin，见设计稿 2 节
 
 
 def _role_ranks(db: Session, scope: str, codes: Iterable[str]) -> List[int]:
@@ -139,66 +144,3 @@ def require_team_role(*roles: str):
         return current_user
 
     return _dep
-
-
-def require_space_permission(min_role: str):
-    """检查具体知识库空间的访问权限，依赖路由路径里的 `space_id` 参数。
-
-    owner（KnowledgeSpace.user_id）视为高于 admin，直接放行；否则按 SpaceMember.role
-    （viewer < editor < admin）跟 min_role 比等级。空间不存在或用户毫无关联 -> 404；
-    有关联但等级不够 -> 403。
-    """
-    if min_role not in _SPACE_ROLE_RANK:
-        raise ValueError(f"未知的空间角色: {min_role}，只能是 {sorted(_SPACE_ROLE_RANK)}")
-    min_rank = _SPACE_ROLE_RANK[min_role]
-
-    def _dep(
-        space_id: int,
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ) -> User:
-        owner_id = db.execute(
-            text("SELECT user_id FROM knowledge_spaces WHERE id = :sid"), {"sid": space_id}
-        ).scalar()
-        if owner_id is None:
-            raise NotFound("知识库空间不存在或无权限")
-        if owner_id == current_user.id:
-            return current_user
-
-        member_role = db.execute(
-            text(
-                "SELECT role FROM space_members WHERE space_id = :sid AND user_id = :uid"
-            ),
-            {"sid": space_id, "uid": current_user.id},
-        ).scalar()
-        user_rank = _SPACE_ROLE_RANK.get(member_role) if member_role else None
-        if user_rank is None:
-            raise NotFound("知识库空间不存在或无权限")
-        if user_rank < min_rank:
-            raise PermissionDenied("没有足够的空间权限")
-        return current_user
-
-    return _dep
-
-
-def get_accessible_space_ids(db: Session, user: User) -> List[int]:
-    """当前用户能看到哪些知识库空间 id，一次查出来。三个来源（见设计稿 2 节）：
-      1. 自己是 owner（KnowledgeSpace.user_id）
-      2. 自己在 SpaceMember 里命中（不论角色）
-      3. 自己是该空间所属部门的 team admin（即使不是这个空间的 SpaceMember）
-    """
-    rows = db.execute(
-        text(
-            "SELECT id FROM knowledge_spaces WHERE user_id = :uid "
-            "UNION "
-            "SELECT sm.space_id FROM space_members sm WHERE sm.user_id = :uid "
-            "UNION "
-            "SELECT ks.id FROM knowledge_spaces ks "
-            "JOIN team_members tm ON tm.team_id = ks.team_id "
-            "JOIN enterprise_role er ON tm.role_id = er.id "
-            "WHERE tm.user_id = :uid AND tm.status = 'active' "
-            "AND er.scope = 'team' AND er.code = 'admin'"
-        ),
-        {"uid": user.id},
-    ).all()
-    return [r[0] for r in rows]

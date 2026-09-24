@@ -136,30 +136,36 @@ async def get_owned_memory_async(
 # ---------------------------------------------------------------------------
 # 知识库空间（Knowledge Space）—— 隔离唯一入口。
 # get_owned_space / user_space_ids 只回答「能不能读到这个空间」：
-#   owner（knowledge_spaces.user_id）或 space_members 里有任意角色即可。
+#   owner（knowledge_spaces.user_id）、space_members 里有任意角色、或者是该空间所属
+#   部门（team_id）的 team admin（Phase 3B 接入，docs/enterprise-rbac-plan.md）即可。
 # 写权限（改空间 / 传文档 / 删）由 service 层再取 get_space_role + membership.can_*。
-# 阶段6 只改这里的实现，调用点不变。teams/organizations 暂不参与。
+# 阶段6/Phase 3B 只改这里的实现，调用点不变。
 # ---------------------------------------------------------------------------
 
 def get_owned_space(db, user_id: int, space_id: int):
-    """能读到该空间则返回 space，否则 None（owner 或任意角色成员）。"""
+    """能读到该空间则返回 space，否则 None（owner / 任意角色成员 / 所属部门的 team admin）。"""
     from models.knowledge_space_dao import get_space_by_id
     from models.space_member_dao import get_role
+    from models.enterprise_dao import is_team_admin_of_team
 
     space = get_space_by_id(db, space_id)
     if not space:
         return None
     if space.user_id == user_id:
         return space
-    return space if get_role(db, space_id, user_id) is not None else None
+    if get_role(db, space_id, user_id) is not None:
+        return space
+    return space if is_team_admin_of_team(db, user_id, space.team_id) else None
 
 
 def user_space_ids(db, user_id: int) -> set:
     from models.knowledge_space_dao import list_spaces_by_user
     from models.space_member_dao import list_space_ids_for_member
+    from models.enterprise_dao import list_space_ids_where_team_admin
 
     ids = {s.id for s in list_spaces_by_user(db, user_id)}
     ids.update(list_space_ids_for_member(db, user_id))
+    ids.update(list_space_ids_where_team_admin(db, user_id))
     return ids
 
 
@@ -167,43 +173,54 @@ def get_space_role(db, user_id: int, space_id: int):
     """当前用户对该空间的角色：owner / admin / editor / viewer / None。"""
     from models.knowledge_space_dao import get_space_by_id
     from models.space_member_dao import get_role
+    from models.enterprise_dao import is_team_admin_of_team
     from service.knowledge_space.membership import resolve_role
 
     space = get_space_by_id(db, space_id)
     if not space:
         return None
-    return resolve_role(user_id, space, get_role(db, space_id, user_id))
+    member_role = get_role(db, space_id, user_id)
+    is_team_admin = is_team_admin_of_team(db, user_id, space.team_id)
+    return resolve_role(user_id, space, member_role, is_team_admin=is_team_admin)
 
 
 async def get_owned_space_async(db, user_id: int, space_id: int):
     from models.knowledge_space_async_dao import get_owned_space_async as _owner_dao
     from models.space_member_dao import get_role_async
+    from models.enterprise_dao import is_team_admin_of_team_async
+    from models.knowledge_space_async_dao import get_space_by_id_async
 
     space = await _owner_dao(db, user_id, space_id)   # owner-only 快路径
     if space is not None:
         return space
-    if await get_role_async(db, space_id, user_id) is None:
-        return None
-    from models.knowledge_space_async_dao import get_space_by_id_async
-
-    return await get_space_by_id_async(db, space_id)
+    if await get_role_async(db, space_id, user_id) is not None:
+        return await get_space_by_id_async(db, space_id)
+    space = await get_space_by_id_async(db, space_id)
+    if space is not None and await is_team_admin_of_team_async(db, user_id, space.team_id):
+        return space
+    return None
 
 
 async def user_space_ids_async(db, user_id: int) -> set:
     from models.knowledge_space_async_dao import user_space_ids_async as _dao
     from models.space_member_dao import list_space_ids_for_member_async
+    from models.enterprise_dao import list_space_ids_where_team_admin_async
 
     ids = set(await _dao(db, user_id))
     ids.update(await list_space_ids_for_member_async(db, user_id))
+    ids.update(await list_space_ids_where_team_admin_async(db, user_id))
     return ids
 
 
 async def get_space_role_async(db, user_id: int, space_id: int):
     from models.knowledge_space_async_dao import get_space_by_id_async
     from models.space_member_dao import get_role_async
+    from models.enterprise_dao import is_team_admin_of_team_async
     from service.knowledge_space.membership import resolve_role
 
     space = await get_space_by_id_async(db, space_id)
     if space is None:
         return None
-    return resolve_role(user_id, space, await get_role_async(db, space_id, user_id))
+    member_role = await get_role_async(db, space_id, user_id)
+    is_team_admin = await is_team_admin_of_team_async(db, user_id, space.team_id)
+    return resolve_role(user_id, space, member_role, is_team_admin=is_team_admin)

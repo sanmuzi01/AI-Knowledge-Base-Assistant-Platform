@@ -2,7 +2,10 @@
 
 阶段1：只有 owner（space.user_id == 当前用户）。
 阶段6：owner 隐含（space.user_id），其余角色查 space_members(space_id, user_id, role)。
-调用方拿 role 后用 can_* 判定能不能写。teams/organizations 建了表但暂不参与可见性计算。
+Phase 3B（docs/enterprise-rbac-plan.md）接入部门管理员：该空间所属部门（team_id）的
+team admin 视同这个空间的 admin，即使不是这个空间的 space_members——即便不是这个空间
+的 SpaceMember，只要是所属部门的 team admin 也一样能管。
+调用方拿 role 后用 can_* 判定能不能写。
 """
 
 ROLES = ("owner", "admin", "editor", "viewer")
@@ -14,16 +17,21 @@ _DELETE_SPACE = {"owner"}
 _MANAGE_MEMBERS = {"owner", "admin"}
 
 
-def resolve_role(user_id: int, space, member_role: str | None = None) -> str | None:
+def resolve_role(
+    user_id: int, space, member_role: str | None = None, *, is_team_admin: bool = False
+) -> str | None:
     """当前用户对该空间的角色；无权返回 None。
 
-    member_role 由调用方从 space_members 查出后传入（DAO 隔离，本函数保持纯逻辑）。
+    member_role 由调用方从 space_members 查出后传入；is_team_admin 由调用方查
+    models/enterprise_dao.py 后传入（DAO 隔离，本函数保持纯逻辑）。
     """
     if space is None:
         return None
     if getattr(space, "user_id", None) == user_id:
         return "owner"
-    return member_role if member_role in ROLES else None
+    if member_role in ROLES:
+        return member_role
+    return "admin" if is_team_admin else None
 
 
 def at_least(role: str | None, minimum: str) -> bool:

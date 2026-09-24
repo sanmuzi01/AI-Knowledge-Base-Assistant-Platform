@@ -50,7 +50,8 @@ Team         = 部门（表名 teams，已存在，前端显示"部门"；不出
 
 三个开放问题已定：**单企业多部门**（复用已存在的 `organizations`，长期只有 1 行；
 `teams` 才是真正多行的单位）、角色**新建外键表**（不用字符串枚举）、部门管理员**能看到**
-部门下所有知识库空间（见 2.1 节 `get_accessible_space_ids` 第三个来源）。
+部门下所有知识库空间（见第 2 节——落地时改成了扩展 `service/access_control.py`，
+不是本节最初设计的 `get_accessible_space_ids`）。
 
 `organizations`/`teams` 已经存在（[models/init_db.py:367](../models/init_db.py:367)），
 现有列是 `id/name/owner_user_id/created_at`（teams 多一个 `organization_id`）——
@@ -170,29 +171,34 @@ KnowledgeSpace.team_id          → 已存在字段，同上，补 ForeignKey("t
 
 ## 2. 统一授权层
 
-新建 `service/enterprise_access.py`（暂定名，评审时可改），对外只暴露这几个函数，
-路由层直接 `Depends`，不再各自手写判断：
+**执行时更正过一次**：这一节最初设计了 `require_org_role`/`require_team_role`/
+`require_space_permission`/`get_accessible_space_ids` 四个函数，全部放进新建的
+`service/enterprise_access.py`。落地时发现后两个是重复造轮子——知识库空间的可见性
+判断早就有一份现成的、被 `service/knowledge_space/*` 全线在用的实现：
+`service/access_control.py` 的 `get_owned_space[_async]`/`get_space_role[_async]`/
+`user_space_ids[_async]`（本来就是"阶段6预留"要接团队/组织可见性的地方）。两套并存
+迟早会算出不一样的结果，所以改成**扩展这份已有实现**，不新写一份：
+
+- `service/knowledge_space/membership.py` 的 `resolve_role()` 加一个
+  `is_team_admin` 参数——部门 team admin 视同这个空间的 `admin`，即使不是这个空间的
+  `SpaceMember`。
+- `service/access_control.py` 的三对函数（同步+异步）在原有"owner / SpaceMember"
+  两个来源之外接入第三个来源，调用点（`space_async_service.py`/`document_service.py`
+  等）完全不用改。
+- 新增 `models/enterprise_dao.py` 提供 `is_team_admin_of_team[_async]`/
+  `list_space_ids_where_team_admin[_async]` 两个只读查询，`access_control.py` 是唯一
+  调用方。
+
+`service/enterprise_access.py` 最终只留下两个真正新增的函数（组织/部门维度的判断，
+之前没有任何模块做过，没有旧实现可扩展）：
 
 ```python
 def require_org_role(*roles: str):
-    """FastAPI 依赖工厂：当前用户必须是这个企业的成员，且角色在 roles 里，否则 403。"""
+    """FastAPI 依赖工厂：当前用户必须是这个企业的成员，且角色等级 >= roles 里最低要求的那个，否则 403。"""
 
 def require_team_role(*roles: str):
     """同上，范围换成部门；如果部门不属于当前用户所在企业，视为不存在（404，不是 403——
     不暴露"这个部门存在但你无权"这条信息）。"""
-
-def require_space_permission(min_role: str):
-    """检查具体知识库空间的 SpaceMember.role 是否满足最低要求（viewer < editor < admin），
-    owner（KnowledgeSpace.user_id）视为高于 admin。"""
-
-def get_accessible_space_ids(db, user) -> list[int]:
-    """给检索/列表接口用：当前用户能看到哪些知识库空间 id，一次查出来，不要在业务代码里
-    现算多种来源再拼 OR。三个来源（已定）：
-      1. 自己是 KnowledgeSpace.user_id（owner）
-      2. 自己在 SpaceMember 里命中（不论角色）
-      3. 自己在该空间所属 Team 的 team_members 里 role=admin
-         （部门管理员能看到部门下所有知识库空间，即使不是具体空间的 SpaceMember——已确认）
-    """
 ```
 
 ### 2.1 校验顺序（固定，不因路由而变）
@@ -224,7 +230,7 @@ def get_accessible_space_ids(db, user) -> list[int]:
 
 | 顺序 | 模块 | 涉及文件 | 路由数（规模参考） | 备注 |
 |---|---|---|---|---|
-| 1 | 知识库和文件下载 | `knowledge.py`、`knowledge_space.py`、`attachment_route.py` | 14 + 17 + 3 = 34 | 风险最高：文档下载直接触达内容，`get_accessible_space_ids` 先在这里落地 |
+| 1 | 知识库和文件下载 | `knowledge.py`、`knowledge_space.py`、`attachment_route.py` | 14 + 17 + 3 = 34 | 风险最高：文档下载直接触达内容——**已完成**，见第 7 节 |
 | 2 | Agent 及其知识库绑定 | `agent.py`、`agent_pipeline.py`、`agent_run.py` | 18 + 5 + 2 = 25 | Agent 绑定的空间必须是当前用户"可访问"的空间，不能绑定别企业/别部门的私有空间 |
 | 3 | Skill | `skill_route.py` | 25 | 创建/编辑/删除已经是平台管理员专属（见 [docs/testing.md](testing.md) Step 0 章节），这里主要是"官方 Skill 发布"要不要分部门维度，需要跟 Phase 3D 一起定 |
 | 4 | 模型配置 | `llm_config.py` | 6 | 要接住"企业统一模型配置"这条业务需求（Phase 3D），但访问权限先按 `require_org_role` 收紧 |
@@ -237,15 +243,14 @@ def get_accessible_space_ids(db, user) -> list[int]:
 |---|---|
 | 要不要做"多企业"数据模型？ | **单企业多部门**：保留 `Organization` 表（结构可扩展），但这次部署下长期只有 1 行；`Team` 是真正的多行单位。`require_org_role` 的"是否属于该企业"这一步照做，不跳过 |
 | `role` 用字符串还是外键表？ | **新建**：新增 `enterprise_role` 目录表，`organization_members`/`team_members` 用 `role_id` 外键，不用字符串枚举（见 1.2 节） |
-| 部门管理员能不能看到部门下所有空间？ | **能看到**：`get_accessible_space_ids` 第三个来源是"该空间所属 Team 的 team admin"，即使不是具体空间的 `SpaceMember`（见 2.1 节） |
+| 部门管理员能不能看到部门下所有空间？ | **能看到**：实现为 `service/access_control.py` 的第三个来源"该空间所属 Team 的 team admin"，即使不是具体空间的 `SpaceMember`（见第 2、7 节） |
 
 ## 5. 下一步
 
 设计、三个开放问题、Phase 3A 这个前置依赖都已经落地。剩下：
 1. 把 1.2 节的表结构落成 Alembic 迁移文件 + 1.5 节的数据回填脚本（含幂等性测试）。
-2. 授权层（第 2 节）先落地 `require_org_role`/`require_team_role`/`require_space_permission`/
-   `get_accessible_space_ids` 四个函数和它们自己的单元测试，再按第 3 节的顺序逐模块接入、
-   每接入一个模块跑一遍那个模块的路由级测试确认没有意外放宽或收紧权限。
+2. 授权层（第 2 节）先落地并测试，再按第 3 节的顺序逐模块接入、每接入一个模块跑一遍
+   那个模块的路由级测试确认没有意外放宽或收紧权限。
 
 这两步还没开始——Phase 3A 完成只是解除了阻塞，不代表自动接着做，等你确认再动手。
 
@@ -274,13 +279,42 @@ def get_accessible_space_ids(db, user) -> list[int]:
 
 689 个测试全绿。
 
-**第 2 步也做完了**（`service/enterprise_access.py`）：`require_org_role`/
-`require_team_role`/`require_space_permission`/`get_accessible_space_ids` 四个函数，
-校验顺序和 404/403 语义跟第 2 节设计一致；`require_org_role`/`require_team_role`
-按"等级 >= 最低要求"判断，不是精确匹配角色代码——要求 `"admin"` 时 `"owner"` 也能过，
-不用每个路由都把上级角色抄一遍。`tests/test_enterprise_access.py` 12 个真实 DB 测试
-覆盖：非成员 404、等级不够 403、更高等级放行、跨企业的部门视为不存在、
-owner 高于 admin、`get_accessible_space_ids` 三个来源的并集不重复不漏。
+**第 2 步也做完了**（`service/enterprise_access.py`）：落地时发现最初设计的
+`require_space_permission`/`get_accessible_space_ids` 跟已有的 `service/access_control.py`
+重复，改成扩展后者，详情和理由见第 2 节开头的更正说明。最终 `enterprise_access.py`
+只留 `require_org_role`/`require_team_role`（真正新增的组织/部门维度判断），
+校验顺序和 404/403 语义跟第 2 节设计一致；按"等级 >= 最低要求"判断，不是精确匹配
+角色代码——要求 `"admin"` 时 `"owner"` 也能过，不用每个路由都把上级角色抄一遍。
+`tests/test_enterprise_access.py`（组织/部门）+ `tests/test_access_control_team_admin.py`
+（知识库空间，同步+异步各测一遍）覆盖：非成员 404、等级不够 403、更高等级放行、
+跨企业的部门视为不存在、owner/SpaceMember 两条旧来源没被新加的第三条来源挤掉。
 
-这一步**还没接到任何路由上**——第 3 节的逐模块改造是下一个任务，还没开始，
-等确认再动手。
+## 7. 执行结果（模块 1：知识库和文件下载，2026-09-24）
+
+第 3 节改造清单的模块 1（`knowledge.py`/`knowledge_space.py`/`attachment_route.py`）
+做完了，路由文件本身**一行没改**——这三个文件的权限判断早就全部委托给
+`service/access_control.py`（`get_owned_space[_async]` 等），不是在路由层各自手写的。
+所以"接入"落在 `service/access_control.py` 自己身上（见第 2 节的更正说明），改完
+所有调用点自动生效：
+
+- `service/knowledge_space/membership.py`：`resolve_role()` 加 `is_team_admin` 参数。
+- `service/access_control.py`：`get_owned_space`/`get_space_role`/`user_space_ids`
+  三对函数（同步+异步）都接入"部门 team admin 也能看"这第三个来源。
+- `models/enterprise_dao.py`（新增）：`is_team_admin_of_team[_async]`/
+  `list_space_ids_where_team_admin[_async]`，`access_control.py` 是唯一调用方。
+- `tests/test_access_control_team_admin.py`：6 个真实 DB 测试，owner/SpaceMember 两条
+  旧来源 + team admin 新来源，同步异步各测一遍；部门普通成员（非 admin）确认不会
+  因为同部门就拿到空间权限。
+
+另外两个文件核实过之后确认不需要改，原因跟最初设计稿预想的不一样（设计稿写的时候
+没有真的读过这两个文件，核对后更正）：
+
+- `knowledge.py` 是**另一套更老的系统**——"Agent 私有知识库"（`Knowledge`/`agent_id`
+  维度，[service/access_control.py](../service/access_control.py) 的 `get_owned_knowledge`），
+  跟 `knowledge_spaces` 是两个不同的模型，从来只有 `user_id` 单人归属，没有空间/成员/
+  部门这层概念，团队可见性天然不适用。
+- `attachment_route.py` 是**聊天附件**（喂给 Skill 脚本用），跟知识库空间完全无关，
+  权限判断就是 `attachment_service.resolve(current_user.id, att_id)` 这种单人归属，
+  跟本次改造的对象不是一回事。
+
+702 个测试全绿。下一个模块（Agent 及其知识库绑定）还没开始，等确认再动手。
