@@ -1,13 +1,18 @@
-"""企业/部门成员关系的只读查询（Phase 3B，docs/enterprise-rbac-plan.md）。
+"""企业/部门成员关系的查询（Phase 3B，docs/enterprise-rbac-plan.md）。
 
-只服务一件事：knowledge_spaces 的可见性计算要不要把"部门管理员"算进去——
-service/access_control.py 是唯一调用方，别处不要直接查这几张表，避免以后
-"谁是部门管理员"的判定逻辑散落在多个地方。
+两类调用方：
+- service/access_control.py：knowledge_spaces 的可见性计算要不要把"部门管理员"算进去，
+  只读，别处不要直接查这几张表，避免"谁是部门管理员"的判定逻辑散落在多个地方。
+- service/auth_service.py / auth_async_service.py 的 register()：新用户自动加入默认企业。
 """
 from typing import List, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# 跟 scripts/backfill_default_organization.py 用的是同一个名字——那个脚本从这里导入，
+# 不要在两处各写一份，写歪了两边就对不上默认企业到底是哪一行。
+DEFAULT_ORG_NAME = "默认企业"
 
 _TEAM_ADMIN_OF_TEAM_SQL = (
     "SELECT 1 FROM team_members tm JOIN enterprise_role er ON tm.role_id = er.id "
@@ -37,6 +42,39 @@ def list_space_ids_where_team_admin(db, user_id: int) -> List[int]:
     return [r[0] for r in rows]
 
 
+def enroll_in_default_organization(db, user_id: int) -> None:
+    """新用户注册时自动加入默认企业（role=member）。
+
+    找不到默认企业（还没跑过 scripts/backfill_default_organization.py——全新部署、
+    CI、大部分测试库都是这样）就直接跳过，不抛异常：这是尽力而为的补全，不是注册
+    流程的硬依赖，找不到不代表注册应该失败。出错也不让调用方跟着回滚——注册本身
+    的事务不该被这一步拖累，独立 commit/rollback。
+    """
+    try:
+        org_id = db.execute(
+            text("SELECT id FROM organizations WHERE name=:n ORDER BY id LIMIT 1"),
+            {"n": DEFAULT_ORG_NAME},
+        ).scalar()
+        if org_id is None:
+            return
+        member_role_id = db.execute(
+            text("SELECT id FROM enterprise_role WHERE scope='organization' AND code='member'")
+        ).scalar()
+        if member_role_id is None:
+            return
+        db.execute(
+            text(
+                "INSERT INTO organization_members "
+                "(organization_id, user_id, role_id, status, created_at, updated_at) "
+                "VALUES (:org, :uid, :role, 'active', NOW(), NOW())"
+            ),
+            {"org": org_id, "uid": user_id, "role": member_role_id},
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 —— 补全失败不影响注册主流程
+        db.rollback()
+
+
 # ---------------- 异步 ----------------
 
 async def is_team_admin_of_team_async(db: AsyncSession, user_id: int, team_id: Optional[int]) -> bool:
@@ -49,3 +87,32 @@ async def is_team_admin_of_team_async(db: AsyncSession, user_id: int, team_id: O
 async def list_space_ids_where_team_admin_async(db: AsyncSession, user_id: int) -> List[int]:
     res = await db.execute(text(_SPACE_IDS_WHERE_TEAM_ADMIN_SQL), {"uid": user_id})
     return [row[0] for row in res.all()]
+
+
+async def enroll_in_default_organization_async(db: AsyncSession, user_id: int) -> None:
+    """同 enroll_in_default_organization，异步注册流程用。"""
+    try:
+        org_id = (
+            await db.execute(
+                text("SELECT id FROM organizations WHERE name=:n ORDER BY id LIMIT 1"),
+                {"n": DEFAULT_ORG_NAME},
+            )
+        ).scalar()
+        if org_id is None:
+            return
+        member_role_id = (
+            await db.execute(text("SELECT id FROM enterprise_role WHERE scope='organization' AND code='member'"))
+        ).scalar()
+        if member_role_id is None:
+            return
+        await db.execute(
+            text(
+                "INSERT INTO organization_members "
+                "(organization_id, user_id, role_id, status, created_at, updated_at) "
+                "VALUES (:org, :uid, :role, 'active', NOW(), NOW())"
+            ),
+            {"org": org_id, "uid": user_id, "role": member_role_id},
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 —— 补全失败不影响注册主流程
+        await db.rollback()

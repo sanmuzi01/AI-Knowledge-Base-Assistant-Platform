@@ -117,6 +117,8 @@ async def register(db, name: str, password: str, age: int, phone: str, sms_code:
         log_user_behavior(0, "register", "fail", start)
         return {"message": "用户名或手机号已经存在"}
 
+    from models.enterprise_dao import enroll_in_default_organization_async
+    await enroll_in_default_organization_async(db, new_user.id)
     await run_in_threadpool(verify_register_code, phone, sms_code, True)
     logger.info(f"注册成功: user_id={new_user.id}, name={name}")
     log_user_behavior(new_user.id, "register", "success", start)

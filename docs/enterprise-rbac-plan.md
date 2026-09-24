@@ -228,14 +228,14 @@ def require_team_role(*roles: str):
 计数得到的规模参考，用来定改造顺序和工作量，**不是逐条读过之后的审阅结论**——具体每个
 路由要不要加、加哪一层校验，要在改那个模块时单独过一遍，不能照这张表机械套用。
 
-| 顺序 | 模块 | 涉及文件 | 路由数（规模参考） | 备注 |
+| 顺序 | 模块 | 涉及文件 | 路由数（规模参考） | 结论 |
 |---|---|---|---|---|
-| 1 | 知识库和文件下载 | `knowledge.py`、`knowledge_space.py`、`attachment_route.py` | 14 + 17 + 3 = 34 | 风险最高：文档下载直接触达内容——**已完成**，见第 7 节 |
-| 2 | Agent 及其知识库绑定 | `agent.py`、`agent_pipeline.py`、`agent_run.py` | 18 + 5 + 2 = 25 | Agent 绑定的空间必须是当前用户"可访问"的空间，不能绑定别企业/别部门的私有空间 |
-| 3 | Skill | `skill_route.py` | 25 | 创建/编辑/删除已经是平台管理员专属（见 [docs/testing.md](testing.md) Step 0 章节），这里主要是"官方 Skill 发布"要不要分部门维度，需要跟 Phase 3D 一起定 |
-| 4 | 模型配置 | `llm_config.py` | 6 | 要接住"企业统一模型配置"这条业务需求（Phase 3D），但访问权限先按 `require_org_role` 收紧 |
-| 5 | 外部连接器 | `agent.py` 里的 `api-connectors` 路由（本次 Step 0 已加管理员/开关校验，见 [docs/testing.md](testing.md)） | 4 | Step 0 已经先做了一道粗粒度收紧；这里再叠加部门维度是 Phase 3D 的事，不用现在动 |
-| 6 | 后台任务、统计与审计 | `background_task.py`、`evaluation.py`、`rag_debug.py`、`admin.py` 里的统计/审计部分 | 5 + 8 + 6 + 21 | 优先扩展现成的 `KbAuditLog`，不新建一套审计表 |
+| 1 | 知识库和文件下载 | `knowledge.py`、`knowledge_space.py`、`attachment_route.py` | 14 + 17 + 3 = 34 | **已完成**，见第 7 节 |
+| 2 | Agent 及其知识库绑定 | `agent.py`、`agent_pipeline.py`、`agent_run.py` | 18 + 5 + 2 = 25 | **已确认不需要改代码**，见第 8 节——`agent_service._validate_space_ids` 早就调用 `access_control.user_space_ids`，模块 1 改完自动生效，补了一条真实路由测试验证 |
+| 3 | Skill | `skill_route.py` | 25 | **暂不动**：创建/编辑/删除已经是平台管理员专属（见 [docs/testing.md](testing.md) Step 0 章节）。"官方 Skill 按部门发布"是全新能力，不是收紧现有权限，属于 Phase 3D |
+| 4 | 模型配置 | `llm_config.py` | 6 | **确认不需要改**：现在是纯个人配置（`current_user` 自己的 Key），每个路由天然只碰自己的数据，没有"该不该挡住别人"这个问题；"企业统一模型配置"是全新的共享资源模型，属于 Phase 3D，到时候再加权限判断才有意义 |
+| 5 | 外部连接器 | `agent.py` 里的 `api-connectors` 路由 | 4 | **暂不动**：Step 0 已经做了管理员/开关粗粒度收紧（见 [docs/testing.md](testing.md)），部门维度是 Phase 3D 的事 |
+| 6 | 后台任务、统计与审计 | `background_task.py`、`evaluation.py`、`rag_debug.py`、`admin.py` 里的统计/审计部分 | 5 + 8 + 6 + 21 | **确认不需要改**：全是个人数据自查或已有管理员判断；`evaluation.py`/`rag_debug.py` 涉及 `space_id` 的路由已经通过模块 1 的 `access_control.py` 间接生效。组织/部门级审计要等 Phase 3D 有了真正的组织管理路由（建部门、加成员这些操作）才有东西可审计，`KbAuditLog` 到时候直接扩展，现在没有对象 |
 
 ## 4. 决策记录
 
@@ -317,4 +317,57 @@ def require_team_role(*roles: str):
   权限判断就是 `attachment_service.resolve(current_user.id, att_id)` 这种单人归属，
   跟本次改造的对象不是一回事。
 
-702 个测试全绿。下一个模块（Agent 及其知识库绑定）还没开始，等确认再动手。
+702 个测试全绿。
+
+## 8. 执行结果（模块 2-6 + 一个顺手挖出的真实缺口，2026-09-24）
+
+### 模块 2：Agent 及其知识库绑定 —— 确认不需要改代码
+
+`service/agent_service.py` 的 `_validate_space_ids()` 早就调用
+`service.access_control.user_space_ids`（校验要绑定的 `space_ids` 是不是当前用户能
+访问的空间）——这正是模块 1 改过的那个函数。也就是说模块 1 一改完，"部门管理员能把
+本部门的知识库空间绑给自己的 Agent"这条需求已经自动满足，不用再碰 `agent.py`/
+`agent_pipeline.py`/`agent_run.py` 一行代码。
+
+`tests/test_routes_isolation.py` 新增
+`test_agent_space_binding_allows_department_team_admin`：真实路由级测试，alice 是
+某部门的 team admin（不是那个空间的 SpaceMember），直接建 Agent 时绑 bob 建在这个部门下
+的知识库空间，验证走的通——不是只信"代码逻辑上应该行"，是真的跑一遍 HTTP 请求确认。
+
+### 模块 3-6：核实后确认现在都不需要改
+
+逐个读了 `skill_route.py`、`llm_config.py`、`agent.py` 的连接器路由、
+`background_task.py`/`evaluation.py`/`rag_debug.py` 之后的结论：这几个模块要么已经
+被模块 1 间接覆盖（`evaluation.py`/`rag_debug.py` 里带 `space_id` 的路由），要么本来
+就是纯个人数据、没有"该不该挡住别人"这个问题（`llm_config.py`、后台任务自查），要么
+真正要做的是全新的业务能力而不是收紧现有权限（Skill 按部门发布、企业统一模型配置、
+组织管理审计）——这些全部是 Phase 3D 的范围，不是"把已有权限改成企业感知"这件事
+能顺带做的。结论记录见第 3 节表格，不重复展开。
+
+### 顺手挖出的真实缺口：新用户注册没有自动入会
+
+核对模块 4 时想到一个问题："如果给 `llm_config.py` 之类的路由加 `require_org_role`，
+新注册的用户会不会因为不在 `organization_members` 里而被 404 挡住？"——查了一下
+`service/auth_service.py`/`auth_async_service.py` 的 `register()`，确认答案是**会**：
+`scripts/backfill_default_organization.py` 只覆盖了回填时已经存在的用户，注册流程
+从来没有让新用户加入默认企业这一步。如果不修，这个缺口现在还不影响任何路由（因为
+最终确认模块 3-6 都不需要挂 `require_org_role`），但只要以后任何一个路由挂上
+`require_org_role`，所有新注册用户都会被无声地挡在外面——这类"当下不触发、未来一定
+爆雷"的缺口，找到了不该留着，已经修：
+
+- `models/enterprise_dao.py` 新增 `enroll_in_default_organization[_async]`：注册成功
+  后自动把新用户加进默认企业（role=member）。找不到默认企业（全新部署、CI、大部分
+  测试库都是这样——还没跑过回填脚本）就静默跳过，不阻断注册；出错也独立
+  `rollback()`，不拖累注册本身的事务。
+- `service/auth_service.py`/`auth_async_service.py` 的 `register()`：`create_user()`
+  成功后调用它。
+- `scripts/backfill_default_organization.py` 的 `DEFAULT_ORG_NAME` 常量挪到
+  `models/enterprise_dao.py`，脚本改成从那里导入——两处各写一份名字迟早会对不上。
+- `tests/test_auth_default_org_enrollment.py`：6 个真实 DB 测试，同步/异步注册各测
+  一遍"注册成功后真的进了 organization_members"，加上 `enroll_in_default_organization`
+  本身的两个边界（默认企业不存在时静默跳过、重复调用不报错）。
+
+707 个测试全绿。至此，设计稿第 3 节的逐模块改造清单**全部有了结论**（完成或确认
+不需要改），Phase 3B 的路由接入工作告一段落。剩下的组织/部门管理相关的真正业务功能
+（建部门、加成员、企业统一模型配置、Skill 按部门发布等）都属于 Phase 3D，需要新的
+HTTP 路由，不是这次"给已有权限接上企业感知"能覆盖的范围。

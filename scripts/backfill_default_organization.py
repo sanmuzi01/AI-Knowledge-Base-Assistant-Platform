@@ -23,10 +23,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text  # noqa: E402
 
+from models.enterprise_dao import DEFAULT_ORG_NAME  # noqa: E402
 from models.init_db import SessionLocal, User  # noqa: E402
 from service.admin_service import is_admin_user  # noqa: E402
-
-DEFAULT_ORG_NAME = "默认企业"
 
 
 def _find_or_prepare_default_org(db) -> dict:

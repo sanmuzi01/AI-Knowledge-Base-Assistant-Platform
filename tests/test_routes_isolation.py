@@ -228,6 +228,57 @@ class RouteIsolationTest(unittest.TestCase):
             self.client.delete(f"/knowledge-spaces/{sid}", headers=self.alice["headers"])
         self.client.delete(f"/knowledge-spaces/{bob_space}", headers=self.bob["headers"])
 
+    def test_agent_space_binding_allows_department_team_admin(self):
+        """Phase 3B（docs/enterprise-rbac-plan.md）：alice 是某个部门的 team admin，
+        bob 的知识库空间挂在这个部门下——alice 虽然不是这个空间的 SpaceMember，也应该
+        能把它绑到自己的 Agent 上（校验路径跟上面一样，走 access_control.user_space_ids，
+        这条走的是它新加的第三个来源）。没有现成的路由能设置 team_id，直接建库行。
+        """
+        from models.init_db import EnterpriseRole, KnowledgeSpace, SessionLocal, Team, TeamMember
+
+        db = SessionLocal()
+        try:
+            team = Team(name=f"rt-bind-team-{self.alice['id']}", owner_user_id=self.bob["id"])
+            db.add(team)
+            db.commit()
+            team_id = team.id
+            admin_role_id = db.query(EnterpriseRole.id).filter_by(scope="team", code="admin").scalar()
+            db.add(TeamMember(team_id=team_id, user_id=self.alice["id"], role_id=admin_role_id, status="active"))
+            db.commit()
+
+            dept_space = KnowledgeSpace(user_id=self.bob["id"], name=f"rt-dept-space-{self.bob['id']}", team_id=team_id)
+            db.add(dept_space)
+            db.commit()
+            dept_space_id = dept_space.id
+        finally:
+            db.close()
+
+        try:
+            c = self.client.post(
+                "/agent",
+                json={"name": f"rt-dept-agent-{self.alice['id']}", "rag_enabled": 1,
+                      "space_ids": [dept_space_id]},
+                headers=self.alice["headers"],
+            )
+            self.assertEqual(c.status_code, 200, c.text)
+            agent_id = c.json()["agent_id"]
+            got = self.client.get(f"/agent/{agent_id}", headers=self.alice["headers"]).json()
+            self.assertEqual(got.get("space_ids"), [dept_space_id])
+            self.client.put(f"/agent/{agent_id}", json={"space_ids": []}, headers=self.alice["headers"])
+            self.client.delete(f"/agent/{agent_id}", headers=self.alice["headers"])
+        finally:
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                db.execute(text("DELETE FROM knowledge_spaces WHERE id=:i"), {"i": dept_space_id})
+                db.execute(text("DELETE FROM team_members WHERE team_id=:t"), {"t": team_id})
+                db.execute(text("DELETE FROM teams WHERE id=:t"), {"t": team_id})
+                db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
+
     # ---- 知识库调试台：越权检索 / 样例隔离 ----
 
     def test_rag_debug_console_isolation(self):

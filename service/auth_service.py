@@ -129,6 +129,8 @@ def register(db, name: str, password: str, age: int, phone: str, sms_code: str, 
         logger.warning(f"注册失败-并发冲突: name={name}, phone={phone}")
         log_user_behavior(0, "register", "fail", start)
         return {"message": "用户名或手机号已经存在"}
+    from models.enterprise_dao import enroll_in_default_organization
+    enroll_in_default_organization(db, new_user.id)
     verify_register_code(phone, sms_code, consume=True)
     logger.info(f"注册成功: user_id={new_user.id}, name={name}")
     log_user_behavior(new_user.id, "register", "success", start)
