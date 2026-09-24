@@ -146,8 +146,8 @@ npm run backend:worker
 | --- | --- |
 | `login.py` `admin.py` `background_task.py` `conversation_route.py` `agent_run.py` `memory.py` `llm_config.py` `web_monitor.py` | 已全量 async |
 | `agent.py` | 读接口 async；写接口（create/update/delete/clone/select）+ debug/dry-run 仍同步，`agent_service` 把 db/user 当同会话 ORM 对象改写 |
-| `chat.py` | history 等读接口 async；同步/流式对话走 `agent_runtime`（同步 ORM + 生成器），暂留同步。RAG 检索经 `search_entry.search_for_agent`（自带 Session，async 路径 `to_thread` 调用），不把同步 Session 带进流程。迁移方案见 `docs/agent-runtime-async-migration.md` |
-| `evaluation.py` | 端点 async；`/{agent}/rag` 的 db 同步走旧 `rag_service.async_search`；`/space/{id}/rag` 用 `run_for_space` —— 逐条 `to_thread(space_search.search_spaces)`，不带同步 Session 进端点 |
+| `chat.py` | 全量 async（`POST /chat/{id}` 与 `/stream` 都走 `get_async_db`）；`agent_runtime` 非流式/流式均已 async 化（阶段 0~4 完成），RAG 检索走 `search_for_agent_async`。见 `docs/agent-runtime-async-migration.md` |
+| `evaluation.py` | 端点全量 async（Phase 3 收尾）；`/{agent}/rag` 走 `rag_service.search_async`（原生 async，半异步的 `async_search` 已删除）；`/space/{id}/rag` 用 `run_for_space` —— 逐条 `to_thread(space_search.search_spaces)`；`/sets/*` 固定评估集 CRUD 也全量 async（`models/eval_async_dao.py`） |
 | `knowledge.py` | 列表 / 文档详情 / 片段 全量 async；检索 `async def` + `to_thread(search_entry.search_scoped)`，处理器不持有同步 Session；诊断 / 上传 / 入库 / 重建 仍走同步 RAG 管线 |
 | `knowledge_space.py` | 空间 CRUD 全量 async；`/health` `async def` + `to_thread(health_service.health_snapshot)`；文档上传/抓取/重建/启停/删除沿用 `knowledge_service` 同步 + 后台任务 |
 | `rag_debug.py` | 样例 CRUD / 导出全量 async；`/run` 端点 async + `to_thread(debug_service.run_retrieval)`（RAG 管线同步，不带同步 Session 进路由），可选 LLM 回答走 `llm_service.async_chat` |

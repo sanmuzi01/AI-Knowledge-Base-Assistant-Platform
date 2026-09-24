@@ -4,11 +4,15 @@
 一份可重复回归用的问题集，改完东西也没法知道效果是变好还是变差了。这一层把
 `rag_eval_service` 现成的打分引擎接上持久化：建一次问题集，之后随时重跑，
 每次都存一条运行快照，自动跟上一轮比对出回归/变好的问题。
+
+Phase 3 收尾（docs/sync-async-boundary.md）：整层改成 AsyncSession——
+`evaluate_rag_dataset` 已经切到 `rag_service.search_async`（原生 async，需要
+AsyncSession），这一层如果还传同步 Session 会直接类型不对，所以 DAO、路由跟着一起改。
 """
 import json
 from typing import Any, Dict, List, Optional
 
-from models import eval_dao
+from models import eval_async_dao as eval_dao
 from service.evaluation.rag_eval_service import evaluate_rag_dataset, run_for_space
 
 
@@ -24,7 +28,7 @@ def _set_to_dict(row) -> Dict[str, Any]:
     }
 
 
-def create_eval_set(
+async def create_eval_set(
         db, user_id: int, name: str, cases: List[Dict[str, Any]],
         *, agent_id: int = None, space_id: int = None, settings: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
@@ -34,33 +38,33 @@ def create_eval_set(
         raise ValueError("必须指定 agent_id 或 space_id 其中之一")
     if agent_id is not None and space_id is not None:
         raise ValueError("agent_id 和 space_id 只能二选一")
-    row = eval_dao.create_eval_set(
+    row = await eval_dao.create_eval_set_async(
         db, user_id, name, cases, agent_id=agent_id, space_id=space_id, settings=settings,
     )
-    db.commit()
+    await db.commit()
     return _set_to_dict(row)
 
 
-def list_eval_sets(
+async def list_eval_sets(
         db, user_id: int, *, agent_id: int = None, space_id: int = None,
 ) -> List[Dict[str, Any]]:
-    rows = eval_dao.list_eval_sets(db, user_id, agent_id=agent_id, space_id=space_id)
+    rows = await eval_dao.list_eval_sets_async(db, user_id, agent_id=agent_id, space_id=space_id)
     return [_set_to_dict(r) for r in rows]
 
 
-def get_eval_set(db, user_id: int, eval_set_id: int) -> Dict[str, Any]:
-    row = eval_dao.get_owned_eval_set(db, user_id, eval_set_id)
+async def get_eval_set(db, user_id: int, eval_set_id: int) -> Dict[str, Any]:
+    row = await eval_dao.get_owned_eval_set_async(db, user_id, eval_set_id)
     if not row:
         raise ValueError("评估集不存在或无权限")
     return _set_to_dict(row)
 
 
-def delete_eval_set(db, user_id: int, eval_set_id: int) -> None:
-    row = eval_dao.get_owned_eval_set(db, user_id, eval_set_id)
+async def delete_eval_set(db, user_id: int, eval_set_id: int) -> None:
+    row = await eval_dao.get_owned_eval_set_async(db, user_id, eval_set_id)
     if not row:
         raise ValueError("评估集不存在或无权限")
-    eval_dao.delete_eval_set(db, row)
-    db.commit()
+    await eval_dao.delete_eval_set_async(db, row)
+    await db.commit()
 
 
 def _diff_against_previous(
@@ -93,13 +97,13 @@ def _diff_against_previous(
 
 
 async def run_eval_set(db, user_id: int, eval_set_id: int) -> Dict[str, Any]:
-    row = eval_dao.get_owned_eval_set(db, user_id, eval_set_id)
+    row = await eval_dao.get_owned_eval_set_async(db, user_id, eval_set_id)
     if not row:
         raise ValueError("评估集不存在或无权限")
     cases = json.loads(row.cases_json)
     settings = json.loads(row.settings_json or "{}")
 
-    previous = eval_dao.get_latest_eval_run(db, eval_set_id)
+    previous = await eval_dao.get_latest_eval_run_async(db, eval_set_id)
     previous_report = json.loads(previous.report_json) if previous else None
 
     if row.space_id is not None:
@@ -118,8 +122,8 @@ async def run_eval_set(db, user_id: int, eval_set_id: int) -> Dict[str, Any]:
             faithfulness_judge_model=settings.get("faithfulness_judge_model"),
         )
 
-    run_row = eval_dao.create_eval_run(db, eval_set_id, report)
-    db.commit()
+    run_row = await eval_dao.create_eval_run_async(db, eval_set_id, report)
+    await db.commit()
 
     return {
         "run_id": run_row.id,
@@ -129,11 +133,11 @@ async def run_eval_set(db, user_id: int, eval_set_id: int) -> Dict[str, Any]:
     }
 
 
-def list_eval_runs(db, user_id: int, eval_set_id: int) -> List[Dict[str, Any]]:
-    row = eval_dao.get_owned_eval_set(db, user_id, eval_set_id)
+async def list_eval_runs(db, user_id: int, eval_set_id: int) -> List[Dict[str, Any]]:
+    row = await eval_dao.get_owned_eval_set_async(db, user_id, eval_set_id)
     if not row:
         raise ValueError("评估集不存在或无权限")
-    runs = eval_dao.list_eval_runs(db, eval_set_id)
+    runs = await eval_dao.list_eval_runs_async(db, eval_set_id)
     return [
         {
             "id": r.id,

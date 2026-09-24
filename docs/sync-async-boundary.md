@@ -63,7 +63,6 @@ RAG 检索走 `_kb_retrieve_async` → `search_for_agent_async`（原生 async�
 
 | 位置 | 现状 | 备注 |
 | --- | --- | --- |
-| `rag_service.async_search`（半异步：向量化 async，DAO 反查同步） | 仅 `rag_eval_service` 在用（`FasdtApi/evaluation.py` 还是 `get_db`）。聊天链路 + `FasdtApi/knowledge.py` 检索端点已迁到 `search_*_async`；退役 `async_search` 需连带 evaluation 路由一起 async 化 |
 | 知识库上传 / 入库 / 重建 / 诊断 | `async def` 端点 + 同步 `knowledge_service` + 后台任务 | 重活在同步 Worker，端点只做 ownership + 建任务行 |
 | 任务 Worker 主体 | 同步循环（`service/background_worker.py::run_once`） | 组件调度 tick 已是常驻 async loop |
 | service 层内部 `raise ValueError` 等 | 路由层已在 `except` 里翻译成领域异常 | 可随各模块迁移逐步替换为直接抛领域异常 |
@@ -74,9 +73,22 @@ RAG 检索走 `_kb_retrieve_async` → `search_for_agent_async`（原生 async�
    与上面「聊天执行」节）。过程分 5 批：死代码/去重 + 基线 → 下游 `*_async` 双胞胎 →
    非流式 `run_with_history_async` → 流式 `run_stream_with_history_async` → 删同步版收尾。
    顺带修了两个事务边界怪癖（失败运行不落库 / 记忆总结失败回滚整笔事务）。
-2. **RAG 检索彻底 async** —— 检索链路本体 + 消费方**完成**：`embedding_service._get_client_async` +
-   `aembed_query_async`、`knowledge_async_dao` 的 chunk / knowledge 反查、`space_search.search_spaces_async`、
-   `search_entry.*_async`；ChromaDB / rerank 封 `to_thread`。聊天链路（`agent_runtime._kb_retrieve_async`）
-   与 `FasdtApi/knowledge.py::search_knowledge` 都已切到原生 async（后者去掉了 `to_thread`）。
-   剩最后一根尾巴：evaluation 路由（`FasdtApi/evaluation.py`）async 化后即可退役 `async_search`。
+2. ~~**RAG 检索彻底 async**~~ **完成**（Phase 3 收尾，2026-09-24）：检索链路本体 + 消费方全部
+   迁完，最后一根尾巴——evaluation 路由（`FasdtApi/evaluation.py`，含 `/sets/*` 固定评估集
+   CRUD）——也已经切到 `get_async_db`。半异步的 `rag_service.async_search`（连带它专用的
+   `embedding_service.aembed_query`）已删除，`evaluate_rag_dataset` 改走原生 async 的
+   `rag_service.search_async`。新增 `models/eval_async_dao.py`（`eval_dao` 的异步双胞胎），
+   `service/evaluation/eval_set_service.py` 整层改成 AsyncSession。
+
+   顺手照着这条主线揪出一个真实的隐藏 bug：`llm_service.async_chat`/`async_chat_with_usage`
+   虽然是 `async def`，内部却调同步的 `get_api_config`（`db.query(...)`，AsyncSession 没有
+   这个方法）——但它俩的现存调用方（`memory_async_service.summarize_and_save_async`、
+   `user_profile_async_service`）传的全都是 AsyncSession！只要 `config_cache` 缓存没命中
+   就会直接 `AttributeError` 崩掉，不是理论风险。改成 `async_get_api_config` 后，唯一还在
+   传同步 Session 的调用方（`FasdtApi/rag_debug.py` 的 `/run` 端点）也顺带切到
+   `get_async_db`，两个函数现在跟所有调用方的假设才是一致的。
+
+   回归：`tests/test_eval_set_service.py`（8 个测试，AsyncSessionLocal 全流程）、
+   `tests/test_routes_isolation.py::test_agent_rag_eval_and_eval_sets_isolation`（真实
+   HTTP：agent 维度评估 + 固定评估集创建/列表/运行/历史/删除全流程 + 跨用户 404）。
 3. **写入链路 / Worker**：收益低、风险高，除非有明确性能需求，长期保持同步。

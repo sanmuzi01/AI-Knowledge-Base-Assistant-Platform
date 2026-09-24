@@ -6,6 +6,7 @@
 import os
 import unittest
 import uuid
+from unittest.mock import AsyncMock, patch
 
 from tests import _route_client as rc
 
@@ -356,6 +357,66 @@ class RouteIsolationTest(unittest.TestCase):
         )
 
         self.client.delete(f"/knowledge-spaces/{sid}", headers=h_a)
+
+    # ---- 评估：Agent 维度 RAG 评估 + 固定评估集 CRUD（Phase 3 收尾，全量 AsyncSession）----
+
+    def test_agent_rag_eval_and_eval_sets_isolation(self):
+        h_a, h_b = self.alice["headers"], self.bob["headers"]
+
+        c = self.client.post("/agent", json={"name": f"rt-eval-agent-{self.alice['id']}"}, headers=h_a)
+        self.assertEqual(c.status_code, 200, c.text)
+        agent_id = c.json()["agent_id"]
+
+        # 本人：过了归属校验，卡在向量化（没配 embedding Key）-> 200 或 400 都算过了这一关
+        mine = self.client.post(
+            f"/evaluation/{agent_id}/rag", json={"cases": [{"question": "年假几天"}], "top_k": 3}, headers=h_a
+        )
+        self.assertIn(mine.status_code, (200, 400), mine.text)
+
+        # 别人用 alice 的 agent_id -> 404（不泄露存在性）
+        theirs = self.client.post(
+            f"/evaluation/{agent_id}/rag", json={"cases": [{"question": "x"}]}, headers=h_b
+        )
+        self.assertEqual(theirs.status_code, 404, theirs.text)
+
+        # 固定评估集：创建时把 evaluate_rag_dataset 打桩掉，不依赖真实向量检索
+        with patch(
+            "service.evaluation.eval_set_service.evaluate_rag_dataset",
+            new_callable=AsyncMock,
+            return_value={"case_count": 1, "evaluated_retrieval_count": 1,
+                          "evaluated_faithfulness_count": 0,
+                          "metrics": {"hit_rate": 1.0, "recall": None,
+                                      "precision_at_k": None, "mrr": None, "faithfulness": None},
+                          "cases": [{"question": "年假几天", "hit": True}], "settings": {}},
+        ):
+            created = self.client.post(
+                "/evaluation/sets",
+                json={"name": f"rt-evalset-{self.alice['id']}", "agent_id": agent_id,
+                      "cases": [{"question": "年假几天"}]},
+                headers=h_a,
+            )
+            self.assertEqual(created.status_code, 200, created.text)
+            set_id = created.json()["id"]
+
+            # 别人看不到、跑不了、删不掉 -> 全部 404
+            self.assertEqual(self.client.get(f"/evaluation/sets/{set_id}", headers=h_b).status_code, 404)
+            self.assertEqual(self.client.post(f"/evaluation/sets/{set_id}/run", headers=h_b).status_code, 404)
+            self.assertEqual(self.client.delete(f"/evaluation/sets/{set_id}", headers=h_b).status_code, 404)
+
+            # 本人：列表能看到、跑一次、看历史
+            listed = self.client.get(f"/evaluation/sets?agent_id={agent_id}", headers=h_a).json()
+            self.assertIn(set_id, [s["id"] for s in listed])
+
+            run = self.client.post(f"/evaluation/sets/{set_id}/run", headers=h_a)
+            self.assertEqual(run.status_code, 200, run.text)
+            self.assertEqual(run.json()["report"]["metrics"]["hit_rate"], 1.0)
+
+            runs = self.client.get(f"/evaluation/sets/{set_id}/runs", headers=h_a).json()
+            self.assertEqual(len(runs), 1)
+
+            self.assertEqual(self.client.delete(f"/evaluation/sets/{set_id}", headers=h_a).status_code, 200)
+
+        self.client.delete(f"/agent/{agent_id}", headers=h_a)
 
     # ---- 知识库空间企业权限：成员分级 + 审计 + 管理员视角 ----
 

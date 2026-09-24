@@ -27,7 +27,7 @@ from utils.logger_handler import get_logger
 from utils.path_tool import get_abs_path
 # 导入 RAG 底层两层能力
 from service.rag.embedding_service import embed_texts,embed_query
-from service.rag.embedding_service import aembed_query, aembed_query_async
+from service.rag.embedding_service import aembed_query_async
 from service.rag.vector_store_service import (add_vectors,search_similar,delete_vectors_by_knowledge,space_collection_key)
 # 导入 DAO（4层架构：Service层只调DAO，不直接碰 ORM）
 from models.knowledge_dao import (
@@ -598,22 +598,6 @@ def _build_search_results(
         item["file_name"] = knowledge.file_name if knowledge else ""
         item["file_type"] = knowledge.file_type if knowledge else ""
     return final
-
-
-async def async_search(
-        db, user_id: int, agent_id: int, query: str,
-        top_k: int = 5, knowledge_id: int = None,
-) -> List[Dict[str, Any]]:
-    """异步检索入口。
-
-    查询向量化是最容易阻塞请求的远程 HTTP 调用，优先使用异步客户端。
-    本地 ChromaDB 和当前同步 SQLAlchemy DAO 保持同步调用，后续切 async ORM 时只改这里。
-    """
-
-    if not query or not query.strip():
-        raise ValueError("检索关键词不能为空")
-    query_vector = await aembed_query(db, user_id, query)
-    return _build_search_results(db, agent_id, query, top_k, query_vector, knowledge_id)
 
 
 async def search_async(

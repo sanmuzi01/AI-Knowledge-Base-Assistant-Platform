@@ -17,10 +17,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from models.async_db import get_async_db
-from models.init_db import User, get_db
+from models.init_db import User
 from service.dependencies import get_current_user_async
 from service.rag import debug_service
 from utils.rate_limit import LimitExceeded, require_limit
@@ -66,7 +65,7 @@ class RagDebugSamplePatch(BaseModel):
 @router.post("/run", summary="跑一次检索快照（可选带 LLM 回答）")
 async def run_debug_route(
         data: RagDebugRunRequest,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     try:

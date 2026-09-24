@@ -370,12 +370,15 @@ async def evaluate_rag_dataset(
         faithfulness_threshold: float = DEFAULT_FAITHFULNESS_THRESHOLD,
         faithfulness_judge_model: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """`db` 是 AsyncSession——检索走 `rag_service.search_async`（原生 async：向量化、
+    chunk/knowledge 反查都是 async DAO，不是直接在事件循环里跑同步 DB 调用）。
+    """
     case_reports = []
     for case in cases:
         question = (case.get("question") or "").strip()
         if not question:
             continue
-        results = await rag_service.async_search(
+        results = await rag_service.search_async(
             db=db,
             user_id=user_id,
             agent_id=agent_id,

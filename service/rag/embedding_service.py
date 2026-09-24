@@ -128,7 +128,10 @@ async def _get_client_async(db, user_id: int, model_name: str = None) -> BaseEmb
 
 
 async def aembed_query_async(db, user_id: int, query: str, model_name: str = None) -> List[float]:
-    """异步嵌入单条查询，配置查询也走 AsyncSession（`aembed_query` 的彻底 async 版）。"""
+    """异步嵌入单条查询，配置查询也走 AsyncSession（彻底 async，不是"async 函数但内部
+    还是同步 DB 查询"那种半异步——那个版本（原来叫 `aembed_query`）已经在 Phase 3
+    收尾时跟着 `rag_service.async_search` 一起退役，见 docs/sync-async-boundary.md）。
+    """
     client = await _get_client_async(db, user_id, model_name)
     logger.info(f"异步(async db)调用 {client.model_name} 嵌入查询: {query[:30]}...")
     return await client.aembed_query(query)
@@ -171,15 +174,5 @@ def embed_query(
     logger.info(f"调用 {client.model_name} 嵌入查询: {query[:30]}...")
     vectors = client.embed_query(query)
     return vectors
-
-
-async def aembed_query(
-        db, user_id: int, query: str, model_name: str = None
-) -> List[float]:
-    """异步把单条用户问题转成向量。"""
-
-    client = _get_client(db, user_id, model_name)
-    logger.info(f"异步调用 {client.model_name} 嵌入查询: {query[:30]}...")
-    return await client.aembed_query(query)
 
 

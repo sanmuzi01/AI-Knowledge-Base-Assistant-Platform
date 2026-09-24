@@ -3,10 +3,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from service.exceptions import InvalidInput, NotFound
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from models.init_db import User, get_db
-from service.access_control import get_owned_agent, get_owned_knowledge, get_owned_space
+from models.async_db import get_async_db
+from models.init_db import User
+from service.access_control import get_owned_agent_async, get_owned_knowledge_async, get_owned_space_async
 from service.dependencies import get_current_user_async
 from service.evaluation.rag_eval_service import evaluate_rag_dataset, run_for_space
 from service.evaluation import eval_set_service
@@ -15,10 +15,9 @@ from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
 
 router = APIRouter(prefix="/evaluation", tags=["评估"])
 
-# 迁移边界：端点是 async def，但 db 仍用同步 get_db。
-# evaluate_rag_dataset -> rag_service.async_search 内部注释已说明：向量化用异步
-# HTTP 客户端，ChromaDB 和 SQLAlchemy DAO 仍是同步调用。换 AsyncSession 会直接
-# 打断 _build_search_results。待 RAG 检索管线整体 async 化后再迁。
+# Phase 3 收尾（docs/sync-async-boundary.md）：整条路由已经全量 AsyncSession。
+# evaluate_rag_dataset 走 rag_service.search_async（原生 async，不再是向量化 async、
+# DAO 反查同步的 rag_service.async_search——那个半异步版本已经退役）。
 
 
 class RagEvalCase(BaseModel):
@@ -59,17 +58,17 @@ def _limit_error(exc: LimitExceeded) -> HTTPException:
 async def evaluate_rag(
         agent_id: int,
         data: RagEvalRequest,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    agent = get_owned_agent(db, current_user.id, agent_id)
+    agent = await get_owned_agent_async(db, current_user.id, agent_id)
     if not agent:
         raise NotFound("智能体不存在或无权限")
 
     knowledge_ids = [data.knowledge_id] if data.knowledge_id is not None else []
     knowledge_ids.extend([case.knowledge_id for case in data.cases if case.knowledge_id is not None])
     for item in set(knowledge_ids):
-        doc = get_owned_knowledge(db, current_user.id, item, agent_id=agent_id)
+        doc = await get_owned_knowledge_async(db, current_user.id, item, agent_id=agent_id)
         if not doc:
             raise NotFound(f"文档不存在或无权限: {item}")
         if doc.is_enabled == 0:
@@ -123,10 +122,10 @@ def _rag_eval_concurrency(user_id: int):
 async def evaluate_space_rag(
         space_id: int,
         data: SpaceRagEvalRequest,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if get_owned_space(db, current_user.id, space_id) is None:
+    if await get_owned_space_async(db, current_user.id, space_id) is None:
         raise NotFound("知识库空间不存在或无权限")
 
     _rate_limit_rag_eval(current_user.id)
@@ -170,12 +169,12 @@ class CreateEvalSetRequest(BaseModel):
 @router.post("/sets", summary="创建固定评估集")
 async def create_eval_set_route(
         data: CreateEvalSetRequest,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if data.agent_id is not None and get_owned_agent(db, current_user.id, data.agent_id) is None:
+    if data.agent_id is not None and await get_owned_agent_async(db, current_user.id, data.agent_id) is None:
         raise NotFound("智能体不存在或无权限")
-    if data.space_id is not None and get_owned_space(db, current_user.id, data.space_id) is None:
+    if data.space_id is not None and await get_owned_space_async(db, current_user.id, data.space_id) is None:
         raise NotFound("知识库空间不存在或无权限")
 
     settings = {
@@ -186,7 +185,7 @@ async def create_eval_set_route(
         "faithfulness_judge_model": data.faithfulness_judge_model,
     }
     try:
-        return eval_set_service.create_eval_set(
+        return await eval_set_service.create_eval_set(
             db, current_user.id, data.name,
             [case.model_dump() for case in data.cases],
             agent_id=data.agent_id, space_id=data.space_id, settings=settings,
@@ -199,20 +198,20 @@ async def create_eval_set_route(
 async def list_eval_sets_route(
         agent_id: Optional[int] = None,
         space_id: Optional[int] = None,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    return eval_set_service.list_eval_sets(db, current_user.id, agent_id=agent_id, space_id=space_id)
+    return await eval_set_service.list_eval_sets(db, current_user.id, agent_id=agent_id, space_id=space_id)
 
 
 @router.get("/sets/{eval_set_id}", summary="查看评估集详情（含问题列表）")
 async def get_eval_set_route(
         eval_set_id: int,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     try:
-        return eval_set_service.get_eval_set(db, current_user.id, eval_set_id)
+        return await eval_set_service.get_eval_set(db, current_user.id, eval_set_id)
     except ValueError as e:
         raise NotFound(str(e))
 
@@ -220,11 +219,11 @@ async def get_eval_set_route(
 @router.delete("/sets/{eval_set_id}", summary="删除评估集（含历史运行记录）")
 async def delete_eval_set_route(
         eval_set_id: int,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     try:
-        eval_set_service.delete_eval_set(db, current_user.id, eval_set_id)
+        await eval_set_service.delete_eval_set(db, current_user.id, eval_set_id)
     except ValueError as e:
         raise NotFound(str(e))
     return {"message": "删除成功"}
@@ -233,7 +232,7 @@ async def delete_eval_set_route(
 @router.post("/sets/{eval_set_id}/run", summary="跑一次评估集，并和上一轮自动比较")
 async def run_eval_set_route(
         eval_set_id: int,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     _rate_limit_rag_eval(current_user.id)
@@ -253,10 +252,10 @@ async def run_eval_set_route(
 @router.get("/sets/{eval_set_id}/runs", summary="评估集历史运行记录")
 async def list_eval_runs_route(
         eval_set_id: int,
-        db: Session = Depends(get_db),
+        db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
     try:
-        return eval_set_service.list_eval_runs(db, current_user.id, eval_set_id)
+        return await eval_set_service.list_eval_runs(db, current_user.id, eval_set_id)
     except ValueError as e:
         raise NotFound(str(e))

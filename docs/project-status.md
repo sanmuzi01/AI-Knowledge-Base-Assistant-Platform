@@ -154,16 +154,21 @@
 
 ## 当前主要风险
 
-- 同步 / 异步边界部分收口：路由层读接口 + **RAG 检索链路（`search_entry.*_async` + `search_async`
-  + `search_spaces_async`）** + **聊天执行（`agent_runtime` 非流式与流式，含 `POST /chat/{id}` 与
-  `/stream`）** 已 async，`service/widgets` 100% async；剩知识库上传/入库/重建/诊断、任务 Worker 主体、
-  evaluation 路由（+ 随之退役 `rag_service.async_search`）仍待收口。
+- 同步 / 异步边界部分收口：路由层读接口 + **RAG 检索链路（`search_entry.*_async` +
+  `search_spaces_async`）** + **聊天执行（`agent_runtime` 非流式与流式，含 `POST /chat/{id}` 与
+  `/stream`）** + **evaluation 路由（`/evaluation/*`，含固定评估集 CRUD，Phase 3 收尾完成，
+  `rag_service.async_search` 半异步版本已随之删除，见 `docs/sync-async-boundary.md`）** 已 async，
+  `service/widgets` 100% async；剩知识库上传/入库/重建/诊断、任务 Worker 主体仍待收口（低收益高风险，
+  按 `docs/sync-async-boundary.md` 的既定结论长期保持同步，不是遗漏）。
   详见 `docs/sync-async-boundary.md`、`docs/agent-runtime-async-migration.md`。
 - service 层内部零散的 `raise ValueError` / 裸 `Exception` 尚未全部换成领域异常（路由层已在 `except` 里翻译）。
 - 压力测试还未在真实服务器上形成基准报告；`/metrics` 缺生产压测基线和告警规则。
 - 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
 - 备份命令已给出，但还需在真实部署环境做恢复演练。
-- 数据库迁移已建立骨架，但模型定义和数据库初始化尚未拆分，暂不适合直接开启 Alembic 自动生成。
+- ~~数据库迁移已建立骨架，但模型定义和数据库初始化尚未拆分，暂不适合直接开启 Alembic
+  自动生成~~：Phase 3A 已解决（`migrations/env.py` 接上 `Base.metadata`，`alembic revision
+  --autogenerate` 可用；全新空库 `alembic upgrade head` 验证过跟当前模型完全一致），
+  详见 `docs/db-migration-plan.md`。
 - 已加 `.gitattributes`（统一 LF）+ `.pre-commit-config.yaml`（BOM / 行尾 / 尾空格等卫生检查）。
   一次性规范化：`git add --renormalize . && git commit`（建议在提交完当前功能改动后单独做）。
   启用 pre-commit：`pip install pre-commit && pre-commit install`。
@@ -171,10 +176,12 @@
 ## 下一步建议
 
 1. ~~`agent_runtime` async 迁移~~ **完成**（阶段 0~4，见 `docs/agent-runtime-async-migration.md`）。
-2. RAG 检索彻底 async —— **基本完成**（`search_entry.*_async` / `search_async` / `search_spaces_async`
-   + `_get_client_async` + async chunk 反查，`tests/test_rag_search_async.py`）；聊天链路与
-   `FasdtApi/knowledge.py` 检索端点均已切原生 async。只剩 evaluation 路由 async 化 + 退役 `async_search`。
+2. ~~RAG 检索彻底 async~~ **完成**（`search_entry.*_async` / `search_spaces_async` +
+   `_get_client_async` + async chunk 反查，`tests/test_rag_search_async.py`）；聊天链路、
+   `FasdtApi/knowledge.py` 检索端点、evaluation 路由均已切原生 async，半异步的
+   `rag_service.async_search` 已删除。
 3. service 层内部异常逐模块换成 `service/exceptions.py` 领域异常。
 4. 真实服务器压力测试基准报告；告警规则接入。
-5. 拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管。
+5. ~~拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管~~ **完成**（Phase 3A，
+   见 `docs/db-migration-plan.md`）。
 6. 多实例共享熔断状态（接 Redis）。
