@@ -255,8 +255,8 @@ class KnowledgeSpace(Base):
     # 迁移 / 企业预留
     legacy_agent_id = Column(Integer, nullable=True)        # 由某 Agent 私有库升级而来
     vector_migrated = Column(Integer, nullable=False, default=1)   # 0=检索需双读 legacy collection
-    team_id = Column(Integer, nullable=True)
-    organization_id = Column(Integer, nullable=True)
+    team_id = Column(Integer, ForeignKey("teams.id", name="fk_kspace_team"), nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_kspace_org"), nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -365,23 +365,82 @@ class UserSubscription(Base):
 
 
 class Organization(Base):
-    """企业/组织（阶段6 预留：建表，暂不接入 user_space_ids 的可见性计算）。"""
+    """企业/组织。Phase 3B（docs/enterprise-rbac-plan.md）接入：单企业部署下长期只有 1 行，
+    `organization_members` 表管实际成员和角色，`owner_user_id` 只是隐式创建者
+    （跟 KnowledgeSpace.user_id 是 owner、SpaceMember 才是显式成员表的既有模式一致）。
+    """
     __tablename__ = "organizations"
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(120), nullable=False)
     owner_user_id = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="active", server_default="active")  # active/disabled
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 class Team(Base):
-    """团队（阶段6 预留：建表，暂不接入可见性计算）。"""
+    """团队/部门。Phase 3B 接入：`team_members` 表管实际成员和角色。"""
     __tablename__ = "teams"
     __table_args__ = (Index("idx_team_org", "organization_id"),)
     id = Column(Integer, primary_key=True, autoincrement=True)
-    organization_id = Column(Integer, nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_team_org"), nullable=True)
     name = Column(String(120), nullable=False)
     owner_user_id = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="active", server_default="active")  # active/disabled
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class EnterpriseRole(Base):
+    """企业/部门角色目录。scope 区分用在哪一层（organization/team），同一层内 code 唯一。
+
+    初始数据由迁移插入，不是代码里硬编码判断：
+      scope=organization: owner(3) / admin(2) / auditor(1) / member(0)
+      scope=team:         admin(2) / editor(1) / member(0)
+    `rank` 用于"至少要有 X 级"的判断，不用在代码里列举所有可能的角色名。
+    """
+    __tablename__ = "enterprise_role"
+    __table_args__ = (
+        Index("uq_enterprise_role_scope_code", "scope", "code", unique=True),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(String(20), nullable=False)   # organization / team
+    code = Column(String(30), nullable=False)    # owner / admin / auditor / editor / member
+    name = Column(String(60), nullable=False)    # 显示名，如"企业管理员"
+    rank = Column(Integer, nullable=False, default=0)  # MySQL 8 保留字，手写原生 SQL 时记得加反引号
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class OrganizationMember(Base):
+    """企业成员。role_id 必须指向 scope="organization" 的 EnterpriseRole 行——这条约束由
+    service 层校验（service/enterprise_access.py），MySQL 的 CHECK 不能跨表，见设计稿 1.2 节。
+    """
+    __tablename__ = "organization_members"
+    __table_args__ = (
+        Index("uq_org_member", "organization_id", "user_id", unique=True),
+        Index("idx_org_member_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_om_org"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_om_user"), nullable=False)
+    role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_om_role"), nullable=False)
+    status = Column(String(20), nullable=False, default="active")  # active / disabled
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class TeamMember(Base):
+    """部门成员。role_id 必须指向 scope="team" 的 EnterpriseRole 行（同上，应用层校验）。"""
+    __tablename__ = "team_members"
+    __table_args__ = (
+        Index("uq_team_member", "team_id", "user_id", unique=True),
+        Index("idx_team_member_user", "user_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    team_id = Column(Integer, ForeignKey("teams.id", name="fk_tm_team"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", name="fk_tm_user"), nullable=False)
+    role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_tm_role"), nullable=False)
+    status = Column(String(20), nullable=False, default="active")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 # 知识块表（文档切分后的块，含向量库id引用）

@@ -145,6 +145,10 @@ def _purge_users(where_users: str) -> int:
         stmts = [
             f"DELETE dp FROM widget_data_points dp JOIN user_widgets w ON dp.widget_id=w.id WHERE w.user_id IN {inc}",
             f"DELETE FROM user_widgets WHERE user_id IN {inc}",
+            # Phase 3B（docs/enterprise-rbac-plan.md）新增，organization_members/team_members
+            # 都有 user.id 的外键——不先删这两张表，下面删 `user` 会直接撞 FK 报错。
+            f"DELETE FROM organization_members WHERE user_id IN {inc}",
+            f"DELETE FROM team_members WHERE user_id IN {inc}",
         ]
         if kin:
             stmts += [

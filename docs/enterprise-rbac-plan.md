@@ -248,3 +248,30 @@ def get_accessible_space_ids(db, user) -> list[int]:
    每接入一个模块跑一遍那个模块的路由级测试确认没有意外放宽或收紧权限。
 
 这两步还没开始——Phase 3A 完成只是解除了阻塞，不代表自动接着做，等你确认再动手。
+
+## 6. 执行结果（第 1 步已落地，2026-09-24）
+
+第 1 步（表结构 + 数据回填）做完了，第 2 步（统一授权层）还没开始。
+
+- `models/init_db.py`：`Organization`/`Team` 加 `status` 列，`teams.organization_id`
+  补真实外键；新增 `EnterpriseRole`/`OrganizationMember`/`TeamMember` 三个类；
+  `KnowledgeSpace.team_id`/`organization_id` 补真实外键（原来只是普通 `Integer`，
+  没有约束）。
+- `migrations/versions/20260924_0002_enterprise_rbac_tables.py`：对着独立的空库
+  用 autogenerate 生成、验证过跟 Phase 3A 一样的"空库 upgrade head → 再 autogenerate
+  → diff 为空"流程，已经应用到本地开发库。`enterprise_role` 的 7 行初始数据
+  （organization: owner/admin/auditor/member；team: admin/editor/member）在迁移里
+  用 `op.bulk_insert` 种好，不是代码里硬编码判断。
+- `scripts/backfill_default_organization.py`：一次性数据回填脚本（`--dry-run`/`--yes`），
+  已经在本地开发库跑过：建了 1 个"默认企业"（`owner_user_id` 是当前的平台管理员），
+  9 个现有用户全部批号进 `organization_members`（管理员 role=owner，其余 role=member），
+  1 个知识库空间的 `organization_id` 回填成默认企业。跑了两遍确认幂等（第二遍 0 新增）。
+- `tests/test_backfill_default_organization.py`：真实 DB 集成测试，新建两个测试用户
+  验证会被正确回填成 member、重复跑不会插出第二条。
+- `tests/_route_client.py` 的 `_purge_users`（路由测试和 E2E 冒烟测试共用的清理函数）
+  补了 `organization_members`/`team_members` 两条 DELETE——这两张新表有 `user.id` 外键，
+  不先清它们，删测试用户会直接撞 FK 报错。
+
+689 个测试全绿。下一步（第 2 步）：`service/enterprise_access.py` 的
+`require_org_role`/`require_team_role`/`require_space_permission`/`get_accessible_space_ids`
+四个函数，还没开始写，等确认再动手。
