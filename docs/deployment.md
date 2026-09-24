@@ -96,8 +96,12 @@ docker compose -f docker-compose.prod.yml exec redis redis-cli --scan --pattern 
 python -m models.init_db
 ```
 
-Alembic 的基线版本只给已有表打标记，不会在空库建 `user` 表；不要在空库直接运行
-`alembic upgrade head`。现有初始化与 Alembic 迁移尚未统一，后续新增迁移需先处理基线。
+Phase 3A（[docs/db-migration-plan.md](db-migration-plan.md)）之后，`migrations/versions/`
+下现在只有一个能从空库独立把整套 schema 建完整的可信基线，`alembic upgrade head` 在
+全新空库上可以直接跑（CI 里每次都会真的这样跑一遍验证，见 `.github/workflows/ci.yml`）。
+`python -m models.init_db` 仍然是默认入口，行为不变；两条路径产出的结构已经验证过
+完全一致，选哪条都行。真正想让 Alembic 独占表结构管理（比如接入一套单独的迁移审批
+流程）时，设 `DB_AUTO_BOOTSTRAP=0` 关掉自动建表，只用 `alembic upgrade head`。
 
 常驻两个进程（交给 systemd / supervisor / nssm）：
 

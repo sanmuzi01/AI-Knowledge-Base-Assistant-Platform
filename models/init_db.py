@@ -780,6 +780,12 @@ class WidgetDataPoint(Base):
 # 运行时由 FastAPI lifespan 和后台 Worker 启动时各调用一次。
 
 # ========== 幂等迁移：为已存在的表补新增列（避免 ALTER TABLE 手动操作） ==========
+# Phase 3A（docs/db-migration-plan.md）之后，这份列表冻结在 30 条——不再是新增字段的
+# 地方。它仍然在跑，是因为全新空库跑 create_all() 产出的结构现在跟 Alembic 的新基线
+# （migrations/versions/20260924_0001_trusted_baseline.py）完全一致（已验证，diff 为空），
+# 本地开发 / CI 每次都是全新空库，两条路径殊途同归，暂时不用二选一。但新增字段/表
+# 一律走新的 Alembic 迁移文件，不要在下面这个 migrations 列表里加新条目——
+# tests/test_db_migrations.py 的 test_run_migrations_list_is_frozen 会在有人加条目时报错提醒。
 def _run_migrations():
     """启动时自动执行的幂等迁移，仅列不存在时才加"""
     from sqlalchemy import text, inspect

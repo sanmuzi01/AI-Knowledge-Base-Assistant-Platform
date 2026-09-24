@@ -12,7 +12,10 @@ class MigrationFilesTestCase(unittest.TestCase):
             ROOT / "alembic.ini",
             ROOT / "migrations" / "env.py",
             ROOT / "migrations" / "script.py.mako",
-            ROOT / "migrations" / "versions" / "20260830_0001_baseline.py",
+            # Phase 3A（docs/db-migration-plan.md）之后：真正可信的基线是这一个，
+            # 老的 0001~0008 已经搬去 migrations/archive_pre_baseline/ 存档，不再参与
+            # alembic upgrade。
+            ROOT / "migrations" / "versions" / "20260924_0001_trusted_baseline.py",
         ]
         for path in expected:
             self.assertTrue(path.exists(), f"缺少迁移文件: {path}")

@@ -84,6 +84,14 @@ jobs:
             echo "waiting for mysql... ($i)"; sleep 2
           done
 
+      - name: Alembic builds the full schema from an empty database (Phase 3A)
+        # CI 的 MySQL 服务每次都是全新空库，天然适合验证"alembic upgrade head 能不能
+        # 独立把库建完整"——不依赖后面的 create_all()。同时确认模型（Base.metadata）
+        # 跟迁移链没有漂移，见 docs/db-migration-plan.md 和 scripts/check_no_migration_drift.py。
+        run: |
+          python -m alembic upgrade head
+          python scripts/check_no_migration_drift.py
+
       - name: Bootstrap database (schema + idempotent migration smoke test)
         run: |
           python -c "from models.init_db import bootstrap_database; bootstrap_database(force=True)"

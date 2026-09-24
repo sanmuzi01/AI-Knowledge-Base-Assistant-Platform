@@ -100,3 +100,48 @@
 
 第 1～5 步是纯生成 + 验证，不碰任何真实数据库；第 6 步开始才会在本地开发库和 CI 里
 真正执行 `alembic stamp`/未来的迁移。执行前会再跑一次全量单元测试确认没有破坏现有功能。
+
+## 5. 执行结果（方案 A 已落地，2026-09-24）
+
+按第 4 节的步骤做完了，过程中又发现两个第 1 节核对时没看到的真实问题：
+
+- **`migrations/script.py.mako` 本身是坏的**：默认模板里 `upgrade()`/`downgrade()` 应该是
+  `${upgrades if upgrades else "pass"}` 这种 Mako 占位符，这个项目的模板文件写死成了
+  `pass`——意味着就算 `target_metadata` 接好了，`alembic revision --autogenerate`
+  生成的文件也永远是空的（diff 算出来了，但写文件那一步把它扔了）。这解释了为什么
+  0002～0008 都是手写内容：不是懒得用 autogenerate，是 autogenerate 从一开始就没法用。
+  已修（换回官方默认写法）。
+- **`user`/`agent` 两张表互相有外键**（`user.selected_agent_id -> agent.id`，
+  `agent.user_id -> user.id`），autogenerate 生成的建表顺序处理不了这种循环依赖，
+  会在空库上直接报错。`create_all()` 能处理是因为 SQLAlchemy 自己的建表逻辑对这种
+  环形依赖有特殊处理；Alembic 的迁移脚本要手动拆：先建 `user`（不带
+  `selected_agent_id` 的外键约束）→ 建 `agent` → 最后单独 `op.create_foreign_key`
+  把约束加回去（`downgrade()` 反过来，先拆约束再删表）。已在
+  `migrations/versions/20260924_0001_trusted_baseline.py` 里手动调整并验证。
+
+**完成的步骤**：
+1. `migrations/env.py`：`target_metadata = Base.metadata`。
+2. `migrations/script.py.mako`：修复模板占位符。
+3. 在独立的 `alembic_baseline_check` 库（跟本地开发库分开，验证完已删除）上生成、
+   修正、反复验证新基线，直到"空库 upgrade head → 再跑一次 autogenerate → diff 为空"
+   （旧的 0001～0008 搬到 `migrations/archive_pre_baseline/`，不再参与
+   `alembic upgrade`，只留作历史记录，见那个目录下的 README）。
+4. 本地开发库：`alembic stamp head`（只写 `alembic_version` 表，没执行任何 DDL）。
+5. `models/init_db.py` 的 `_run_migrations()` 列表冻结在 30 条，加了注释说明，配
+   `tests/test_db_migrations.py` 的纯静态检查（不需要真实 DB 连接）防止再有人往里加。
+6. CI 新增一步：在全新的 MySQL 服务容器上先跑 `alembic upgrade head`，再跑
+   `scripts/check_no_migration_drift.py` 确认没有漂移，再执行原来的
+   `bootstrap_database()` 冒烟测试——见 `.github/workflows/ci.yml`。
+
+**发现但没有在这次处理的真实漂移**（对本地开发库跑 `check_no_migration_drift.py`
+能重新看到，CI 用的是全新空库所以不会触发）：
+
+| 项 | 现状 | 处理方式 |
+|---|---|---|
+| 一批列的 MySQL `COMMENT` | 本地库上这些列有中文注释（当年手写 `ALTER TABLE ... COMMENT '...'` 加的），但 ORM 的 `Column()` 没有声明 `comment=`，autogenerate 因此想把注释清空 | **不接受这个方向的改动**——注释是有用的文档，该做的是反过来给 `models/init_db.py` 里对应的 `Column()` 补 `comment=`，不是拿迁移把库里的注释删掉。留作后续小任务 |
+| `background_task.fk_task_parent` 的 `ON DELETE SET NULL` | 库里这条外键约束带 `ON DELETE SET NULL`，ORM 声明里没有 | 需要确认 ORM 补上还是约束本身要不要保留这个行为，涉及业务语义（父任务被删时子任务的 `parent_task_id` 该怎么处理），不是纯 schema 问题，留作后续任务，不在 Phase 3A 里顺手改 |
+| `knowledge.space_id` 缺一个真实的外键约束 | ORM 声明了 `ForeignKey`，但库里从来没有真的加上这个约束（当年的 `_run_migrations()` 条目只加了列，没加约束） | 加约束前要先查一遍库里有没有 `space_id` 指向不存在的 `knowledge_spaces.id` 的脏数据，否则 `ADD CONSTRAINT` 会直接失败——需要单独跑一次数据校验，不能顺手加。留作后续任务 |
+| `rag_debug_samples` 缺 `idx_rds_space`/`idx_rds_user_created` 两个索引 | 纯性能问题，加索引本身风险很低 | 可以随时补一个小迁移加上，不紧急，留作后续任务 |
+
+这四项都不影响"全新部署能不能用 Alembic 独立建库"这个 Phase 3A 的核心目标（已经验证
+可以），是本地这个跑了很久的开发库自己的历史包袱，跟新基线没关系。

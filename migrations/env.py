@@ -15,10 +15,14 @@ if config.config_file_name is not None:
 
 load_dotenv()
 
-# 当前项目的模型定义仍集中在 models/init_db.py，导入该模块会创建连接并执行旧的
-# create_all/幂等迁移。为了让 Alembic 命令保持纯粹，迁移环境暂不导入业务模型。
-# 后续把模型和数据库初始化拆开后，可以把这里替换为 Base.metadata 以支持自动生成。
-target_metadata = None
+# Phase 3A：target_metadata 接上 Base.metadata，autogenerate 才能用。
+# 之前担心"导入 models/init_db 会创建连接并执行旧的 create_all/幂等迁移"——实测不会：
+# 那个模块只在顶层 create_engine()（懒连接，不会真的建 TCP 连接），create_all()/
+# _run_migrations() 都是显式函数调用，不在模块导入路径上。真正的风险点是它要求
+# DB_USER/DB_PASSWORD/... 环境变量已经加载，上面的 load_dotenv() 已经先做了这件事。
+from models.init_db import Base  # noqa: E402  (必须在 load_dotenv() 之后才导入)
+
+target_metadata = Base.metadata
 
 
 def _database_url() -> str:
