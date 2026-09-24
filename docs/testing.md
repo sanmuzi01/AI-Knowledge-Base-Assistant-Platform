@@ -161,6 +161,33 @@ CI 里独立一个 `e2e` job（`.github/workflows/ci.yml`），失败时把失�
   `test_feature_flag_lets_normal_user_create_connector`（开关生效）；
   `tests/test_feature_flags.py` 覆盖开关本身的取值解析。
 
+## 异步测试的 asyncmy 连接关闭噪音（已修）
+
+跑异步测试时偶尔会看到一串 `Exception terminating connection` +
+`AttributeError: 'NoneType' object has no attribute 'send'`（有时还带
+`ResourceWarning: loop is closed`）。**不是真的连接泄漏**，是"关闭连接这个动作
+发生在了错误的事件循环生命周期之外"：
+
+- `models/async_db.py` 的 `async_engine` 是进程级单例，但测试里到处直接写
+  `asyncio.run(coro)`——每次调用都新建一个事件循环、跑完就整个关掉。循环关掉后，
+  连接池里还没被显式关闭的 asyncmy 连接要等某次垃圾回收才会真正尝试关闭，那时候
+  早就没有活着的事件循环去驱动它的 `await` 了。
+- 走真实 HTTP 请求的路由级测试（`rc.make_client()`）同理：只有 `with` 进入/退出
+  （或手动 `client.__enter__()`/`client.__exit__()`）才会触发 `FasdtApi/main.py`
+  的 `lifespan` shutdown，才会调用它里面的 `async_engine.dispose()`——建了
+  `TestClient` 却不进入/退出上下文，这次请求开的连接就没人管。
+
+统一修法：**在当前事件循环还活着的时候主动 `await async_engine.dispose()`**，不要
+留给垃圾回收在不确定的时机处理。纯 `asyncio.run(coro)` 的写法改用
+`tests/_async_helpers.py` 的 `run_async(coro)`（内部 `finally` 里 dispose，跑完
+不管成功失败都清）；路由级测试统一用 `with rc.make_client() as client:` 或
+`setUpClass`/`tearDownClass` 里成对的 `__enter__()`/`__exit__()`，不要只
+`make_client()` 一下就直接用。
+
+少数测试文件（`test_agent_runtime_async.py`/`test_agent_runtime_async_deps.py`/
+`test_agent_runtime_stream_async.py`/`test_rag_search_async.py`）在这次统一之前
+已经各自写过等价的 dispose 逻辑，工作正常，没有改动它们——不为了统一而重复造轮子。
+
 ## 路由级测试的数据清理
 
 `tests/_route_client.py` 建的 `rt_*` 用户是**真实落库**的。清理机制：

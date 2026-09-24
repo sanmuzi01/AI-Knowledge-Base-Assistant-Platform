@@ -3,17 +3,13 @@
 关键点：管理员不需要是这个空间的成员/所有者就能操作——这是它和普通的
 update_space（service/knowledge_space/space_async_service.py）的核心区别。
 """
-import asyncio
 import unittest
 
 from service.exceptions import InvalidInput, NotFound
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

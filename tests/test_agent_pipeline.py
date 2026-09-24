@@ -4,18 +4,14 @@
 真实跑需要网络和真实 API Key；这里只验证编排逻辑本身：上一步答案传给下一步、
 某步失败就停在那一步、配额用尽同样会停下来且不抛出未处理异常。
 """
-import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from service.exceptions import InvalidInput, NotFound, QuotaExceeded
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

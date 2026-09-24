@@ -65,9 +65,9 @@ class RegisterEnrollsDefaultOrganizationTest(unittest.TestCase):
             _cleanup_user(name)
 
     def test_async_register_adds_organization_members_row(self):
-        import asyncio
         from models.async_db import AsyncSessionLocal
         from service import auth_async_service
+        from tests._async_helpers import run_async
 
         name = f"rt_enroll_async_{uuid.uuid4().hex[:10]}"
         phone = f"139{uuid.uuid4().int % 10**8:08d}"
@@ -93,7 +93,7 @@ class RegisterEnrollsDefaultOrganizationTest(unittest.TestCase):
                 self.assertEqual(tuple(row) if row else None, ("organization", "member"))
 
         try:
-            asyncio.run(_do())
+            run_async(_do())
         finally:
             _cleanup_user(name)
 

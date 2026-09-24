@@ -1,15 +1,11 @@
 """管理员套餐管理（service/admin_async_service.py 的 *_plan 系列函数）回归测试。"""
-import asyncio
 import unittest
 
 from service.exceptions import Conflict, InvalidInput, NotFound
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

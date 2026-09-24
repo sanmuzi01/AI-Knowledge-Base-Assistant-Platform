@@ -17,6 +17,16 @@ class SmsRouteLimitsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = rc.make_client()
+        cls.client.__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        # 不 __enter__/__exit__ 的话 app 的 lifespan 不会跑，FasdtApi/main.py 里关
+        # 异步连接池的 async_engine.dispose() 就不会被调用，这次请求开的连接会在
+        # 后面某次垃圾回收时才尝试关闭，那时候早就没有活着的事件循环去驱动它的
+        # await，于是报 asyncmy 的 "NoneType has no attribute send" 噪音
+        # （见 tests/_async_helpers.py 的说明，这里是同一个根因的另一种触发方式）。
+        cls.client.__exit__(None, None, None)
 
     def setUp(self):
         from utils import rate_limit

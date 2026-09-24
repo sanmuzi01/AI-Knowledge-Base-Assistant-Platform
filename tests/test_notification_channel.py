@@ -1,17 +1,13 @@
 """告警外部推送（service/notification_service.py + widgets/runner.py 的推送触发逻辑）回归测试。"""
-import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from service.exceptions import InvalidInput, NotFound
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

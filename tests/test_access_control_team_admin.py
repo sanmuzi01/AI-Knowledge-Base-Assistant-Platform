@@ -6,18 +6,14 @@ get_owned_space/get_space_role/user_space_ids 各自有一份同步实现和一�
 也顺手回归一遍 owner / SpaceMember 这两条本来就有的来源，确认新加的第三条来源没有
 把旧的挤掉或者改变优先级。
 """
-import asyncio
 import unittest
 
 from models.init_db import EnterpriseRole, KnowledgeSpace, SessionLocal, SpaceMember, Team, TeamMember
 from service import access_control
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

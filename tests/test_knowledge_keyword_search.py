@@ -118,18 +118,18 @@ class SearchChunksByKeywordDbTest(unittest.TestCase):
             db.close()
 
     def test_async_variant_matches_sync(self):
-        import asyncio
         from models.async_db import AsyncSessionLocal
         from models.knowledge_async_dao import search_chunks_by_keyword_async
+        from tests._async_helpers import run_async
 
-        async def _run():
+        async def _do():
             async with AsyncSessionLocal() as db:
                 return await search_chunks_by_keyword_async(
                     db, [self.space_id], ["ABC-100"],
                     exclude_chunk_ids={self.chunk_excluded_id}, limit=10,
                 )
 
-        results = asyncio.run(_run())
+        results = run_async(_do())
         ids = {c.id for c in results}
         self.assertIn(self.chunk_hit_id, ids)
         self.assertNotIn(self.chunk_excluded_id, ids)

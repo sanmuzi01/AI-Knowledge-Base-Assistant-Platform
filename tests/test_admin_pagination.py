@@ -5,16 +5,12 @@
 锁定 total 是准确的全量计数（不受 limit 影响）、offset 真的能翻页、以及用户
 列表新增的按用户名模糊搜索。
 """
-import asyncio
 import unittest
 
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")

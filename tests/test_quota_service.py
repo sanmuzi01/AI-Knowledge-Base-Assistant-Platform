@@ -4,17 +4,13 @@
 以及 /chat 路由在真正调用 Agent/LLM 之前就被配额拦住（用一个不存在的 agent_id
 也能验证——配额检查排在归属校验之前，命中 429 就说明拦截生效了）。
 """
-import asyncio
 import unittest
 
 from service.exceptions import QuotaExceeded
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")
@@ -121,12 +117,17 @@ class QuotaServiceTest(unittest.TestCase):
         _run(_subscribe())
         self._seed_run(150)  # 套餐上限 100，跑一次消耗 150 → 超额
 
-        client = rc.make_client()
-        resp = client.post(
-            "/chat/999999999",
-            json={"message": "hello"},
-            headers=self.user["headers"],
-        )
+        # 用 with 进入/退出 TestClient：只有这样 app 的 lifespan shutdown 才会真的跑，
+        # 才会调用 FasdtApi/main.py 里的 async_engine.dispose()——不然这次请求开的异步
+        # 连接没人在当前事件循环里关掉，等垃圾回收在别的循环上下文里去关就会报
+        # asyncmy 的 "NoneType has no attribute send" 噪音（不是真的连接泄漏，见
+        # tests/_async_helpers.py 的说明）。
+        with rc.make_client() as client:
+            resp = client.post(
+                "/chat/999999999",
+                json={"message": "hello"},
+                headers=self.user["headers"],
+            )
         self.assertEqual(resp.status_code, 429)
         self.assertEqual(resp.json().get("code"), "quota_exceeded")
 

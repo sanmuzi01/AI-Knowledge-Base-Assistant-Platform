@@ -3,17 +3,13 @@
 只测"接线对不对"：80%/95%/100% 跨越判定的边界条件，以及 dispatch_alert_async 调用
 本身 mock 掉（真实推送已经在 tests/test_notification_channel.py 里测过）。
 """
-import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from tests import _route_client as rc
+from tests._async_helpers import run_async as _run
 
 _AVAILABLE, _WHY = rc.route_tests_available()
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 @unittest.skipUnless(_AVAILABLE, f"需要本地 MySQL：{_WHY}")
