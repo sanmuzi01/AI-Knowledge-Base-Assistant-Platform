@@ -272,6 +272,15 @@ def get_accessible_space_ids(db, user) -> list[int]:
   补了 `organization_members`/`team_members` 两条 DELETE——这两张新表有 `user.id` 外键，
   不先清它们，删测试用户会直接撞 FK 报错。
 
-689 个测试全绿。下一步（第 2 步）：`service/enterprise_access.py` 的
-`require_org_role`/`require_team_role`/`require_space_permission`/`get_accessible_space_ids`
-四个函数，还没开始写，等确认再动手。
+689 个测试全绿。
+
+**第 2 步也做完了**（`service/enterprise_access.py`）：`require_org_role`/
+`require_team_role`/`require_space_permission`/`get_accessible_space_ids` 四个函数，
+校验顺序和 404/403 语义跟第 2 节设计一致；`require_org_role`/`require_team_role`
+按"等级 >= 最低要求"判断，不是精确匹配角色代码——要求 `"admin"` 时 `"owner"` 也能过，
+不用每个路由都把上级角色抄一遍。`tests/test_enterprise_access.py` 12 个真实 DB 测试
+覆盖：非成员 404、等级不够 403、更高等级放行、跨企业的部门视为不存在、
+owner 高于 admin、`get_accessible_space_ids` 三个来源的并集不重复不漏。
+
+这一步**还没接到任何路由上**——第 3 节的逐模块改造是下一个任务，还没开始，
+等确认再动手。
