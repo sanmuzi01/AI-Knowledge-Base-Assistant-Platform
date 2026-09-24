@@ -3,58 +3,68 @@
 状态：**设计稿，未落地**。本文档只是数据模型 + 路由改造范围的评审材料，Phase 3A
 （Alembic 权威化）完成、这份稿子评审通过后才动迁移和代码——按既定顺序，不提前改表。
 
-## 0. 现状：不是从零开始
+## 0. 现状：不是从零开始（本节 2026-09-24 二次核对后更正过一次）
 
 核对了一遍现有代码，企业化改造要用到的几块地基已经预留了，设计时要接上，不要重建：
 
 | 预留位置 | 现状 |
 |---|---|
+| `Organization` / `Team`（[models/init_db.py:367](../models/init_db.py:367)/[376](../models/init_db.py:376)，表名 `organizations`/`teams`） | **已经是真实存在的表**，本文档最初的草稿漏看了这两个类，一度设计了同概念的新表——已改成扩展这两张表，不新建，见 1.2 节 |
 | `KnowledgeSpace.team_id` / `KnowledgeSpace.organization_id`（[models/init_db.py:258](../models/init_db.py:258)） | 字段已经在，注释写"阶段6预留"，一直是 `nullable`、未使用 |
 | `SpaceMember`（[models/init_db.py:303](../models/init_db.py:303)） | 空间级三档角色 admin/editor/viewer，已在用，语义就是本文档"三层不合并"里的第三层 |
 | `KbAuditLog`（[models/init_db.py:322](../models/init_db.py:322)） | 知识库空间/文档/成员/绑定的写操作审计表，已建但看起来还没接线——企业化的审计需求可以直接扩展这张表，不用新建 |
 | `Role` + `is_admin_user()`（[service/admin_service.py:37](../service/admin_service.py:37)） | 目前是"平台全局管理员"判断：角色表命中 `ADMIN_ROLE_NAMES` 或用户名落在 `ADMIN_USER_NAMES`。这条要继续保留，但只管平台超管，企业内部的权限判断迁到新的授权层（见第 2 节） |
 
+### 0.1 核对时顺手发现的更大问题：Alembic 目前完全没有真的跑过
+
+用只读查询核对本地开发数据库后确认：
+
+- `alembic_version` 表**不存在**——8 个迁移文件从写下来到现在，从没有被 `alembic upgrade`
+  真正执行过一次。当前数据库的实际结构 100% 是 `models/init_db.py` 的
+  `Base.metadata.create_all()` + `_run_migrations()`（约 24 条手写幂等 `ALTER TABLE`）
+  拼出来的，Alembic 文件只是摆在那里的历史记录，不是真正在起作用的那一套。
+- 恰好因为这样，`migrations/versions/20260911_0006_space_permissions.py` 里的
+  `op.create_table("organizations", ...)`/`op.create_table("teams", ...)` 从未被执行，
+  但对应的 `Organization`/`Team` **ORM 类是真实存在的**，两张表已经通过 `create_all()`
+  建好了（本地库确认：都在，都是 0 行）。也就是说现在如果第一次真的对着这个数据库跑
+  `alembic upgrade head`，会在这条 `op.create_table` 撞上"表已存在"直接失败——`user_profile`
+  等表也是一样的情况，第一个真正会失败的大概是 0002。
+- 这就是 Phase 3A 要解决的真实问题，不是走个形式："在全新空库验证 alembic upgrade head
+  能够完整建库"这句话现在还做不到，因为 `migrations/env.py` 里 `target_metadata = None`
+  （代码注释写着"暂不导入业务模型，避免触发旧 create_all"），`alembic revision
+  --autogenerate` 目前根本没法用——这是 Phase 3A 要先修的第一个东西，细节见
+  [docs/db-migration-plan.md](db-migration-plan.md)（Phase 3A 单独的执行记录，跟这份
+  企业模型设计稿分开，避免两件事混在一份文档里）。
+
 ## 1. 数据模型
 
-### 1.1 命名：不新增 Department
+### 1.1 命名：不新增 Department，也不新建 Organization/Team
 
 ```
-Organization = 企业（单企业部署下，这张表长期只会有 1 行，但结构按可扩展设计）
-Team         = 部门（前端一律显示"部门"，代码/表名统一用 Team，不出现 department_id）
+Organization = 企业（表名 organizations，已存在，单企业部署下长期只会有 1 行）
+Team         = 部门（表名 teams，已存在，前端显示"部门"；不出现 department_id）
 ```
 
-### 1.2 新表
+### 1.2 扩展现有表 + 三张新表
 
-三个开放问题已定：**单企业多部门**（保留 `Organization`，但这次部署下长期只有 1 行；
-`Team` 才是真正多行的单位）、角色**新建外键表**（不用字符串枚举）、部门管理员**能看到**
+三个开放问题已定：**单企业多部门**（复用已存在的 `organizations`，长期只有 1 行；
+`teams` 才是真正多行的单位）、角色**新建外键表**（不用字符串枚举）、部门管理员**能看到**
 部门下所有知识库空间（见 2.1 节 `get_accessible_space_ids` 第三个来源）。
+
+`organizations`/`teams` 已经存在（[models/init_db.py:367](../models/init_db.py:367)），
+现有列是 `id/name/owner_user_id/created_at`（teams 多一个 `organization_id`）——
+`owner_user_id` 是隐式创建者，跟 `KnowledgeSpace.user_id` 是 owner、`SpaceMember`
+才是显式成员表的既有模式完全一致，不用动；只额外加一个 `status` 列（软停用用，
+现有表没有）。**不新建同名概念的表**，新建的只有下面三张：
 
 角色新建一张独立的 `enterprise_role` 表，不是塞进现有的 `Role`
 （[models/init_db.py:157](../models/init_db.py:157)）——那张表是平台级角色（决定
 `is_admin_user()`），语义和生命周期都不一样，混在一起以后没法单独改企业角色目录。
 
 ```python
-class Organization(Base):
-    __tablename__ = "organization"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(120), nullable=False)
-    status = Column(String(20), nullable=False, default="active")  # active / disabled
-    created_at = Column(DateTime, default=utcnow, nullable=False)
-    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
-
-
-class Team(Base):
-    __tablename__ = "team"
-    __table_args__ = (
-        Index("idx_team_org", "organization_id"),
-    )
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    organization_id = Column(Integer, ForeignKey("organization.id", name="fk_team_org"), nullable=False)
-    name = Column(String(120), nullable=False)
-    status = Column(String(20), nullable=False, default="active")
-    created_at = Column(DateTime, default=utcnow, nullable=False)
-    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
-
+# --- 对现有两张表的追加（ALTER TABLE ADD COLUMN，纯新增，不改已有列） ---
+# organizations.status = Column(String(20), nullable=False, default="active")  # active/disabled
+# teams.status         = Column(String(20), nullable=False, default="active")
 
 class EnterpriseRole(Base):
     """企业/部门角色目录。scope 区分用在哪一层，同一层内 code 唯一。
@@ -84,7 +94,7 @@ class OrganizationMember(Base):
         Index("idx_org_member_user", "user_id"),
     )
     id = Column(Integer, primary_key=True, autoincrement=True)
-    organization_id = Column(Integer, ForeignKey("organization.id", name="fk_om_org"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_om_org"), nullable=False)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_om_user"), nullable=False)
     role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_om_role"), nullable=False)
     status = Column(String(20), nullable=False, default="active")  # active / disabled
@@ -99,13 +109,16 @@ class TeamMember(Base):
         Index("idx_team_member_user", "user_id"),
     )
     id = Column(Integer, primary_key=True, autoincrement=True)
-    team_id = Column(Integer, ForeignKey("team.id", name="fk_tm_team"), nullable=False)
+    team_id = Column(Integer, ForeignKey("teams.id", name="fk_tm_team"), nullable=False)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_tm_user"), nullable=False)
     role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_tm_role"), nullable=False)
     status = Column(String(20), nullable=False, default="active")
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 ```
+
+（表名用的是已存在的 `organizations`/`teams`，不是 `organization`/`team`——这是 1.1 节
+更正之后的实际外键目标，跟前面小节保持一致。）
 
 `role_id` 指向哪个 `scope` 的 `enterprise_role` 由写入时的 service 层校验
 （`organization_members.role_id` 必须是 `scope="organization"` 的行），不指望数据库
@@ -131,9 +144,10 @@ SpaceMember.role         → 能不能访问"某一个具体知识库空间"（�
 ### 1.4 现有表补外键
 
 ```
-Team.organization_id            → 已在上面新表里，非空
+teams.organization_id           → 已存在字段（当前是普通 Integer，没有真正的外键约束），
+                                   补 ForeignKey("organizations.id")
 KnowledgeSpace.organization_id  → 已存在字段，改为在应用层强制非空写入（企业化上线后）
-KnowledgeSpace.team_id          → 已存在字段，同上
+KnowledgeSpace.team_id          → 已存在字段，同上，补 ForeignKey("teams.id")
 ```
 
 写入时的强制校验：`KnowledgeSpace.team_id` 对应的 `Team.organization_id` 必须等于
@@ -142,13 +156,16 @@ KnowledgeSpace.team_id          → 已存在字段，同上
 
 ### 1.5 迁移顺序（依赖 Phase 3A 先把 Alembic 权威化做完）
 
-1. 建 `organization` / `team` / `organization_members` / `team_members` 四张新表（互不影响现有数据，纯新增）。
-2. 数据回填：为当前部署创建 1 行 `Organization`（"默认企业"），把所有现有用户批量插入
-   `organization_members`（role=member，已有平台管理员的 role=owner）——这一步是数据迁移脚本，
-   不是 schema 迁移，要单独写、要能重复执行不出错（幂等）。
-3. `KnowledgeSpace.organization_id` 批量回填成默认企业 id（现有数据全部挂到默认企业下，不建
+1. `organizations`/`teams` 加 `status` 列（ADD COLUMN，纯新增）；补 `teams.organization_id`
+   和 `KnowledgeSpace.team_id`/`organization_id` 的真实外键约束（现有数据都是
+   `NULL`/未使用，加约束不会因为脏数据失败——上线前会再跑一次校验确认）。
+2. 建 `enterprise_role` / `organization_members` / `team_members` 三张新表，纯新增。
+3. 数据回填：为当前部署把 `organizations` 表插入 1 行（"默认企业"，`owner_user_id` 填平台
+   管理员），把所有现有用户批量插入 `organization_members`（role=member，平台管理员
+   role=owner）——这一步是数据迁移脚本，不是 schema 迁移，要单独写、要能重复执行不出错（幂等）。
+4. `KnowledgeSpace.organization_id` 批量回填成默认企业 id（现有数据全部挂到默认企业下，不建
    `Team`、`team_id` 留空——没有部门信息，不能瞎猜）。
-4. 上面三步全部落地、跑过一遍全新空库 `alembic upgrade head` 验证后，才开始第 3 节的路由改造。
+5. 上面四步全部落地、跑过一遍全新空库 `alembic upgrade head` 验证后，才开始第 3 节的路由改造。
 
 ## 2. 统一授权层
 
