@@ -5,7 +5,7 @@ from typing import Optional, List
 from models.init_db import get_db, User
 from models.async_db import get_async_db
 from service.dependencies import get_current_user, get_current_user_async
-from service.exceptions import InvalidInput, NotFound
+from service.exceptions import InvalidInput, NotFound, PermissionDenied
 from service import agent_service
 from service import agent_async_service
 from service.agent_templates import create_user_template, delete_user_template, list_templates_for_user
@@ -280,7 +280,11 @@ def select_agent(
 # ============================================================================
 # 企业接口连接器：给这个 Agent 配一个真实的企业 HTTP 接口，运行时当工具用。
 # URL/认证/请求方式用户在这里配好，LLM 运行时只填参数——不能碰 URL 和认证信息。
+# Step 0 安全收口：创建新连接器默认只留给管理员——单企业部署下"能不能接入外部系统"
+# 应该是审核后统一配置的能力，不是员工自助接的；FEATURE_USER_API_CONNECTORS=true
+# 时放开给普通用户自助配置。
 # ============================================================================
+from service import admin_service, feature_flags
 from service.tools import http_connector_service
 
 
@@ -294,13 +298,15 @@ class ApiConnectorCreate(BaseModel):
     static_query: Optional[dict] = None
 
 
-@router.post("/{agent_id}/api-connectors", summary="给 Agent 配一个企业接口工具")
+@router.post("/{agent_id}/api-connectors", summary="给 Agent 配一个企业接口工具（默认仅管理员）")
 def create_api_connector(
         agent_id: int,
         data: ApiConnectorCreate,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
 ):
+    if not admin_service.is_admin_user(current_user) and not feature_flags.user_api_connectors_enabled():
+        raise PermissionDenied("创建企业接口连接器需要管理员权限，请联系管理员配置")
     if agent_service.get_agent(db, current_user, agent_id) is None:
         raise NotFound("智能体不存在或无权限")
     return http_connector_service.create_connector(

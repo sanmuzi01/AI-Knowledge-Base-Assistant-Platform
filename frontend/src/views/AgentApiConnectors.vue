@@ -57,8 +57,13 @@
         </div>
       </section>
 
-      <!-- 新建接口工具 -->
-      <section class="rounded-lg border border-sky-200 bg-white/80 p-4">
+      <!-- 新建接口工具：默认只留给管理员——单企业部署下接入外部系统应由管理员统一审核配置，
+           不是员工自助接的（后端 FasdtApi/agent.py 的 create_api_connector 同步做了强制校验，
+           这里只是不显示入口，不是唯一防线）。 -->
+      <p v-if="!isAdmin" class="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+        新增接口工具需要管理员权限，如需接入新的企业系统请联系管理员配置。
+      </p>
+      <section v-else class="rounded-lg border border-sky-200 bg-white/80 p-4">
         <h2 class="mb-3 text-sm font-semibold text-slate-900">新增接口工具</h2>
 
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -159,9 +164,12 @@ import {
   type ApiConnector,
 } from '../api/agentConnector'
 import { getErrorMessage } from '../utils/request'
+import { useUserStore } from '../stores/user'
 
 const props = defineProps<{ agentId: string | number }>()
 const agentId = computed(() => Number(props.agentId))
+const userStore = useUserStore()
+const isAdmin = computed(() => Boolean(userStore.user?.is_admin))
 
 const agent = ref<AgentInfo | null>(null)
 const connectors = ref<ApiConnector[]>([])

@@ -130,6 +130,37 @@ npm run audit:py
 CI 里独立一个 `e2e` job（`.github/workflows/ci.yml`），失败时把失败截图和页面 DOM 快照
 （`tests_e2e/.e2e_data/fail_*.png` / `.html`）打包成 artifact 方便下载查看。
 
+## 企业化改造前的安全收口（Step 0）
+
+在把项目往"单企业私有化部署"方向改造前，先核对了一遍现有能力开关的默认状态，
+只发现一处真实缺口，已修：
+
+- **Skill 导入/创建/编辑/删除/模板/版本回滚**：路由层已经全部是
+  `get_current_admin_user`（[FasdtApi/skill_route.py](../FasdtApi/skill_route.py)），
+  普通用户拿不到这些接口。不需要新增改动。
+- **Skill 脚本目录越界**：[service/skills/loader.py](../service/skills/loader.py) 的
+  `_ensure_managed_dir` 已经用 `realpath` 把 `resource_root`/`scripts_root` 限制在
+  `skills/`、`skills_packages/` 下，同时挡 `../` 和符号链接逃逸；回归测试见
+  `tests/test_skill_script_policy.py` 的
+  `test_loader_refuses_scripts_root_outside_skills_packages` /
+  `test_loader_refuses_resource_root_outside_managed_dirs`。这条是已修复的历史问题，
+  不是仍然存在的漏洞。
+- **脚本沙箱**：生产默认关闭的开关叫 `SANDBOX_ENABLED`（不是 `SANDBOX_ALLOW_USER_SCRIPTS`
+  ——这只是命名，行为一致），`.env.production.example` 里已经是 `false`。
+- **企业接口连接器（真正的缺口）**：`POST /agent/{agent_id}/api-connectors`
+  （[FasdtApi/agent.py](../FasdtApi/agent.py)）原来只要求 `get_current_user`——任何
+  普通用户都能给自己的 Agent 配任意（过 SSRF 校验的）外部 HTTP 接口。单企业部署下，
+  "能不能接入外部系统"应该是管理员审核后统一配置的能力。新增
+  [service/feature_flags.py](../service/feature_flags.py) 统一收口这类开关，
+  `create_api_connector` 现在默认要求管理员，设
+  `FEATURE_USER_API_CONNECTORS=true` 才放开给普通用户自助配置；前端
+  [AgentApiConnectors.vue](../frontend/src/views/AgentApiConnectors.vue) 同步隐藏了
+  非管理员看到的"新增接口工具"表单。回归测试：
+  `tests/test_agent_api_connector_routes.py` 的
+  `test_normal_user_cannot_create_connector_by_default`（默认 403）和
+  `test_feature_flag_lets_normal_user_create_connector`（开关生效）；
+  `tests/test_feature_flags.py` 覆盖开关本身的取值解析。
+
 ## 路由级测试的数据清理
 
 `tests/_route_client.py` 建的 `rt_*` 用户是**真实落库**的。清理机制：
