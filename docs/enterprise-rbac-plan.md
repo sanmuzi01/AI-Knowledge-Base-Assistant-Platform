@@ -25,6 +25,14 @@ Team         = 部门（前端一律显示"部门"，代码/表名统一用 Team
 
 ### 1.2 新表
 
+三个开放问题已定：**单企业多部门**（保留 `Organization`，但这次部署下长期只有 1 行；
+`Team` 才是真正多行的单位）、角色**新建外键表**（不用字符串枚举）、部门管理员**能看到**
+部门下所有知识库空间（见 2.1 节 `get_accessible_space_ids` 第三个来源）。
+
+角色新建一张独立的 `enterprise_role` 表，不是塞进现有的 `Role`
+（[models/init_db.py:157](../models/init_db.py:157)）——那张表是平台级角色（决定
+`is_admin_user()`），语义和生命周期都不一样，混在一起以后没法单独改企业角色目录。
+
 ```python
 class Organization(Base):
     __tablename__ = "organization"
@@ -48,6 +56,27 @@ class Team(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class EnterpriseRole(Base):
+    """企业/部门角色目录。scope 区分用在哪一层，同一层内 code 唯一。
+
+    初始数据（迁移里插入，不是代码里硬编码判断）：
+      scope=organization: owner(等级3) / admin(2) / auditor(1) / member(0)
+      scope=team:         admin(2) / editor(1) / member(0)
+    `rank` 用于"至少要有 X 级"的判断（require_org_role("admin") 实际比较 rank），
+    不用在代码里列举所有可能的角色名。
+    """
+    __tablename__ = "enterprise_role"
+    __table_args__ = (
+        Index("uq_enterprise_role_scope_code", "scope", "code", unique=True),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(String(20), nullable=False)   # organization / team
+    code = Column(String(30), nullable=False)    # owner / admin / auditor / editor / member
+    name = Column(String(60), nullable=False)    # 显示名，如"企业管理员"
+    rank = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
 class OrganizationMember(Base):
     __tablename__ = "organization_members"
     __table_args__ = (
@@ -57,7 +86,7 @@ class OrganizationMember(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     organization_id = Column(Integer, ForeignKey("organization.id", name="fk_om_org"), nullable=False)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_om_user"), nullable=False)
-    role = Column(String(20), nullable=False, default="member")   # owner / admin / auditor / member
+    role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_om_role"), nullable=False)
     status = Column(String(20), nullable=False, default="active")  # active / disabled
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
@@ -72,11 +101,17 @@ class TeamMember(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     team_id = Column(Integer, ForeignKey("team.id", name="fk_tm_team"), nullable=False)
     user_id = Column(Integer, ForeignKey("user.id", name="fk_tm_user"), nullable=False)
-    role = Column(String(20), nullable=False, default="member")   # admin / editor / member
+    role_id = Column(Integer, ForeignKey("enterprise_role.id", name="fk_tm_role"), nullable=False)
     status = Column(String(20), nullable=False, default="active")
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 ```
+
+`role_id` 指向哪个 `scope` 的 `enterprise_role` 由写入时的 service 层校验
+（`organization_members.role_id` 必须是 `scope="organization"` 的行），不指望数据库
+跨表 CHECK 约束覆盖——MySQL 8（本项目用的版本）虽然支持 CHECK，但不能引用别的表，
+这类跨表条件历来都是应用层校验，跟 1.4 节"Team 必须属于同一个 Organization"的校验
+放在一起做。
 
 `status` 字段（而不是直接删行）是为了停用成员时保留审计痕迹，跟 `KnowledgeSpace.status`
 （active/archived）的既有风格一致。
@@ -133,9 +168,13 @@ def require_space_permission(min_role: str):
     owner（KnowledgeSpace.user_id）视为高于 admin。"""
 
 def get_accessible_space_ids(db, user) -> list[int]:
-    """给检索/列表接口用：当前用户能看到哪些知识库空间 id
-    （自己 owner 的 + SpaceMember 命中的 + 所属部门公开的），一次查出来，
-    不要在业务代码里现算三种来源再拼 OR。"""
+    """给检索/列表接口用：当前用户能看到哪些知识库空间 id，一次查出来，不要在业务代码里
+    现算多种来源再拼 OR。三个来源（已定）：
+      1. 自己是 KnowledgeSpace.user_id（owner）
+      2. 自己在 SpaceMember 里命中（不论角色）
+      3. 自己在该空间所属 Team 的 team_members 里 role=admin
+         （部门管理员能看到部门下所有知识库空间，即使不是具体空间的 SpaceMember——已确认）
+    """
 ```
 
 ### 2.1 校验顺序（固定，不因路由而变）
@@ -174,27 +213,21 @@ def get_accessible_space_ids(db, user) -> list[int]:
 | 5 | 外部连接器 | `agent.py` 里的 `api-connectors` 路由（本次 Step 0 已加管理员/开关校验，见 [docs/testing.md](testing.md)） | 4 | Step 0 已经先做了一道粗粒度收紧；这里再叠加部门维度是 Phase 3D 的事，不用现在动 |
 | 6 | 后台任务、统计与审计 | `background_task.py`、`evaluation.py`、`rag_debug.py`、`admin.py` 里的统计/审计部分 | 5 + 8 + 6 + 21 | 优先扩展现成的 `KbAuditLog`，不新建一套审计表 |
 
-## 4. 需要用户决策的开放问题
+## 4. 决策记录
 
-1. **是否真的需要"多企业"数据模型？** 你的方案本身是"单企业私有化部署"——一个部署只服务
-   一家企业。`Organization` 表按可扩展设计（为未来 SaaS 化留门），但 v1 只会有 1 行数据，
-   `require_org_role` 的"是否属于该企业"这一步在单企业场景下永远为真。这层校验现在就做，
-   还是先跳过（只做 Team 这一层），等真的要多企业时再补？跳过能省一次迁移和一层判断，
-   但以后要补时是数据回填 + 全路由改造，不是加一个字段那么简单。
-2. **`organization_members`/`team_members` 的 `role` 用字符串枚举还是新建 Role 表外键？**
-   现有 `SpaceMember.role` 是字符串（"admin"/"editor"/"viewer"），本文档为保持一致也用了字符串。
-   字符串简单但没有数据库级约束防拼错；如果你们后续想让角色可配置（比如企业自定义角色名），
-   现在就该换成外键表，返工成本比现在改一次小得多。
-3. **部门管理员能不能看到部门下所有知识库空间，即使自己不是那个空间的 `SpaceMember`？**
-   这决定 `get_accessible_space_ids` 的第三个来源要不要加"我是这个空间所属部门的
-   team admin"。方案原文没写清楚，需要你确认。
+| 问题 | 决策 |
+|---|---|
+| 要不要做"多企业"数据模型？ | **单企业多部门**：保留 `Organization` 表（结构可扩展），但这次部署下长期只有 1 行；`Team` 是真正的多行单位。`require_org_role` 的"是否属于该企业"这一步照做，不跳过 |
+| `role` 用字符串还是外键表？ | **新建**：新增 `enterprise_role` 目录表，`organization_members`/`team_members` 用 `role_id` 外键，不用字符串枚举（见 1.2 节） |
+| 部门管理员能不能看到部门下所有空间？ | **能看到**：`get_accessible_space_ids` 第三个来源是"该空间所属 Team 的 team admin"，即使不是具体空间的 `SpaceMember`（见 2.1 节） |
 
-## 5. 这份设计稿评审通过后，下一步
+## 5. 下一步
 
-按 Phase 3A → 3B → 3C 顺序：
-1. Phase 3A（Alembic 权威化）先完成——**这份文档不依赖它，但迁移执行要等它**。
-2. 针对第 4 节的三个问题给出决策。
-3. 我据此把 1.2 节的表结构定稿，出 Alembic 迁移文件 + 第 1.5 节的数据回填脚本 + 幂等性测试。
-4. 授权层（第 2 节）先落地 `require_org_role`/`require_team_role`/`require_space_permission`/
+设计和三个开放问题都已定稿。按 Phase 3A → 3B → 3C 顺序，**迁移文件和授权层代码要等
+Phase 3A（Alembic 权威化：可信基线 + 全新空库验证 + 停用启动期 ALTER TABLE + 迁移
+测试/回滚/备份规则）先落地**，不提前动表——这是这次改造顺序里唯一的硬依赖。
+Phase 3A 完成后：
+1. 把 1.2 节的表结构落成 Alembic 迁移文件 + 1.5 节的数据回填脚本（含幂等性测试）。
+2. 授权层（第 2 节）先落地 `require_org_role`/`require_team_role`/`require_space_permission`/
    `get_accessible_space_ids` 四个函数和它们自己的单元测试，再按第 3 节的顺序逐模块接入、
    每接入一个模块跑一遍那个模块的路由级测试确认没有意外放宽或收紧权限。
