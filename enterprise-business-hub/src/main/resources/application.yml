@@ -1,0 +1,36 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: enterprise-business-hub
+  datasource:
+    url: jdbc:mysql://${ENTERPRISE_DB_HOST:127.0.0.1}:${ENTERPRISE_DB_PORT:3306}/${ENTERPRISE_DB_NAME:enterprise_business}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    username: ${ENTERPRISE_DB_USER:root}
+    password: ${ENTERPRISE_DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 表结构完全交给 Flyway 管，Hibernate 不自动建/改表——跟主项目 Alembic 权威化
+      # 是同一个原则：schema 变更必须走一份可审查的迁移文件，不能让 ORM 隐式生成。
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# 跨服务签名（docs/enterprise-business-hub-plan.md 第 6 节）：FastAPI 签发短时效
+# RequestContext，这里用同一把密钥校验 HMAC。本地开发默认值只用于双方都跑在本机的场景，
+# 生产必须由部署方各自生成一个随机密钥并保持两边一致（同 JWT_SECRET_KEY 的管理方式）。
+enterprise-hub:
+  security:
+    hmac-secret: ${ENTERPRISE_HUB_HMAC_SECRET:dev-only-shared-secret-change-me}
+    max-clock-skew-seconds: 300
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

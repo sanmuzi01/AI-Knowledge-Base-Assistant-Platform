@@ -1,0 +1,98 @@
+"""企业业务中心（Spring Boot，`enterprise-business-hub/`）的签名 HTTP 客户端。
+
+FastAPI 侧签发短时效权限上下文，业务中心只验证签名+有效期+防重放，不重新判断
+权限——权限来源只在这一处（docs/enterprise-business-hub-plan.md 第6节）。签名方案
+跟 Java 侧 `SignedRequestContextFilter` 完全对称：`X-Context` 是 base64(JSON)，
+`X-Signature` 是对这个 base64 字符串算的 HMAC-SHA256 hex，两边按同一份共享密钥
+（`ENTERPRISE_HUB_HMAC_SECRET`）算，不要求两边 JSON 序列化逐字节一致——签的是
+base64 之后的字符串，不是 JSON 本身，规避了序列化顺序不一致的问题。
+
+复用 `service/http_resilience.py` 的超时/重试/熔断，跟项目里所有其它外部服务调用
+（LLM/Embedding）走同一套韧性策略，不是另起一套。
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
+import uuid
+from typing import Any, Dict, List, Optional
+
+import requests
+
+from service.http_resilience import request_with_retry
+
+SERVICE_NAME = "enterprise_hub"
+
+
+class EnterpriseHubError(Exception):
+    """业务中心返回 4xx/5xx（不是网络层失败，是业务中心自己拒绝了这次请求）。"""
+
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"[{status_code}] {detail}")
+
+
+def _base_url() -> str:
+    return os.getenv("ENTERPRISE_HUB_BASE_URL", "http://127.0.0.1:8090").rstrip("/")
+
+
+def _secret() -> str:
+    return os.getenv("ENTERPRISE_HUB_HMAC_SECRET", "dev-only-shared-secret-change-me")
+
+
+def sign_context(user_id: int, team_id: Optional[int], scopes: List[str], operation: str) -> Dict[str, str]:
+    context = {
+        "user_id": user_id,
+        "team_id": team_id,
+        "scopes": scopes,
+        "operation": operation,
+        "trace_id": str(uuid.uuid4()),
+        "timestamp": int(time.time()),
+        "nonce": uuid.uuid4().hex,
+    }
+    context_b64 = base64.b64encode(json.dumps(context).encode("utf-8")).decode("ascii")
+    signature = hmac.new(_secret().encode("utf-8"), context_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {"X-Context": context_b64, "X-Signature": signature}
+
+
+def call(
+        method: str,
+        path: str,
+        user_id: int,
+        team_id: Optional[int],
+        scopes: List[str],
+        operation: str,
+        *,
+        json_body: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        timeout_default: float = 10.0,
+) -> Any:
+    """签名 + 请求 + 韧性封装；4xx/5xx 统一翻成 EnterpriseHubError，调用方
+    （Agent 工具）负责把它转成给用户看的自然语言，不要在这里假设调用场景。"""
+    headers = sign_context(user_id, team_id, scopes, operation)
+    headers["Content-Type"] = "application/json"
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+
+    def sender(timeout: float) -> requests.Response:
+        return requests.request(
+            method, f"{_base_url()}{path}", headers=headers, json=json_body, timeout=timeout,
+        )
+
+    response = request_with_retry(
+        SERVICE_NAME, sender,
+        timeout_env="ENTERPRISE_HUB_TIMEOUT_SECONDS", default_timeout=timeout_default,
+    )
+    if response.status_code >= 400:
+        detail = response.text
+        try:
+            detail = response.json().get("detail", detail) or response.json().get("message", detail)
+        except (ValueError, AttributeError):
+            pass
+        raise EnterpriseHubError(response.status_code, detail)
+    if not response.content:
+        return None
+    return response.json()

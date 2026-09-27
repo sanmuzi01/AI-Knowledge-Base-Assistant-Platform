@@ -122,3 +122,82 @@ Java 不自己判断权限，只验证 FastAPI 签发的短时效上下文：
 | 要不要拆 OA/采购/CRM 三个微服务？ | **不拆**：一个模块化单体（`enterprise-business-hub`），规模真的起来再拆 |
 | Java 服务要不要自己维护一套权限？ | **不维护**：只验证 FastAPI 签发的短时效签名上下文，权限来源始终只有一处 |
 | 平台审批和业务审批要不要合并？ | **不合并**：分别属于 FastAPI 和 Java，两张表、两条流程 |
+
+## 12. 执行结果（OA 请假闭环第一版，2026-09-27）
+
+状态更新：本节之前"已确认架构、未开始实施"，现在 OA 请假这一条闭环已经**端到端跑通**
+（真实 Spring Boot 服务 + 真实 MySQL + 真实签名 HTTP 调用 + 真实 FastAPI Agent 工具），
+按第9.5节自己定的顺序，只做了这一个闭环，没有同时铺采购/CRM。
+
+### Java 侧（`enterprise-business-hub/`）
+
+Maven 项目，Spring Boot 3.3.4 + Java 21（本机 JDK 23 编译目标设为 21，两者兼容）。
+包结构：`security`（`RequestContext`/`SignedRequestContextFilter`/`HmacSignatureVerifier`/
+`NonceStore`/`ScopeGuard`）、`idempotency`（`IdempotencyRecord`/`IdempotencyService`）、
+`audit`（`AuditEvent`/`AuditService`，追加式，跟知识库空间模块自己的 `kb_audit_log`
+是两张不同的表，见类注释）、`oa`（`LeaveType`/`LeaveBalance`/`LeaveRequest`/
+`LeaveService`/`LeaveController`）。表结构用 Flyway 管（`V1__init_oa_and_shared.sql`），
+`spring.jpa.hibernate.ddl-auto=validate`——跟主项目 Alembic 权威化是同一个原则，
+Hibernate 不能隐式改表。独立数据库 `enterprise_business`（本机跟 `agent_sql` 同一个
+MySQL 实例，生产按设计稿第2节应该分账号，本地开发暂共用 root，见下面"简化"部分）。
+
+流程：`GET /oa/leave/balance` 查余额 → `POST /oa/leave/requests` 建草稿 →
+`POST /oa/leave/requests/{id}/submit` 提交（校验余额够不够）→
+`POST /oa/leave/requests/{id}/approve|reject`（部门负责人决定，批准才真正扣减余额，
+拒绝不动余额）→ `GET /oa/leave/requests/{id}` 查状态。写接口都要 `Idempotency-Key`
+头，重复的 key 直接返回第一次的结果，不重新执行。
+
+安全：每个请求都要带 FastAPI 签的 `X-Context`（base64 JSON）+ `X-Signature`
+（对这个 base64 串算的 HMAC-SHA256），`SignedRequestContextFilter` 验签名+
+时间戳容差（默认 300 秒）+ nonce 防重放（进程内 Map，见类注释里"多实例部署已知限制"）；
+每个 Controller 方法用 `ScopeGuard.require(...)` 显式检查 scope，不是"能连到接口就有权限"。
+
+`enterprise-business-hub/src/test/java/.../LeaveControllerIntegrationTest.java`：6 个
+`@SpringBootTest`（真实 HTTP + 真实 MySQL，不是 mock）——完整闭环、缺 scope 403、
+签名错 401、余额不足 400、重复 Idempotency-Key 不重复建单、拒绝不扣余额。全绿。
+
+### FastAPI 侧
+
+`service/enterprise_hub_client.py`：签名 + 请求，复用 `service/http_resilience.py`
+的超时/重试/熔断（跟 LLM/Embedding 调用同一套韧性策略，没有另起一套）。
+`service/tools/oa_leave.py`：6 个 Agent 工具（`get_leave_balance`/`create_leave_draft`/
+`submit_leave_request`/`approve_leave_request`/`reject_leave_request`/
+`get_leave_status`），走既有的 `service/tools/` 零配置自动注册——不用改任何路由/
+Agent 装配代码，HR Agent 绑上这些工具就能用。`tests/test_oa_leave_tools.py`（10 个，
+mock 掉 `hub.call`，只验证工具层参数映射/scope/错误转换，不需要真实 Java 服务或 DB）。
+
+手动全链路验证：`scripts/smoke_test_enterprise_hub.py`（真实签名 + 真实 HTTP，不进
+`unittest discover`，需要先手动起 Java 服务）跑过一遍查余额(10)→建草稿→提交→
+批准→查状态→余额扣减(8)，跟 JUnit 集成测试覆盖的是同一条链路，多一层"从
+Python 客户端视角也真的能打通"的确认。
+
+启动方式（本机验证过）：
+
+```bash
+# 1. 建库（只需一次）
+mysql -uroot -p -e "CREATE DATABASE enterprise_business CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# 2. 起服务（Flyway 自动建表+种子数据）
+cd enterprise-business-hub
+ENTERPRISE_DB_PASSWORD=<跟主项目 .env 的 DB_PASSWORD 一致> mvn spring-boot:run
+# 3. FastAPI 侧 .env 补 ENTERPRISE_HUB_BASE_URL / ENTERPRISE_HUB_HMAC_SECRET（.env.example 有示例）
+```
+
+### 已知的简化（本地验证阶段，不是遗漏，见文档正文对应节）
+
+- 数据库账号：本地开发跟主项目共用 root，第2节"最小数据库权限"原则要到真实部署
+  时按需分账号，MVP 阶段不为了这一条把本地开发流程复杂化。
+- nonce 防重放：进程内 Map，多实例部署时各实例互相看不到彼此的 nonce（见
+  `NonceStore` 类注释）；生产多实例要换 Redis，跟主项目 Python 侧限流用 Redis
+  是同一类问题，同一个解法方向。
+- 幂等：没有加数据库级唯一约束抢占，极短时间内同 key 并发请求理论上可能都判定
+  "没有记录"各跑一次（见 `IdempotencyService` 类注释）；请假场景操作频率低，
+  这个窗口期实际发生概率极小，先不做互斥锁。
+- 余额扣减用简单的"批准时扣减"，没有做"提交时预扣、拒绝时释放"这种库存占用模型；
+  正确性对当前场景够用，账更严格的占用模型留给真有需求（比如需要看到"审批中"
+  状态占了多少余额）再加。
+
+### 还没做（阶段3/采购/CRM/SAP，按原计划顺序留白）
+
+Phase 3D 阶段3（中央 Agent 受控路由）现在有了第一个真实目标（HR Agent + OA 请假
+工具），可以回头接了，但这次没有顺带做——先把这条闭环单独验证完，路由逻辑是
+下一步。采购/CRM/SAP Connector 仍然是空白，按第9.5节的顺序排在 OA 之后。

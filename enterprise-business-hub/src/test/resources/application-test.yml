@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${ENTERPRISE_DB_HOST:127.0.0.1}:${ENTERPRISE_DB_PORT:3306}/${ENTERPRISE_DB_NAME:enterprise_business}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+    username: ${ENTERPRISE_DB_USER:root}
+    password: ${ENTERPRISE_DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+enterprise-hub:
+  security:
+    hmac-secret: test-secret-not-for-production
+    max-clock-skew-seconds: 300
