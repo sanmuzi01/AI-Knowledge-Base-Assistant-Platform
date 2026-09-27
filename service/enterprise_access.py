@@ -27,8 +27,9 @@ from fastapi import Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from models.async_db import get_async_db
 from models.init_db import User, get_db
-from service.dependencies import get_current_user
+from service.dependencies import get_current_user, get_current_user_async
 from service.exceptions import NotFound, PermissionDenied
 
 
@@ -100,6 +101,51 @@ def require_org_role(*roles: str):
         if user_rank is None:
             raise NotFound("企业不存在或无权限")
         min_rank = _min_required_rank(db, "organization", roles)
+        if user_rank < min_rank:
+            raise PermissionDenied("没有足够的企业权限")
+        return current_user
+
+    return _dep
+
+
+async def _org_role_rank_async(db, user_id: int) -> Optional[int]:
+    result = await db.execute(
+        text(
+            "SELECT MAX(er.rank) FROM organization_members om "
+            "JOIN enterprise_role er ON om.role_id = er.id "
+            "WHERE om.user_id = :uid AND om.status = 'active' AND er.scope = 'organization'"
+        ),
+        {"uid": user_id},
+    )
+    return result.scalar()
+
+
+async def _min_required_rank_async(db, scope: str, roles: Iterable[str]) -> int:
+    roles = list(roles)
+    if not roles:
+        return 10**9
+    placeholders = ",".join(f":c{i}" for i in range(len(roles)))
+    params = {f"c{i}": c for i, c in enumerate(roles)}
+    params["scope"] = scope
+    result = await db.execute(
+        text(f"SELECT `rank` FROM enterprise_role WHERE scope=:scope AND code IN ({placeholders})"),
+        params,
+    )
+    ranks = [r[0] for r in result.all()]
+    return min(ranks) if ranks else 10**9
+
+
+def require_org_role_async(*roles: str):
+    """`require_org_role` 的异步版，语义完全一致——给已经全异步化的模块（比如
+    Phase 3D 阶段4 的审批路由）用，避免为了一个权限校验硬塞一个同步 Session。"""
+    async def _dep(
+        current_user: User = Depends(get_current_user_async),
+        db=Depends(get_async_db),
+    ) -> User:
+        user_rank = await _org_role_rank_async(db, current_user.id)
+        if user_rank is None:
+            raise NotFound("企业不存在或无权限")
+        min_rank = await _min_required_rank_async(db, "organization", roles)
         if user_rank < min_rank:
             raise PermissionDenied("没有足够的企业权限")
         return current_user

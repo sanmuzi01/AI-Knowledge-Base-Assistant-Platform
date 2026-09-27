@@ -512,3 +512,71 @@ personal/department/enterprise 三种 scope_type 分别配 owner / 部门在职�
 阶段3（中央 Agent 受控路由）还没开始——本次只是让已有的归属字段在授权层生效，
 `scope_type` 目前仍然没有任何创建入口能设成 department/enterprise（全部是 ORM 默认值
 `personal`），这条路由/创建能力留给阶段3 一起做，不在这次里超前实现。
+
+## 13. 执行结果（阶段4/5/6：审批 + 乐观锁/发布生命周期字段 + 通用审计，2026-09-27）
+
+跟用户核对过阶段3的前置问题：中央 Agent 路由要路由到真实的部门 Agent，但那些部门
+Agent 的业务能力依赖 Phase 5（Spring Boot 企业业务中心，还没开始）——阶段3现在做只是
+搭一个指向空气的路由骨架。用户选择**先做阶段4-6**，这三项不依赖部门 Agent 是否存在。
+
+### 阶段4：审批（`approval_request` 新表 + `service/approval_service.py`）
+
+绑定具体 `(action, resource_type, resource_id)`，不是一句笼统的"同意"：`request_or_get_pending`
+（申请，同一个资源+操作有未过期的在途单就复用，不重复建单）、`decide`（企业管理员批准/拒绝，
+决定过的单子不能再决定第二次）、`try_consume_approved`（认领一条 approved 且没消费过的单子，
+消费后置 `executed_at`，不能被消费第二次）。企业管理员判定新增
+`service/enterprise_access.py::require_org_role_async`（`require_org_role` 的异步版，
+给这次全异步的审批路由用，避免为了一个权限检查硬塞同步 Session）。
+
+新路由 `FasdtApi/approval_route.py`（`GET /approvals/pending`、
+`POST /approvals/{id}/decide`，都要求 `require_org_role_async("admin")`）——这是
+`require_org_role`/`require_org_role_async` 自 Phase 3B 落地以来**第一次真正被路由用到**
+（之前设计稿写的时候就说了"这一步只落地函数本身，还没接到任何路由上"）。
+
+唯一接了审批的真实高风险操作：`space_async_service.delete_space`（删知识库空间）。
+第一次调用只建审批单、返回"待审批"，不删数据；企业管理员批准后，用户重新调一次
+删除接口，`try_consume_approved` 认领那条单子才真的执行删除。文档里列的其余几项
+（发布高权限 Skill、导出限制级数据、改权限策略）现在都没有对应的真实路由——Skill
+按部门发布是阶段3D未做的业务功能，导出/权限策略管理路由压根不存在——所以先接
+唯一一个已经存在的真实场景，其余等对应功能真的做出来时照这个模式接。
+
+### 阶段5：乐观锁 + 发布生命周期（只加字段，不接强制逻辑）
+
+`agent`/`skill` 加 `row_version`（默认0）+ `lifecycle_status`（默认`draft`，
+draft/reviewing/published/retired）；`knowledge_spaces` 只加 `row_version`（空间
+已经有 `status` 管 active/archived，不是 draft/published 那一套，不需要
+`lifecycle_status`）。
+
+刻意不接比对/强制逻辑：SQLAlchemy 原生的 `version_id_col` 能免手写 compare-and-swap
+代码就拿到乐观锁保护，但它要求这张表的每一条更新路径都走 ORM 属性赋值 + commit，
+没审计过全部调用点（尤其是有没有绕过 ORM 的原始 SQL UPDATE）就启用，一旦漏了一条，
+下次 ORM 更新会莫名其妙报 `StaleDataError`，把没有关系的现有功能炸掉——现在没有任何
+前端会传 `row_version`，强行接上收益是零、风险不是零。跟阶段1同一个节奏：先落字段，
+等真的有发布评审 UI、需要"已发布不能原地改"这条约束时再接真正的比对逻辑。
+
+### 阶段6：通用审计（`audit_event` 新表 + `service/audit_service.py`）
+
+核对的时候发现项目里已经有一张 `kb_audit_log`（知识库空间模块早先自己建的，范围限定
+在 space/document/member/binding）——没有把它泛化，新建了一张不冲突的 `audit_event`
+给它覆盖不到的操作用（目前是审批单的申请/批准/拒绝），避免为了"统一"去动一张已经在
+正常工作的表。`service/audit_service.py::record[_async]` 是唯一读写入口，`try/except`
++ 独立 `rollback()` 包一层（跟 `space_async_service.py::_audit` 一样的尽力而为写法），
+审计失败不能拖垮主流程。
+
+### 测试 + 顺手补的测试基建缺口
+
+新增 `tests/test_approval_service.py`（11 个，真实 DB，全异步）：审批单生命周期
+（申请去重/批准/拒绝/过期/消费且只能消费一次）、`require_org_role_async` 三种角色
+矩阵、`delete_space` 完整走一遍"第一次只建单不删 → 批准 → 第二次真的删除"。
+
+顺手发现 `tests/_route_client.py::_purge_users` 少清理了一张新表：`approval_request`
+的 `applicant_id`/`approver_id` 都是 `user.id` 的外键，测试建完审批单后如果不先删这张
+表就删测试用户，会撞 FK（被 `try/except` 悄悄吞掉，测试用户没删干净但不报错）——已经
+在删 `organization_members`/`team_members` 那两行旁边补上。
+
+727 个测试全绿，ruff/compileall 干净。`tests/test_routes_isolation.py` 里已有的
+`DELETE /knowledge-spaces/{id}` 断言（只查 `status_code == 200`）没有改：接了审批后
+第一次删除仍然返回 200（body 变成"待审批"而不是"已删除"），断言本身不会失败，实际
+数据没删掉但 `rc.cleanup()` 的 `tearDownClass` 会用裸 SQL 无条件清掉测试数据，不会
+跨测试进程泄漏——这个新行为的真实验证放在了 `test_approval_service.py` 里，没有去改
+`test_routes_isolation.py` 那边的既有断言。

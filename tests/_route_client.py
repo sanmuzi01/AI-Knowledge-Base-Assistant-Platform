@@ -149,6 +149,8 @@ def _purge_users(where_users: str) -> int:
             # 都有 user.id 的外键——不先删这两张表，下面删 `user` 会直接撞 FK 报错。
             f"DELETE FROM organization_members WHERE user_id IN {inc}",
             f"DELETE FROM team_members WHERE user_id IN {inc}",
+            # Phase 3D 阶段4新增，applicant_id/approver_id 都有 user.id 的外键，同理先删。
+            f"DELETE FROM approval_request WHERE applicant_id IN {inc} OR approver_id IN {inc}",
         ]
         if kin:
             stmts += [

@@ -158,6 +158,13 @@ class Agent(Base):
     team_id = Column(Integer, ForeignKey("teams.id", name="fk_agent_team"), nullable=True)
     scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
     sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
+    # ---- Phase 3D 阶段5：乐观锁 + 发布生命周期字段（docs/enterprise-rbac-plan.md 9.5）----
+    # 只加字段，还没接入比对/强制逻辑：没有任何路由会把 lifecycle_status 改成 draft
+    # 以外的值，也没有任何更新路径会去比对 row_version，现存行为完全不变；真正的
+    # compare-and-swap 和"已发布不能原地改"等到真有发布入口时再接，跟阶段1的加字段
+    # 节奏一样。
+    row_version = Column(Integer, nullable=False, default=0)
+    lifecycle_status = Column(String(20), nullable=False, default="draft")  # draft/reviewing/published/retired
     skills: Mapped[List["Skill"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="agents"
     )
@@ -268,6 +275,9 @@ class KnowledgeSpace(Base):
     # ---- Phase 3D 阶段1：密级（docs/enterprise-rbac-plan.md 9.5）----
     scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
     sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
+    # ---- Phase 3D 阶段5：乐观锁字段，只加不接逻辑（同 Agent 那份注释）。没有发布
+    # 生命周期列——空间已经有 status（active/archived），不是 draft/published 那一套。----
+    row_version = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -452,6 +462,56 @@ class TeamMember(Base):
     status = Column(String(20), nullable=False, default="active")
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class ApprovalRequest(Base):
+    """高风险操作的审批单（Phase 3D 阶段4，docs/enterprise-rbac-plan.md 9.5）。
+
+    绑定具体的 (action, resource_type, resource_id)，不是一句笼统的"同意"——
+    审批只对这一次这个资源的这个操作有效，过期或已消费（executed_at 不为空）
+    后不能再复用。`service/approval_service.py` 是唯一的读写入口。
+    """
+    __tablename__ = "approval_request"
+    __table_args__ = (
+        Index("idx_approval_resource", "resource_type", "resource_id", "action", "status"),
+        Index("idx_approval_applicant", "applicant_id"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    applicant_id = Column(Integer, ForeignKey("user.id", name="fk_approval_applicant"), nullable=False)
+    approver_id = Column(Integer, ForeignKey("user.id", name="fk_approval_approver"), nullable=True)
+    action = Column(String(60), nullable=False)          # 如 space.delete / skill.publish
+    resource_type = Column(String(40), nullable=False)   # 如 space / skill / agent
+    resource_id = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=True)
+    # pending / approved / rejected / expired
+    status = Column(String(20), nullable=False, default="pending")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+
+
+class AuditEvent(Base):
+    """通用写操作审计（Phase 3D 阶段6）。只追加，不提供 UPDATE/DELETE 入口——
+    `service/audit_service.py` 只有 `record()`，没有改/删函数。
+
+    跟已有的 `KbAuditLog` 是两张表，不是重复：`KbAuditLog` 是知识库空间模块早先
+    自己建的、范围限定在 space/document/member/binding 那一块；这张表给知识库空间
+    之外的操作用（目前是审批决定），以后企业成员/角色变更等也记这里，不是把
+    `KbAuditLog` 泛化，避免动一张已经在用的表。
+    """
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("idx_audit_event_resource", "resource_type", "resource_id", "created_at"),
+        Index("idx_audit_event_user", "user_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    action = Column(String(60), nullable=False)
+    resource_type = Column(String(40), nullable=True)
+    resource_id = Column(Integer, nullable=True)
+    detail = Column(Text, nullable=True)   # JSON 摘要
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
 # 知识块表（文档切分后的块，含向量库id引用）
@@ -665,6 +725,9 @@ class Skill(Base):
     team_id = Column(Integer, ForeignKey("teams.id", name="fk_skill_team"), nullable=True)
     scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
     sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
+    # ---- Phase 3D 阶段5：乐观锁 + 发布生命周期字段，只加字段不接逻辑（同 Agent 那份注释）----
+    row_version = Column(Integer, nullable=False, default=0)
+    lifecycle_status = Column(String(20), nullable=False, default="draft")  # draft/reviewing/published/retired
     # 被哪些Agent使用（多对多） ← 新增这 3 行
     agents: Mapped[List["Agent"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="skills"

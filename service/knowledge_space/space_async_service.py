@@ -139,6 +139,11 @@ async def update_space(db, user_id: int, space_id: int, patch: Dict[str, Any]) -
 
 
 async def delete_space(db, user_id: int, space_id: int) -> Dict[str, Any]:
+    """删除知识库空间是 Phase 3D 阶段4 列的平台高风险操作之一，需要企业管理员审批
+    （docs/enterprise-rbac-plan.md 9.5）：第一次调用只建审批单并返回"待审批"，
+    企业管理员通过 `POST /approvals/{id}/decide` 批准后，用户重新调一次这个接口
+    才真正执行删除（`approval_service.try_consume_approved` 认领那条 approved 单）。
+    """
     space = await get_owned_space_async(db, user_id, space_id)
     if not space:
         raise NotFound("知识库空间不存在或无权限")
@@ -148,6 +153,18 @@ async def delete_space(db, user_id: int, space_id: int) -> Dict[str, Any]:
     stats = await dao.live_stats_async(db, space_id)
     if stats["doc_count"] > 0:
         raise InvalidInput("空间下还有文档，请先清空文档或改为归档")
+
+    from service import approval_service
+
+    approval_id = await approval_service.try_consume_approved(db, "space.delete", "space", space_id)
+    if approval_id is None:
+        pending = await approval_service.request_or_get_pending(
+            db, user_id, "space.delete", "space", space_id,
+            reason=f"删除知识库空间「{space.name}」",
+        )
+        return {"message": "删除知识库空间需要企业管理员审批，已提交申请，审批通过后请再次删除",
+                "approval": pending}
+
     await _audit(db, user_id, "space.delete", space_id=space_id, target_type="space",
                 target_id=space_id, detail={"name": space.name})
     from sqlalchemy import delete as sa_delete
