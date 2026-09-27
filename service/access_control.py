@@ -21,6 +21,31 @@ def get_owned_agent(db, user_id: int, agent_id: int) -> Optional[Agent]:
     return agent
 
 
+def get_usable_agent(db, user_id: int, agent_id: int) -> Optional[Agent]:
+    """能"使用"该 Agent（聊天/检索/流水线步骤/评估）则返回，否则 None。
+
+    比 `get_owned_agent` 多两条来源：`scope_type="department"` 时该 Agent 所属部门的
+    在职成员、`scope_type="enterprise"` 时任意在职企业成员——对应 Phase 3D 阶段1加的
+    归属字段（docs/enterprise-rbac-plan.md 9.5）。现存 Agent 全部是 `scope_type="personal"`
+    默认值，这里放宽的范围目前不会影响任何人。
+
+    只放宽"用"，不放宽"改"：改名/删除/绑定知识库空间/绑定 Skill 这些配置类操作继续用
+    `get_owned_agent`，不要在这些地方换成这个函数。
+    """
+    from models.enterprise_dao import is_team_member_of_team, is_org_member
+
+    agent = get_agent_by_id(db, agent_id)
+    if not agent:
+        return None
+    if agent.user_id == user_id:
+        return agent
+    if agent.scope_type == "department" and is_team_member_of_team(db, user_id, agent.team_id):
+        return agent
+    if agent.scope_type == "enterprise" and is_org_member(db, user_id):
+        return agent
+    return None
+
+
 def get_owned_conversation(db, user_id: int, conversation_id: int, agent_id: int = None) -> Optional[Conversation]:
     conversation = get_conversation_by_id(db, conversation_id)
     if not conversation or conversation.user_id != user_id:
@@ -57,8 +82,23 @@ def get_owned_task(db, user_id: int, task_id: int, agent_id: int = None) -> Opti
     return task
 
 
-def can_read_skill(skill: Skill, user_id: int) -> bool:
-    return bool(skill and (skill.user_id == user_id or skill.is_public == 1))
+def can_read_skill(skill: Skill, user_id: int, db=None) -> bool:
+    """`db` 省略时行为跟以前完全一样（owner 或公开）。传了 `db` 才会额外判断部门/企业
+    共享范围——只有 `service/skills_core/binding.py` 里"把 Skill 绑到 Agent"这个场景传，
+    其余大量调用点（校验、导入导出、CRUD 详情）保持旧行为不变，不强行都改一遍签名。"""
+    if not skill:
+        return False
+    if skill.user_id == user_id or skill.is_public == 1:
+        return True
+    if db is None:
+        return False
+    from models.enterprise_dao import is_team_member_of_team, is_org_member
+
+    if skill.scope_type == "department" and is_team_member_of_team(db, user_id, skill.team_id):
+        return True
+    if skill.scope_type == "enterprise" and is_org_member(db, user_id):
+        return True
+    return False
 
 
 def can_write_skill(skill: Skill, user_id: int) -> bool:
@@ -91,6 +131,23 @@ async def get_owned_agent_async(db, user_id: int, agent_id: int) -> Optional[Age
     if not agent or agent.user_id != user_id:
         return None
     return agent
+
+
+async def get_usable_agent_async(db, user_id: int, agent_id: int) -> Optional[Agent]:
+    """`get_usable_agent` 的异步版，语义完全一致（见其 docstring）。"""
+    from models.agent_async_dao import get_agent_by_id_async
+    from models.enterprise_dao import is_team_member_of_team_async, is_org_member_async
+
+    agent = await get_agent_by_id_async(db, agent_id)
+    if not agent:
+        return None
+    if agent.user_id == user_id:
+        return agent
+    if agent.scope_type == "department" and await is_team_member_of_team_async(db, user_id, agent.team_id):
+        return agent
+    if agent.scope_type == "enterprise" and await is_org_member_async(db, user_id):
+        return agent
+    return None
 
 
 async def get_owned_conversation_async(

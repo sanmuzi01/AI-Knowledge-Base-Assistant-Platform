@@ -5,14 +5,7 @@ from typing import List, Optional
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.init_db import Agent, AgentRun, AgentStep
-
-
-async def agent_belongs_to_user_async(db: AsyncSession, user_id: int, agent_id: int) -> bool:
-    result = await db.execute(
-        select(Agent.id).where(Agent.id == agent_id, Agent.user_id == user_id)
-    )
-    return result.scalar() is not None
+from models.init_db import AgentRun, AgentStep
 
 
 async def get_owned_run_async(

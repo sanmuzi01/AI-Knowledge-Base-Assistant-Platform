@@ -10,7 +10,7 @@
 from typing import List, Optional, Dict, Any
 from models.init_db import Conversation, Message
 from models import conversation_dao as dao
-from service.access_control import get_owned_agent, get_owned_conversation
+from service.access_control import get_usable_agent, get_owned_conversation
 from utils.logger_handler import get_logger
 
 logger = get_logger("conversation_service")
@@ -24,7 +24,7 @@ def create_conversation(
     :param title: 可选，为空时默认"新会话"
     :return: 会话信息字典
     """
-    if not get_owned_agent(db, user_id, agent_id):
+    if not get_usable_agent(db, user_id, agent_id):
         logger.warning(f"权限拒绝：用户{user_id}尝试为Agent {agent_id}创建会话")
         return None
     conv = dao.create_conversation(
@@ -47,7 +47,7 @@ def list_conversations(
         db, user_id: int, agent_id: int, limit: int = 50
 ) -> List[Dict[str, Any]]:
     """查询某用户某Agent下的所有会话（按最近活跃倒序）"""
-    if not get_owned_agent(db, user_id, agent_id):
+    if not get_usable_agent(db, user_id, agent_id):
         logger.warning(f"权限拒绝：用户{user_id}尝试列出Agent {agent_id}的会话")
         return []
     convs = dao.list_conversations_by_agent(db, user_id, agent_id, limit)

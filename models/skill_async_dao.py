@@ -37,8 +37,3 @@ async def list_skills_by_agent_async(db: AsyncSession, agent_id: int) -> List[Sk
     )
     agent = result.unique().scalars().first()
     return list(agent.skills) if agent else []
-
-
-async def agent_belongs_to_user_async(db: AsyncSession, user_id: int, agent_id: int) -> bool:
-    result = await db.execute(select(Agent.id).where(Agent.id == agent_id, Agent.user_id == user_id))
-    return result.scalar_one_or_none() is not None

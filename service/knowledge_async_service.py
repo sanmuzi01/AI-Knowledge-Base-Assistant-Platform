@@ -32,6 +32,9 @@ async def list_documents(db, agent_id: int):
 
 
 async def list_owned_documents(db, user_id: int, agent_id: int):
+    """特意保持 owner-only，不跟着 Phase 3D 阶段2其它调用点换成 get_usable_agent_async：
+    `list_documents` 不按上传者过滤，返回的是这个 Agent 私有库下的全部文档——部门共享
+    只应该放宽"能不能用这个 Agent"，不该连带把其他人上传的私有文档也亮给部门成员。"""
     if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
         return None
     return await list_documents(db, agent_id)

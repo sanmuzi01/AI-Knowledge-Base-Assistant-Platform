@@ -5,14 +5,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.init_db import Agent, Memory
-
-
-async def agent_belongs_to_user_async(db: AsyncSession, user_id: int, agent_id: int) -> bool:
-    result = await db.execute(
-        select(Agent.id).where(Agent.id == agent_id, Agent.user_id == user_id)
-    )
-    return result.scalar() is not None
+from models.init_db import Memory
 
 
 async def list_memories_by_agent_async(

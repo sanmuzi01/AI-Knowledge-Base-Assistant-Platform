@@ -75,13 +75,18 @@ def search_for_agent(
     异步调用方经 `asyncio.to_thread` 调用本函数。
     """
     from models.init_db import SessionLocal
-    from models.agent_dao import get_agent_by_id
+    from service.access_control import get_usable_agent
     from models.agent_knowledge_space_dao import list_space_ids_by_agent
 
     db = SessionLocal()
     try:
-        agent = get_agent_by_id(db, agent_id)
-        if not agent or agent.user_id != user_id:
+        # Phase 3D 阶段2：部门/企业共享的 Agent 也能检索，不只是 owner（见
+        # docs/enterprise-rbac-plan.md 9.5）。下面 `space_ids` 为空时会回退到
+        # `search_scoped`——那是遗留的"Agent 私有库"检索，内部仍然是严格 owner 校验
+        # （它同时也被 widget 检索复用，不能跟着放宽）。新建的部门共享 Agent 应该绑知识库
+        # 空间而不是用私有库，这条回退分支目前不支持非 owner，是个已知的窄口径限制。
+        agent = get_usable_agent(db, user_id, agent_id)
+        if not agent:
             raise PermissionError("智能体不存在或无权限")
         space_ids = list_space_ids_by_agent(db, agent_id)
     finally:
@@ -220,14 +225,15 @@ async def search_for_agent_async(
 
     比同步版多返回一个 `stats`（RAG 上下文压缩 / Token 节省），给调试台和聊天引用面板展示。
     """
-    from models.agent_async_dao import get_agent_by_id_async
+    from service.access_control import get_usable_agent_async
     from models.agent_knowledge_space_dao import list_space_ids_by_agent_async
     from models.knowledge_async_dao import sum_chunk_chars_by_knowledge_ids_async
     from service.rag.rag_stats import build_savings, hit_knowledge_ids
 
     async def _run(session):
-        agent = await get_agent_by_id_async(session, agent_id)
-        if not agent or agent.user_id != user_id:
+        # 同步版同一条注释：部门/企业共享 Agent 也能检索，回退到私有库分支仍是严格 owner。
+        agent = await get_usable_agent_async(session, user_id, agent_id)
+        if not agent:
             raise PermissionError("智能体不存在或无权限")
         space_ids = await list_space_ids_by_agent_async(session, agent_id)
 

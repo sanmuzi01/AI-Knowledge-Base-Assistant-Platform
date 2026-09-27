@@ -13,7 +13,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from service import chat_service, quota_service
-from service.access_control import get_owned_agent_async
+from service.access_control import get_usable_agent_async
 from service.exceptions import InvalidInput, NotFound, QuotaExceeded
 
 _MIN_STEPS = 2
@@ -44,7 +44,7 @@ async def _validate_steps(db, user_id: int, steps: List[Dict[str, Any]]) -> List
         agent_id = step.get("agent_id") if isinstance(step, dict) else None
         if not agent_id:
             raise InvalidInput(f"第 {i + 1} 步缺少 agent_id")
-        agent = await get_owned_agent_async(db, user_id, int(agent_id))
+        agent = await get_usable_agent_async(db, user_id, int(agent_id))
         if not agent:
             raise InvalidInput(f"第 {i + 1} 步选的助手不存在或不属于你")
         label = str(step.get("label") or "").strip()[:60]
@@ -129,7 +129,7 @@ async def run_pipeline_async(db, user, pipeline_id: int, initial_message: str) -
     step_results: List[Dict[str, Any]] = []
     for i, step in enumerate(steps):
         agent_id = step.get("agent_id")
-        agent = await get_owned_agent_async(db, user.id, agent_id)
+        agent = await get_usable_agent_async(db, user.id, agent_id)
         if not agent:
             step_results.append({
                 "step": i + 1, "agent_id": agent_id, "label": step.get("label"),

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from starlette.concurrency import run_in_threadpool
 
 from models import skill_async_dao as dao
-from service.access_control import can_read_skill
+from service.access_control import can_read_skill, get_usable_agent_async
 from service.skill_service import _skill_to_dict, validate_skill_config_file
 from service.skills.loader import load_skill_config
 from utils.logger_handler import get_logger
@@ -90,7 +90,8 @@ async def validate_skill(db, skill_id: int, user_id: int, allow_admin: bool = Fa
 
 
 async def list_agent_skills(db, agent_id: int, user_id: int = None) -> List[Dict]:
-    if user_id is not None and not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    """只读列表，用 `get_usable_agent_async`——语义同步版见 skills_core/binding.py。"""
+    if user_id is not None and await get_usable_agent_async(db, user_id, agent_id) is None:
         logger.warning(f"权限拒绝：用户{user_id}无权查看Agent {agent_id}的Skill")
         return []
     skills = await dao.list_skills_by_agent_async(db, agent_id)

@@ -20,6 +20,19 @@ _TEAM_ADMIN_OF_TEAM_SQL = (
     "AND er.scope = 'team' AND er.code = 'admin' LIMIT 1"
 )
 
+# 不限角色等级：任意在职部门成员即可，用于"部门Agent/Skill 对本部门所有人可用"这类
+# 使用类（而非管理类）判断——跟上面的"部门管理员"是两个不同的问题。
+_TEAM_MEMBER_OF_TEAM_SQL = (
+    "SELECT 1 FROM team_members WHERE user_id = :uid AND team_id = :tid "
+    "AND status = 'active' LIMIT 1"
+)
+
+# 同理：任意在职企业成员，用于"企业级Agent/Skill 对全企业可用"。
+_ORG_MEMBER_SQL = (
+    "SELECT 1 FROM organization_members WHERE user_id = :uid "
+    "AND status = 'active' LIMIT 1"
+)
+
 _SPACE_IDS_WHERE_TEAM_ADMIN_SQL = (
     "SELECT ks.id FROM knowledge_spaces ks "
     "JOIN team_members tm ON tm.team_id = ks.team_id "
@@ -35,6 +48,16 @@ def is_team_admin_of_team(db, user_id: int, team_id: Optional[int]) -> bool:
     if team_id is None:
         return False
     return db.execute(text(_TEAM_ADMIN_OF_TEAM_SQL), {"uid": user_id, "tid": team_id}).first() is not None
+
+
+def is_team_member_of_team(db, user_id: int, team_id: Optional[int]) -> bool:
+    if team_id is None:
+        return False
+    return db.execute(text(_TEAM_MEMBER_OF_TEAM_SQL), {"uid": user_id, "tid": team_id}).first() is not None
+
+
+def is_org_member(db, user_id: int) -> bool:
+    return db.execute(text(_ORG_MEMBER_SQL), {"uid": user_id}).first() is not None
 
 
 def list_space_ids_where_team_admin(db, user_id: int) -> List[int]:
@@ -81,6 +104,18 @@ async def is_team_admin_of_team_async(db: AsyncSession, user_id: int, team_id: O
     if team_id is None:
         return False
     res = await db.execute(text(_TEAM_ADMIN_OF_TEAM_SQL), {"uid": user_id, "tid": team_id})
+    return res.first() is not None
+
+
+async def is_team_member_of_team_async(db: AsyncSession, user_id: int, team_id: Optional[int]) -> bool:
+    if team_id is None:
+        return False
+    res = await db.execute(text(_TEAM_MEMBER_OF_TEAM_SQL), {"uid": user_id, "tid": team_id})
+    return res.first() is not None
+
+
+async def is_org_member_async(db: AsyncSession, user_id: int) -> bool:
+    res = await db.execute(text(_ORG_MEMBER_SQL), {"uid": user_id})
     return res.first() is not None
 
 

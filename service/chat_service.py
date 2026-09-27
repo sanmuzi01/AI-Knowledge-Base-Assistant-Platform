@@ -9,7 +9,7 @@
   6. 首条消息自动生成会话标题
 """
 from typing import Dict, Any, Optional
-from service.access_control import get_owned_agent_async, get_owned_conversation_async
+from service.access_control import get_usable_agent_async, get_owned_conversation_async
 from service.runtime import agent_runtime
 from utils.logger_handler import get_logger
 import service.conversation_async_service as conv_async
@@ -18,12 +18,12 @@ logger = get_logger("chat_service")
 # 同步对话（非流式）：阶段 2 起整条走 AsyncSession（get_async_db）。
 # 兼容不变：conversation_id=None 自动新建会话并在返回体里带回。
 async def chat_with_agent(db, user, agent_id: int, user_message: str,conversation_id: Optional[int] = None,) -> Dict[str, Any]:
-    """用户与智能体对话：验证归属 → 交给Runtime执行 → 返回结果"""
-    # 1. 验证智能体归属权（这层只管权限，不管怎么推理）
-    agent = await get_owned_agent_async(db, user.id, agent_id)
+    """用户与智能体对话：验证可用权 → 交给Runtime执行 → 返回结果"""
+    # 1. 验证智能体可用权（自己的，或该 Agent 部门/企业共享给了当前用户）——这层只管权限，不管怎么推理
+    agent = await get_usable_agent_async(db, user.id, agent_id)
     if not agent:
-        logger.warning(f"用户 {user.id} 尝试访问不属于自己的智能体 {agent_id}")
-        raise ValueError("智能体不存在或不属于您")
+        logger.warning(f"用户 {user.id} 尝试访问无权使用的智能体 {agent_id}")
+        raise ValueError("智能体不存在或无权使用")
     # 2. 会话管理：conversation_id 空 → 新建；非空 → 校验归属
     if conversation_id is None:
         conv = await conv_async_dao.create_conversation_async(db, user_id=user.id, agent_id=agent_id)
@@ -79,10 +79,10 @@ async def chat_with_agent_stream_async(db, user, agent_id: int, user_message: st
     """
     from service.runtime.sse_events import make_error, make_done
 
-    agent = await get_owned_agent_async(db, user.id, agent_id)
+    agent = await get_usable_agent_async(db, user.id, agent_id)
     if not agent:
-        logger.warning(f"用户 {user.id} 尝试访问不属于自己的智能体 {agent_id}")
-        yield make_error("智能体不存在或不属于您")
+        logger.warning(f"用户 {user.id} 尝试访问无权使用的智能体 {agent_id}")
+        yield make_error("智能体不存在或无权使用")
         return
 
     if conversation_id is None:

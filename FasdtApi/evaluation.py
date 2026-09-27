@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from models.async_db import get_async_db
 from models.init_db import User
-from service.access_control import get_owned_agent_async, get_owned_knowledge_async, get_owned_space_async
+from service.access_control import get_usable_agent_async, get_owned_knowledge_async, get_owned_space_async
 from service.dependencies import get_current_user_async
 from service.evaluation.rag_eval_service import evaluate_rag_dataset, run_for_space
 from service.evaluation import eval_set_service
@@ -61,7 +61,7 @@ async def evaluate_rag(
         db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    agent = await get_owned_agent_async(db, current_user.id, agent_id)
+    agent = await get_usable_agent_async(db, current_user.id, agent_id)
     if not agent:
         raise NotFound("智能体不存在或无权限")
 
@@ -172,7 +172,7 @@ async def create_eval_set_route(
         db=Depends(get_async_db),
         current_user: User = Depends(get_current_user_async),
 ):
-    if data.agent_id is not None and await get_owned_agent_async(db, current_user.id, data.agent_id) is None:
+    if data.agent_id is not None and await get_usable_agent_async(db, current_user.id, data.agent_id) is None:
         raise NotFound("智能体不存在或无权限")
     if data.space_id is not None and await get_owned_space_async(db, current_user.id, data.space_id) is None:
         raise NotFound("知识库空间不存在或无权限")

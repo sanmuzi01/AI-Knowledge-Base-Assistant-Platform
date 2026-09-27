@@ -12,7 +12,7 @@ Memory 记忆服务：长期记忆管理
 from typing import Dict, List, Optional
 from utils.logger_handler import get_logger
 from models.agent_run_dao import count_finished_runs_by_agent, list_finished_runs_by_agent
-from service.access_control import get_owned_agent, get_owned_memory
+from service.access_control import get_usable_agent, get_owned_memory
 from models.memory_dao import (
     create_memory,
     delete_memories_by_user_agent,
@@ -41,7 +41,9 @@ def memory_to_dict(memory) -> Dict:
     }
 
 def ensure_agent_owner(db, user_id: int, agent_id: int):
-    return get_owned_agent(db, user_id, agent_id)
+    """名字沿用旧的，语义已经不是"必须是 owner"：部门/企业共享的 Agent 也算通过——
+    这里查的每一条 Memory 本身还是按 user_id 过滤的，放宽的只是"能不能用这个 Agent"。"""
+    return get_usable_agent(db, user_id, agent_id)
 
 def list_agent_memories(db, user_id: int, agent_id: int) -> Optional[List[Dict]]:
     if not ensure_agent_owner(db, user_id, agent_id):

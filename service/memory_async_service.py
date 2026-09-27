@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 
 from models import memory_async_dao as dao
 from models import agent_run_async_dao as run_dao
+from service.access_control import get_usable_agent_async
 from service.memory.memory_service import (
     SHORT_TERM_ROUNDS,
     _build_summary_prompt,
@@ -24,14 +25,14 @@ logger = get_logger("memory_async_service")
 
 
 async def list_agent_memories(db, user_id: int, agent_id: int) -> Optional[List[Dict]]:
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         return None
     memories = await dao.list_memories_by_agent_async(db, user_id, agent_id)
     return [memory_to_dict(memory) for memory in memories]
 
 
 async def add_memory(db, user_id: int, agent_id: int, memory_type: str, content: str) -> Optional[Dict]:
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         return None
     normalized_type = _normalize_memory_type(memory_type)
     memory = await dao.create_memory_async(
@@ -49,7 +50,7 @@ async def add_memory(db, user_id: int, agent_id: int, memory_type: str, content:
 async def edit_memory(db, user_id: int, memory_id: int,
                       memory_type: str = None, content: str = None) -> Optional[Dict]:
     memory = await dao.get_owned_memory_async(db, user_id, memory_id)
-    if not memory or not await dao.agent_belongs_to_user_async(db, user_id, memory.agent_id):
+    if not memory or await get_usable_agent_async(db, user_id, memory.agent_id) is None:
         return None
     normalized_type = _normalize_memory_type(memory_type) if memory_type is not None else None
     next_content = content.strip() if content is not None else None
@@ -65,7 +66,7 @@ async def edit_memory(db, user_id: int, memory_id: int,
 
 async def remove_memory(db, user_id: int, memory_id: int) -> bool:
     memory = await dao.get_owned_memory_async(db, user_id, memory_id)
-    if not memory or not await dao.agent_belongs_to_user_async(db, user_id, memory.agent_id):
+    if not memory or await get_usable_agent_async(db, user_id, memory.agent_id) is None:
         return False
     await dao.delete_memory_async(db, memory)
     await db.commit()
@@ -73,7 +74,7 @@ async def remove_memory(db, user_id: int, memory_id: int) -> bool:
 
 
 async def clear_agent_memories(db, user_id: int, agent_id: int) -> Optional[int]:
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         return None
     count = await dao.delete_memories_by_user_agent_async(db, user_id, agent_id)
     await db.commit()

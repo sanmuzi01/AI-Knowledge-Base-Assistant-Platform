@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from models import conversation_async_dao as dao
 from models.init_db import Conversation, Message
+from service.access_control import get_usable_agent_async
 from service.conversation_service import auto_generate_title
 from utils.logger_handler import get_logger
 
@@ -38,7 +39,7 @@ async def list_conversations(
 ) -> List[Dict[str, Any]]:
     """异步查询会话列表。"""
 
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         logger.warning(f"权限拒绝：用户{user_id}尝试列出助手 {agent_id} 的会话")
         return []
     convs = await dao.list_conversations_by_agent_async(db, user_id, agent_id, limit)
@@ -49,7 +50,7 @@ async def create_conversation(
         db, user_id: int, agent_id: int, title: str = None,
 ) -> Optional[Dict[str, Any]]:
     """异步创建会话。"""
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         logger.warning(f"权限拒绝：用户{user_id}尝试为助手 {agent_id} 创建会话")
         return None
     conv = await dao.create_conversation_async(

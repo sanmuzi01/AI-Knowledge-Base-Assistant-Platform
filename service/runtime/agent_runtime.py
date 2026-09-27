@@ -17,7 +17,7 @@ from sqlalchemy import select
 from models.agent_run_async_dao import (
     create_run_async, create_step_async, update_run_status_async, add_run_tokens_async,
 )
-from service.access_control import get_owned_agent_async
+from service.access_control import get_usable_agent_async
 from prompt.prompt_manager import build_prompt
 from utils.logger_handler import get_logger
 from service.runtime.sse_events import (
@@ -293,9 +293,9 @@ async def run_with_history_async(
     """
     import asyncio
 
-    agent = await get_owned_agent_async(db, user_id, agent_id)
+    agent = await get_usable_agent_async(db, user_id, agent_id)
     if not agent:
-        raise ValueError("智能体不存在或不属于当前用户")
+        raise ValueError("智能体不存在或无权使用")
 
     run = await create_run_async(
         db=db, user_id=user_id, agent_id=agent_id,
@@ -429,9 +429,9 @@ async def run_stream_with_history_async(
 
     # 1. Agent
     try:
-        agent = await get_owned_agent_async(db, user_id, agent_id)
+        agent = await get_usable_agent_async(db, user_id, agent_id)
         if not agent:
-            yield make_error("智能体不存在或不属于当前用户")
+            yield make_error("智能体不存在或无权使用")
             return
     except Exception as e:  # noqa: BLE001
         yield make_error(f"查询智能体失败: {e}")

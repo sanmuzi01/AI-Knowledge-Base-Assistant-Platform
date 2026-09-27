@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional
 
 from models import agent_run_async_dao as dao
+from service.access_control import get_usable_agent_async
 
 
 def _format_dt(value):
@@ -33,7 +34,7 @@ async def list_runs(
         limit: int = 20,
         conversation_id: Optional[int] = None,
 ) -> Optional[List[Dict]]:
-    if not await dao.agent_belongs_to_user_async(db, user_id, agent_id):
+    if await get_usable_agent_async(db, user_id, agent_id) is None:
         return None
     runs = await dao.list_runs_by_agent_async(
         db, agent_id, limit=limit, conversation_id=conversation_id

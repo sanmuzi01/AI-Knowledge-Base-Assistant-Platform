@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
-from service.access_control import can_read_skill, get_owned_agent
+from service.access_control import can_read_skill, get_owned_agent, get_usable_agent
 from models.skill_dao import (
     bind_skill_to_agent as dao_bind,
     unbind_skill_from_agent as dao_unbind,
@@ -48,8 +48,8 @@ def bind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> bool:
     skill = dao_get(db, skill_id)
     if not skill:
         return False
-    # 权限：自己创建的 或 公开的Skill 才能绑定
-    if not can_read_skill(skill, user_id):
+    # 权限：自己创建的 / 公开的 / 部门或企业共享给自己的 Skill 才能绑定
+    if not can_read_skill(skill, user_id, db):
         logger.warning(f"权限拒绝：用户{user_id}无权绑定Skill {skill_id}")
         return False
     success = dao_bind(db, agent_id, skill_id)
@@ -70,8 +70,11 @@ def unbind_skill(db: Session, agent_id: int, skill_id: int, user_id: int) -> boo
 
 
 def list_agent_skills(db: Session, agent_id: int, user_id: int = None) -> List[Dict]:
+    """只读列表，用 `get_usable_agent`：部门/企业共享的 Agent 也能看它绑了哪些 Skill。
+    改绑定关系（`bind_skill`/`unbind_skill`/`update_agent_skills`）继续用
+    `get_owned_agent`，看跟改不是一回事。"""
     if user_id is not None:
-        agent = get_owned_agent(db, user_id, agent_id)
+        agent = get_usable_agent(db, user_id, agent_id)
         if not agent:
             logger.warning(f"权限拒绝：用户{user_id}无权查看Agent {agent_id}的Skill")
             return []
@@ -88,7 +91,7 @@ def update_agent_skills(db: Session, agent_id: int, skill_ids: List[int], user_i
             return False
         for skill_id in skill_ids:
             skill = dao_get(db, skill_id)
-            if not can_read_skill(skill, user_id):
+            if not can_read_skill(skill, user_id, db):
                 logger.warning(f"权限拒绝：用户{user_id}无权绑定Skill {skill_id}")
                 return False
     dao_unbind_all(db, agent_id)

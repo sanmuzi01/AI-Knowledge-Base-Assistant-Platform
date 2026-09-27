@@ -207,14 +207,14 @@ def _sample_dict(s) -> Dict[str, Any]:
 
 async def _assert_scope_owned(async_db, user_id: int, space_ids, agent_id):
     """存样例前校验：涉及的 space / agent 都属于当前用户。"""
-    from service.access_control import get_owned_agent_async, user_space_ids_async
+    from service.access_control import get_usable_agent_async, user_space_ids_async
 
     if space_ids:
         allowed = await user_space_ids_async(async_db, user_id)
         bad = [int(s) for s in space_ids if int(s) not in allowed]
         if bad:
             raise PermissionDenied(f"包含无权访问的知识库空间：{bad}")
-    if agent_id is not None and await get_owned_agent_async(async_db, user_id, int(agent_id)) is None:
+    if agent_id is not None and await get_usable_agent_async(async_db, user_id, int(agent_id)) is None:
         raise NotFound("智能体不存在或无权限")
 
 

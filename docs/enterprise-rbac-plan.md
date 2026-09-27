@@ -452,3 +452,63 @@ MySQL + Redis + ChromaDB + Worker
 
 下一步：从阶段 1 开始动手（模型加字段 + Alembic 迁移 + 数据回填/默认值），阶段 2-7
 排在后面，逐步来。
+
+## 12. 执行结果（阶段2：统一权限入口扩展，2026-09-27）
+
+阶段1加的 `scope_type`/`team_id`/`organization_id` 现在真正接进了授权判断，覆盖聊天、
+会话、记忆、流水线、评估、RAG 检索、Skill 绑定这几条链路。
+
+### 只放宽"用"，不放宽"改"
+
+`service/access_control.py` 新增 `get_usable_agent`/`get_usable_agent_async`：在
+`get_owned_agent`（严格 owner）基础上多两条来源——`scope_type="department"` 时该 Agent
+所属部门的在职成员、`scope_type="enterprise"` 时任意在职企业成员。改配置类操作
+（改名/删除/绑定知识库空间/绑定 Skill 的"改"那一半）继续用 `get_owned_agent`，没有
+一并放宽——写权限是阶段4 审批机制要管的事，这次不动。
+
+`can_read_skill` 加了个可选的 `db` 参数（省略时行为跟以前完全一样），只有
+`skills_core/binding.py` 里"把 Skill 绑到 Agent"这个场景会传，其余调用点不强行改签名。
+
+已切到新语义的调用点：`chat_service`（聊天）、`conversation_service`/
+`conversation_async_service`（建会话/列会话）、`memory_service`/`memory_async_service`
+（记忆读写，记忆本身仍按 user_id 过滤，放宽的只是"能不能用这个 Agent"）、
+`agent_runtime`（实际执行聊天）、`agent_pipeline_service`（流水线步骤/执行）、
+`FasdtApi/evaluation.py`（RAG 评估/固定评估集）、`rag/debug_service`（调试样例）、
+`rag/search_entry.py` 的 `search_for_agent`/`search_for_agent_async`（聊天用的检索
+入口；`search_scoped`/`search_for_widget` 是给组件平台用的，没有跟着改，见文件内注释）、
+`skills_core/binding.py::list_agent_skills`、`skill_async_service.py::list_agent_skills`。
+
+刻意留 owner-only 没动：`FasdtApi/knowledge.py` 里的文档上传/爬取/复制/启停/重建/删除
+（全是私有库管理操作）、`knowledge_async_service.py::list_owned_documents`（这个不按
+上传者过滤，会把其他人的私有文档也亮出来，不能跟着放宽）、`search_entry.py` 里
+`search_scoped` 内部严格 owner 校验（`search_for_agent` 在私有库回退分支——没绑知识库
+空间时——仍然会经过它，是个记录在案的窄口径限制：新建的部门共享 Agent 应该绑知识库
+空间而不是用私有库，见文件内注释）。
+
+### 顺手挖出的真实缺口：五处重复的权限判断
+
+核对"聊天链路"每一环时发现：`agent_belongs_to_user_async` 这个判断被**独立复制了
+五份**——`conversation_async_dao.py`、`agent_run_async_dao.py`、`memory_async_dao.py`、
+`skill_async_dao.py`、`knowledge_async_dao.py` 各有一份完全一样的 `Agent.user_id ==
+user_id` 查询，各自被对应的 `*_async_service.py` 调用，**全部绕开了
+`service/access_control.py`**——这正是设计稿开头就点名要收敛掉的模式（"两套并存迟早
+算出不一样的结果"），只是这次不是我们自己写出来的，是 Phase 3B 之前就有的存量代码，
+阶段2核对调用链时才挖出来。
+
+不修的后果：即使 `access_control.get_usable_agent_async` 已经放宽了部门/企业共享，
+走 `/conversation`（建会话）、`/agent/{id}/runs`（运行轨迹）、记忆管理、Skill 列表这几
+条路由的用户仍然会在这五个重复实现那里被拒——"能聊天但建不了会话""能查权限但查不到
+运行记录"这种半好半坏的状态，比统一拒绝更容易让人误以为哪里没接对。
+
+已修：四个（conversation/agent_run/memory/skill）的重复实现直接删掉，调用点全部改成
+调 `access_control.get_usable_agent_async`；`knowledge_async_dao.py` 那份故意保留
+（原因见上面"刻意留 owner-only"）。
+
+新增回归测试 `tests/test_access_control_agent_skill_scope.py`（8 个，真实 DB）：
+personal/department/enterprise 三种 scope_type 分别配 owner / 部门在职成员 / 企业在职
+成员 / 无关用户的矩阵，同步+异步都测，并显式回归 `get_owned_agent`/`can_read_skill`
+不传 `db` 时没有被误放宽。716 个测试全绿，ruff/compileall 干净。
+
+阶段3（中央 Agent 受控路由）还没开始——本次只是让已有的归属字段在授权层生效，
+`scope_type` 目前仍然没有任何创建入口能设成 department/enterprise（全部是 ORM 默认值
+`personal`），这条路由/创建能力留给阶段3 一起做，不在这次里超前实现。
