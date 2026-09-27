@@ -201,3 +201,64 @@ ENTERPRISE_DB_PASSWORD=<跟主项目 .env 的 DB_PASSWORD 一致> mvn spring-boo
 Phase 3D 阶段3（中央 Agent 受控路由）现在有了第一个真实目标（HR Agent + OA 请假
 工具），可以回头接了，但这次没有顺带做——先把这条闭环单独验证完，路由逻辑是
 下一步。采购/CRM/SAP Connector 仍然是空白，按第9.5节的顺序排在 OA 之后。
+
+## 13. 执行结果（库存与采购闭环 + SAP Mock Connector，2026-09-27）
+
+Phase 3D 阶段3（中央 Agent 受控路由）落地后回头做的第二个业务域，跟 OA 是同一套
+骨架（`security`/`idempotency`/`audit` 三个共享包完全复用，没有重新写一遍）。
+
+### 数据模型（`V2__init_procurement.sql`）
+
+`Product`（产品+库存合一，不单独建 Inventory 表——第一版不做供应链全模块，
+够用就行）、`DepartmentBudget`（部门+年度维度，跟 `LeaveBalance` 是同一种
+"每人/每部门每年一行"模式）、`PurchaseRequest`（申请单头）、
+`PurchaseRequestLine`（明细，下单时把 `Product.unitPrice` 快照进去，以后改价不
+追溯历史单）、`PurchaseOrder`（批准后生成，供应商信息来自 SAP）。
+
+**踩了一个坑**：`PurchaseRequestLine` 最初用 JPA 的 `@OneToMany(mappedBy 不填) +
+@JoinColumn` 单向关联挂在 `PurchaseRequest` 上，指望 Hibernate 自动维护外键——
+实测直接报 `Field 'purchase_request_id' doesn't have a default value`：Hibernate
+对这种单向 `@OneToMany` 的标准做法是先插子表（不带外键）再单独 UPDATE 补外键，
+但外键列是 NOT NULL，第一步插入就先失败了。改成明细表自己带 `purchaseRequestId`
+普通外键列 + 独立 `PurchaseRequestLineRepository`（不用 JPA 级联，service 层显式
+`save`），跟这个项目里其它表清一色"平铺 long 外键"的风格保持一致，顺便绕开了
+这个坑——记在这儿，以后再建有子表的实体优先用这种写法，不要先试 `@OneToMany`。
+
+### 流程
+
+`GET /procurement/products/{sku}` 查库存（`belowSafetyStock` 由前端/Agent 自己
+判断要不要下单，不强制"低于安全库存才能建草稿"）→ `GET /procurement/budget`
+查部门预算 → `POST /procurement/requests`（多行明细，按 `Product.unitPrice` 算
+`totalAmount`）→ `submit`（校验预算够不够）→ 部门负责人 `approve`（批准才扣预算 +
+生成 `PurchaseOrder`，查 `SapConnector.getSupplier()` 拿供应商名称塞进去）/`reject`
+（不扣预算不生成单）→ `GET /procurement/requests/{id}` 查状态（带出关联的采购单
+信息）。跟 OA 的差异：采购操作都要求 `RequestContext.teamId` 不为空（没有部门就
+不知道该查哪个部门的预算），Java 端 `requireTeamId()` 显式校验，Python 侧工具在
+调用前就检查（`_resolve_team_id` 返回 None 直接报错，不会带着空 team_id 打过去）。
+
+### SAP：只做了设计稿要求的最小范围
+
+`SapConnector` 接口只有 `getSupplier()` + `healthCheck()`——设计稿列的
+`getPurchaseOrder()`/`createPurchaseOrderDraft()` 没有做：生成采购单是本地的
+`PurchaseOrder` 记录，不需要反向同步到 SAP 的采购单接口，除非真实企业接入后有
+双向同步需求。`MockSapConnector`（`@Component`，Spring 直接装配，没有 Real 实现
+也没关系）内置 3 个供应商代码返回固定数据，其余代码返回"未知供应商"但不报错。
+真实企业提供接口后，新写一个 `RealSapConnector implements SapConnector`、换掉
+Spring 里的 Bean（`@Primary` 或 profile），`ProcurementService`/Python 工具都不用改。
+
+### 测试
+
+`ProcurementControllerIntegrationTest`（5 个，真实 HTTP + 真实 MySQL）：完整闭环
+（含库存/预算/生成采购单校验供应商名称）、缺 scope 403、预算不足 400、拒绝不扣
+预算不生成单、幂等重放不重复建单。`service/tools/procurement.py`（6 个工具）+
+`tests/test_procurement_tools.py`（9 个，mock 掉网络层，含"不属于任何部门直接
+拒绝、不打后端"这条专门测试）。Java 侧 11 个测试（OA 6 + 采购 5）全绿，Python
+766 个测试全绿。
+
+### 还没做
+
+CRM 客户跟进闭环、`RealSapConnector`、Docker Compose 把 `enterprise-business-hub`
+接进 `docker-compose.prod.yml`。采购部门（`department_code="procurement"`）现在
+可以真的用中央 Agent 路由过去了——阶段3的路由规则本来就列了这个部门，不需要
+再改 `central_router.py`，只要真的创建一个 `agent_type="department"` +
+`department_code="procurement"` 的 Agent 并绑上这 6 个工具即可。
