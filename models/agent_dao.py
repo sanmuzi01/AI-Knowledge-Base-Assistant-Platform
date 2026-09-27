@@ -12,8 +12,10 @@ def list_agents_by_user(db,user_id:int)->List[Agent]:
 _KB_FIELDS = ("kb_top_k", "kb_rerank_enabled", "kb_force_citation", "kb_refuse_when_empty")
 
 
-def create_agent(db,name:str,user_id:int,prompt_file:str=None,model_name:str="glm-4",rag_enabled:int=0,memory_enabled:int=1,temperature:int=70,**kb_fields)->Agent:
-    """创建智能体。kb_fields：kb_top_k / kb_rerank_enabled / kb_force_citation / kb_refuse_when_empty（None 用列默认值）。"""
+def create_agent(db,name:str,user_id:int,prompt_file:str=None,model_name:str="glm-4",rag_enabled:int=0,memory_enabled:int=1,temperature:int=70,
+                  agent_type:str=None,department_code:str=None,**kb_fields)->Agent:
+    """创建智能体。kb_fields：kb_top_k / kb_rerank_enabled / kb_force_citation / kb_refuse_when_empty（None 用列默认值）。
+    agent_type/department_code 同理，None 用列默认值（personal/NULL）——枚举值校验在 service 层。"""
     agent = Agent(
         name=name,
         user_id=user_id,
@@ -26,6 +28,10 @@ def create_agent(db,name:str,user_id:int,prompt_file:str=None,model_name:str="gl
     for f in _KB_FIELDS:
         if kb_fields.get(f) is not None:
             setattr(agent, f, kb_fields[f])
+    if agent_type is not None:
+        agent.agent_type = agent_type
+    if department_code is not None:
+        agent.department_code = department_code
     db.add(agent)
     db.flush()
     return agent

@@ -580,3 +580,54 @@ draft/reviewing/published/retired）；`knowledge_spaces` 只加 `row_version`�
 数据没删掉但 `rc.cleanup()` 的 `tearDownClass` 会用裸 SQL 无条件清掉测试数据，不会
 跨测试进程泄漏——这个新行为的真实验证放在了 `test_approval_service.py` 里，没有去改
 `test_routes_isolation.py` 那边的既有断言。
+
+## 14. 执行结果（阶段3：中央 Agent 受控路由，2026-09-27）
+
+Phase 5 的 OA 请假闭环落地后，HR Agent 第一次有了真实业务能力（见
+docs/enterprise-business-hub-plan.md 第12节），阶段3终于有真实目标可以路由，回头补上。
+
+### 加了什么
+
+`agent` 新增 `agent_type`（central/department/personal，默认 personal）+
+`department_code`（hr/procurement/sales/finance/it，可空）。`service/runtime/
+central_router.py`：`match_department(message)` 纯函数按关键词判断部门（跟设计稿
+第6节的对应关系一致：请假/入职/制度→HR，库存/供应商/采购→采购，客户/联系人/
+商机→销售，预算/报销→财务，账号/故障/工单→IT）；`resolve_target_agent[_async]`
+只在**新建会话**时路由一次（`conversation_id is None`），命中部门后在当前用户能用
+的 Agent 里找那个部门的（复用阶段2的 `get_usable_agent[_async]`，不重新写一套
+可见性判断），找到就路由过去，找不到（没有这个部门的 Agent，或者有但当前用户用
+不了）就中央 Agent 自己回答。已有会话（`conversation_id` 有值）直接沿用创建时定下
+的 `agent.id`，不重新路由——`conversation.agent_id` 是很多地方依赖的既有约束，
+阶段3不碰这个约束。
+
+接入点：`FasdtApi/chat.py` 的 `chat`/`chat_stream` 两个路由处理函数，在算出
+`user_message` 之后、调 `chat_service.chat_with_agent[_stream_async]` 之前插一句
+路由解析，把返回值当成真正要用的 `agent_id`。**没有改 `chat_service.py`/
+`agent_runtime.py` 一行代码**——这两个是全项目最重、测试最多的热路径，阶段3选择
+在路由层做一次"选哪个 agent_id"的前置决策，而不是钻进热路径内部改，把新逻辑的
+风险面限制在一个新文件 + 两行调用。
+
+`Agent` 创建路由（`POST /agent`）新增可选的 `agent_type`/`department_code` 参数
+（`service/agent_service.py::create` 校验枚举值合法性），不传就是现存行为
+（personal/NULL）——阶段1定下的"字段先加，创建入口跟着当次一起给"的节奏，跟阶段5
+的 `row_version`/`lifecycle_status`（故意不给创建入口，等真有发布场景）是两种不同
+的判断：这次给入口是因为不给的话路由逻辑完全没有办法被真实验证。
+
+### 为什么现存行为不受影响
+
+`agent_type` 默认值是 `personal`，`resolve_target_agent`/`_async` 对非 `central`
+类型的 Agent 直接原样返回 `agent_id`，是纯粹的空操作——现存的所有 Agent（包括所有
+测试建的）都是这个默认值，`/chat/{id}` 的行为在没有人显式创建 `agent_type="central"`
+的 Agent 之前完全不变。727 个既有测试全绿就是这条的证据；新增 `tests/
+test_central_router.py`（15 个，7 个纯函数关键词匹配 + 8 个真实 DB 场景：路由成功、
+命中部门但没有对应 Agent、命中部门但对应 Agent 不属于当前用户可用范围、没命中任何
+关键词、已有会话不重新路由、同步+异步各测一遍非 central Agent 不受影响）显式回归
+这一条。737 个测试全绿，ruff/compileall 干净。
+
+### 还没做
+
+采购/销售/财务/IT 四个部门目前都没有真实的 Agent 后端能力（只有 HR 有 Phase 5 的
+OA 请假工具）——路由规则本身是完整的（`_ROUTING_RULES` 五个部门都列了），但除了
+`hr` 之外命中了也找不到可用的部门 Agent，会退回中央 Agent 自己回答，这是设计内的
+优雅降级，不是 bug。等 Phase 5 的采购/CRM 模块做出来，对应部门就自动能被路由到，
+不需要再改 `central_router.py`。

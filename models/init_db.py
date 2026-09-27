@@ -165,6 +165,14 @@ class Agent(Base):
     # 节奏一样。
     row_version = Column(Integer, nullable=False, default=0)
     lifecycle_status = Column(String(20), nullable=False, default="draft")  # draft/reviewing/published/retired
+    # ---- Phase 3D 阶段3：中央 Agent 受控路由（docs/enterprise-rbac-plan.md 9.5）----
+    # agent_type：central（中央助手，聊天时先跑规则路由）/ department（部门助手，路由目标）/
+    # personal（普通助手，默认值，不参与路由，现存 Agent 全部是这个值）。
+    # department_code：agent_type=department 时标记它服务哪个部门（hr/procurement/sales/
+    # finance/it），central/personal 通常为 NULL。校验（合法枚举值）在 service 层，
+    # 不在这里加 CHECK——跟 EnterpriseRole 的 role_id 校验放在 service 层是同一个理由。
+    agent_type = Column(String(20), nullable=False, default="personal")
+    department_code = Column(String(20), nullable=True)
     skills: Mapped[List["Skill"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="agents"
     )

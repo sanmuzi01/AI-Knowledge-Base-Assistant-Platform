@@ -54,6 +54,9 @@ class AgentCreate(BaseModel):
     kb_rerank_enabled: int = Field(default=0, ge=0, le=1)
     kb_force_citation: int = Field(default=1, ge=0, le=1)
     kb_refuse_when_empty: int = Field(default=1, ge=0, le=1)
+    # Phase 3D 阶段3（中央 Agent 受控路由）：不传就是 personal/None，现存创建流程不受影响。
+    agent_type: Optional[str] = Field(default=None)
+    department_code: Optional[str] = Field(default=None)
 
 # 更新用
 class AgentUpdate(BaseModel):
@@ -206,6 +209,8 @@ def create_agent(
         kb_rerank_enabled=agent.kb_rerank_enabled,
         kb_force_citation=agent.kb_force_citation,
         kb_refuse_when_empty=agent.kb_refuse_when_empty,
+        agent_type=agent.agent_type,
+        department_code=agent.department_code,
     )
     if "agent_id" not in result:
         raise InvalidInput(result.get("message", "创建失败"))

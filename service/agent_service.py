@@ -89,11 +89,20 @@ def create(db,user,name:str,role:str = None, task: str = None,
            skill_ids: Optional[List[int]] = None,
            space_ids: Optional[List[int]] = None,
            kb_top_k: int = None, kb_rerank_enabled: int = None,
-           kb_force_citation: int = None, kb_refuse_when_empty: int = None)->Dict[str,Any]:
-    """创建智能体，创建后自动选中"""
+           kb_force_citation: int = None, kb_refuse_when_empty: int = None,
+           agent_type: str = None, department_code: str = None)->Dict[str,Any]:
+    """创建智能体，创建后自动选中。
+
+    agent_type/department_code 是 Phase 3D 阶段3（中央 Agent 受控路由）用的，
+    不传就是现存的 personal/NULL，不影响任何既有创建流程。"""
     space_err = _validate_space_ids(db, user.id, space_ids)
     if space_err:
         return {"message": space_err}
+    from service.runtime.central_router import VALID_AGENT_TYPES, VALID_DEPARTMENT_CODES
+    if agent_type is not None and agent_type not in VALID_AGENT_TYPES:
+        return {"message": f"agent_type 只能是 {sorted(VALID_AGENT_TYPES)} 之一"}
+    if department_code is not None and department_code not in VALID_DEPARTMENT_CODES:
+        return {"message": f"department_code 只能是 {sorted(VALID_DEPARTMENT_CODES)} 之一"}
     try:
         agent =create_agent(
             db=db, name=name, user_id=user.id,
@@ -103,6 +112,7 @@ def create(db,user,name:str,role:str = None, task: str = None,
             temperature=temperature,
             kb_top_k=kb_top_k, kb_rerank_enabled=kb_rerank_enabled,
             kb_force_citation=kb_force_citation, kb_refuse_when_empty=kb_refuse_when_empty,
+            agent_type=agent_type, department_code=department_code,
         )
         # 始终创建提示词 yml 文件（即使字段为空，保证每个 Agent 都有 prompt 文件）
         prompt_path = create_prompt_file(agent.id, role, task, constraints, output)

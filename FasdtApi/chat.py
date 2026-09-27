@@ -20,6 +20,7 @@ from models.async_db import get_async_db
 from models.init_db import User
 from service.dependencies import get_current_user_async
 from service import attachment_service, chat_async_service, chat_service, quota_service
+from service.runtime import central_router
 from fastapi.responses import StreamingResponse
 from service.runtime.sse_events import SSE_HEADERS
 from utils.rate_limit import LimitExceeded, concurrency_guard, require_limit
@@ -85,6 +86,11 @@ async def chat(
     except LimitExceeded as e:
         raise _limit_error(e)
     user_message = _message_with_attachments(current_user, request)
+    # Phase 3D 阶段3：只有 agent_id 指向的是 agent_type="central" 的 Agent 才会真的路由，
+    # 现存所有 Agent 默认值都是 personal，这一步对它们是原样返回 agent_id 的空操作。
+    agent_id = await central_router.resolve_target_agent_async(
+        db, user_id, agent_id, user_message, request.conversation_id,
+    )
     quota_before = await quota_service.enforce_quota_async(db, user_id)
     try:
         with concurrency_guard(
@@ -138,6 +144,9 @@ async def chat_stream(
     except LimitExceeded as e:
         raise _limit_error(e)
     user_message = _message_with_attachments(current_user, request)
+    agent_id = await central_router.resolve_target_agent_async(
+        db, user_id, agent_id, user_message, request.conversation_id,
+    )
     quota_before = await quota_service.enforce_quota_async(db, user_id)
     try:
         lease_guard = concurrency_guard(
