@@ -65,27 +65,31 @@ class LoadTester:
         with request.urlopen(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def login(self, username: str, password: str) -> str:
-        data = self.post_json("/api/user/login", {"name": username, "password": password})
+    def login(self, username: str, password: str, api_prefix: str = "/api") -> str:
+        data = self.post_json(f"{api_prefix}/user/login", {"name": username, "password": password})
         token = data.get("access_token") or data.get("token")
         if not token:
             raise RuntimeError(data.get("message") or "登录响应中没有 access_token")
         return token
 
 
-def scenario_paths(name: str) -> List[tuple]:
+def scenario_paths(name: str, api_prefix: str = "/api") -> List[tuple]:
+    """`api_prefix` 默认 `/api`，匹配走 Nginx 反代的部署形态（见 docs/deployment.md）；
+    直接压测后端进程（没有 Nginx 在前面，比如本地基准测试）传 `--api-prefix ""`。
+    `/health` 不受影响——它在 Nginx 层和后端本身都是同一个路径，不加前缀。
+    """
     scenarios = {
         "health": [("GET", "/health", None)],
         "auth-read": [
-            ("GET", "/api/user/me", None),
-            ("GET", "/api/agent/list", None),
-            ("GET", "/api/task/?limit=10", None),
+            ("GET", f"{api_prefix}/user/me", None),
+            ("GET", f"{api_prefix}/agent/list", None),
+            ("GET", f"{api_prefix}/task/?limit=10", None),
         ],
         "mixed-read": [
             ("GET", "/health", None),
-            ("GET", "/api/user/me", None),
-            ("GET", "/api/agent/list", None),
-            ("GET", "/api/task/?limit=10", None),
+            ("GET", f"{api_prefix}/user/me", None),
+            ("GET", f"{api_prefix}/agent/list", None),
+            ("GET", f"{api_prefix}/task/?limit=10", None),
         ],
     }
     if name not in scenarios:
@@ -176,6 +180,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=10, help="单请求超时时间，秒")
     parser.add_argument("--username", default="", help="需要登录态场景时使用的用户名")
     parser.add_argument("--password", default="", help="需要登录态场景时使用的密码")
+    parser.add_argument("--api-prefix", default="/api",
+                         help="业务接口前缀，默认 /api（走 Nginx 反代）；直接压测后端进程传空串 \"\"")
     parser.add_argument("--json", action="store_true", help="只输出 JSON，便于保存报告")
     args = parser.parse_args()
 
@@ -183,11 +189,11 @@ def main():
     if args.scenario in {"auth-read", "mixed-read"}:
         if not args.username or not args.password:
             raise SystemExit("auth-read/mixed-read 场景需要 --username 和 --password")
-        tester.token = tester.login(args.username, args.password)
+        tester.token = tester.login(args.username, args.password, api_prefix=args.api_prefix)
 
     result = run_load(
         tester=tester,
-        scenario=scenario_paths(args.scenario),
+        scenario=scenario_paths(args.scenario, api_prefix=args.api_prefix),
         total=max(1, args.requests),
         concurrency=max(1, args.concurrency),
     )

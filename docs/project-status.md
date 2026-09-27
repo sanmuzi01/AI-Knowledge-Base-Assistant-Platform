@@ -146,10 +146,16 @@
 - `python -m compileall` 通过。
 - 前端 `npm run build`（含 vue-tsc 类型检查）通过。
 - FastAPI 应用导入与路由生成通过。
-- `python -m unittest`：681 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
+- `python -m unittest`：727 通过（含真实路由级测试 + agent_runtime / RAG 检索 async 链路、
   quick_connect、chunk_size、RAG 节省统计、web_query 联网检索、工作台模板、计费配额、
   配额阈值提醒、告警推送、新增 Agent 工具、报表导出、知识库 OCR/Excel、LLM 客户端 SSRF
-  防护、Agent 流水线、LangChain base_url 拼接测试，需本地 / CI MySQL）。
+  防护、Agent 流水线、LangChain base_url 拼接测试、Phase 3D 企业 RBAC/审批/审计测试，
+  需本地 / CI MySQL）。
+- Phase 3D（企业化：组织/部门/RBAC，见 [docs/enterprise-rbac-plan.md](enterprise-rbac-plan.md)）：
+  资源归属与密级字段、统一授权层覆盖聊天/检索/Skill绑定、高风险操作审批（知识库空间删除
+  已接入）、乐观锁/发布生命周期字段、通用审计表均已落地；中央 Agent 受控路由（阶段3）
+  暂缓，等 [docs/enterprise-business-hub-plan.md](enterprise-business-hub-plan.md)（Phase 5，
+  Spring Boot 企业业务中心）有真实部门 Agent 后再接。
 - `npm run release:check` 静态检查通过。
 
 ## 当前主要风险
@@ -162,9 +168,15 @@
   按 `docs/sync-async-boundary.md` 的既定结论长期保持同步，不是遗漏）。
   详见 `docs/sync-async-boundary.md`、`docs/agent-runtime-async-migration.md`。
 - service 层内部零散的 `raise ValueError` / 裸 `Exception` 尚未全部换成领域异常（路由层已在 `except` 里翻译）。
-- 压力测试还未在真实服务器上形成基准报告；`/metrics` 缺生产压测基线和告警规则。
+- ~~压力测试还未在真实服务器上形成基准报告~~：本机单进程基线已跑通（health/auth-read/
+  mixed-read 三场景零失败），见 [docs/production-readiness-verification.md](production-readiness-verification.md)。
+  **仍待办**：这是开发机数字，不是生产容量规划依据，上线后要在真实服务器上照同一套命令
+  重新跑一遍；`/metrics` 仍缺生产环境的告警规则阈值调优。
 - 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
-- 备份命令已给出，但还需在真实部署环境做恢复演练。
+- ~~备份命令已给出，但还需在真实部署环境做恢复演练~~：本机已完整跑通一次
+  "备份 → 还原到独立 scratch 库 → 校验表数量/行数一致 → 删除"，见
+  [docs/production-readiness-verification.md](production-readiness-verification.md)。
+  **仍待办**：真实生产数据库体量更大，上线后要重新做一次演练记录真实耗时。
 - ~~数据库迁移已建立骨架，但模型定义和数据库初始化尚未拆分，暂不适合直接开启 Alembic
   自动生成~~：Phase 3A 已解决（`migrations/env.py` 接上 `Base.metadata`，`alembic revision
   --autogenerate` 可用；全新空库 `alembic upgrade head` 验证过跟当前模型完全一致），
