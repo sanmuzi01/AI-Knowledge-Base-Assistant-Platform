@@ -371,3 +371,84 @@ def require_team_role(*roles: str):
 不需要改），Phase 3B 的路由接入工作告一段落。剩下的组织/部门管理相关的真正业务功能
 （建部门、加成员、企业统一模型配置、Skill 按部门发布等）都属于 Phase 3D，需要新的
 HTTP 路由，不是这次"给已有权限接上企业感知"能覆盖的范围。
+
+## 9. Phase 3D 架构决策：零信任方案的取舍（2026-09-27）
+
+用户带来一份完整的"零信任企业架构"方案（中央控制平面 + 部门数据平面 + PEP/PDP +
+不可抵赖审计），讨论后达成一致：**方向对，但按多租户 SaaS 的威胁模型设计，超出
+"单企业私有化部署、单企业多部门"这个实际形态**。以下是收敛后的结论，作为 Phase 3D
+的架构基线。
+
+### 9.1 明确不做（不是"以后再做"，是当前规模下不需要）
+
+| 方案里的项 | 为什么不做 |
+|---|---|
+| 独立 PDP/PEP 微服务 | NIST SP 800-207 本身不要求 PDP/PEP 是独立服务，"逻辑组件"即可满足；已有 `service/enterprise_access.py` + `service/access_control.py` 就是逻辑 PDP，FastAPI 依赖/Service 入口/RAG 入口/Tool 执行器就是逻辑 PEP |
+| 部门 Runtime 容器拆分、服务间 mTLS | 单体内通过数据权限区分中央 Agent / 部门 Agent 就够；没有独立信任边界要 mTLS 保护 |
+| 每部门独立数据库 / 独立 VPC | 单企业内部部门隔离 ≠ 多租户互不信任；物理隔离留作数据模型上"以后能扩"，不是现在就建 |
+| Hash 链 + WORM 审计 | 应用账号只给审计表 INSERT 权限 + 每日导出到开版本控制的 OSS，已能做到"改了能发现"，链式签名是等保/合规硬要求出现后再加的量级 |
+| 多企业租户管理 | 产品前提是单企业，不做 |
+
+### 9.2 保留并要长期遵守的原则
+
+- 默认拒绝；每次请求重新鉴权；客户端传的 `organization_id`/`team_id`/角色一律不可信，
+  后端按登录用户重新计算（`access_control.py` 现在就是这么做的，继续这个模式）。
+- 中央 Agent 不能扩大用户权限，不能把用户无权访问的部门知识库偷偷加入检索范围。
+- 高风险操作必须审批 + 二次认证；所有关键操作要能审计。
+- 单体 + 逻辑隔离是**当前**选择，不是把物理隔离的路堵死——数据模型留 `organization_id`/
+  `team_id`，HR/财务/法务这类高敏部门将来要拆独立部署时，不需要重新建模型。
+
+### 9.3 核对代码后的修正（方案里几处假设跟实际代码不一致）
+
+方案假设的几个资源目前的真实状态（读 `models/init_db.py` 核对过，不是凭印象）：
+
+| 方案里提到的资源 | 实际情况 |
+|---|---|
+| `Agent` | 没有 `organization_id`/`team_id`/`scope_type`/`sensitivity`，需要新加 |
+| `Skill` | 没有 `organization_id`/`team_id`/`scope_type`/`sensitivity`；现有 `is_public`（0/1）后续由 `scope_type` 取代 personal/department/enterprise 三态 |
+| `KnowledgeSpace` | Phase 3B 已经有 `team_id`/`organization_id`（`fk_kspace_team`/`fk_kspace_org`），缺 `scope_type`/`sensitivity` |
+| `Prompt` | 项目里没有独立 `Prompt` 表，`Agent.prompt_file` 只是个路径列——"Prompt 跟随 Agent"已经是事实，不用新建表 |
+| `Conversation`/`Message`/`BackgroundTask` | 都已经通过 `agent_id`/`user_id`（`BackgroundTask` 还有 `target_type`/`target_id`）间接继承所属资源的权限，不需要加归属字段，只要 `access_control.py` 覆盖到位 |
+| `Attachment` | 代码库里不存在这张表，方案里"附件继承会话权限"这条现在不适用，等真的有附件上传功能再补 |
+| `OperationLog` | 是 HTTP 访问日志（method/path/status_code/latency_ms），不是方案要的"操作前后摘要 + 审批单 + Trace ID"业务审计事件；第 9.6 节的 `audit_event` 是全新表，不是扩展它 |
+
+### 9.4 最终架构（落地版）
+
+```
+Vue3 → Nginx → FastAPI 单体
+  ├── 身份认证
+  ├── enterprise_access.py + access_control.py（逻辑 PDP）
+  ├── 中央 Agent 编排 / 部门 Agent（同一进程，agent_type 区分）
+  ├── 审批服务（新）
+  ├── 审计服务（新，追加式）
+  └── 数据访问层
+        ↓
+MySQL + Redis + ChromaDB + Worker
+```
+
+`organization` 保留作为企业安全边界（长期只有 1 行也不删表），`teams` 在前端展示为
+"部门"，表名不改。
+
+### 9.5 Phase 3D 七阶段范围（按依赖顺序）
+
+| 阶段 | 内容 | 依赖 |
+|---|---|---|
+| 1 | 资源归属字段：`Agent`/`Skill` 加 `organization_id`/`team_id`/`scope_type`/`sensitivity`；`KnowledgeSpace` 补 `scope_type`/`sensitivity`。`scope_type ∈ {enterprise, department, personal}`，`sensitivity ∈ {public, internal, confidential, restricted}`，创建时由后端算，不接受前端传值 | 无，可以马上开始 |
+| 2 | 统一权限入口扩展：`enterprise_access.py`/`access_control.py` 加 `get_access_context`/`authorize`/`list_accessible_agents`/`require_sensitivity_level` 等，覆盖路由、RAG 检索、Skill 绑定、Tool 执行、后台 Worker | 依赖阶段 1 的字段 |
+| 3 | 中央 Agent 轻量路由：`agent_type ∈ {central, department, personal}`，规则路由到用户可访问范围内的部门 Agent，记录路由过程 | 依赖阶段 1、2 |
+| 4 | 审批 + 二次认证：新表 `approval_request`（绑定具体资源/操作/有效期），高风险操作（删空间、发布高风险 Skill、导出限制级数据、改权限策略）走审批 | 依赖阶段 1 |
+| 5 | `row_version` 乐观锁（Agent/Skill/KnowledgeSpace/权限策略/审批记录）+ Agent/Skill 发布生命周期 `draft → reviewing → published → retired`，已发布不能原地改 | 依赖阶段 1 |
+| 6 | 追加式 `audit_event` 表（应用账号只给 INSERT，读单独只读权限，删用户不级联删审计），每日导出 OSS | 独立，可以和 4/5 并行 |
+| 7 | Phase 4 生产保障：RDS 迁移、备份恢复演练、管理员 MFA、Token 版本撤销、越权自动化测试、压测告警 | 前面阶段完成后 |
+
+### 9.6 决策记录（补充第 4 节）
+
+| 问题 | 决策 |
+|---|---|
+| PDP/PEP 要不要拆成独立服务？ | **不拆**：`enterprise_access.py` + `access_control.py` 就是逻辑 PDP，继续在这两个文件里扩展，不新建权限微服务 |
+| 部门要不要物理隔离（独立库/独立 VPC）？ | **现在不做**，但字段留 `organization_id`/`team_id`，未来 HR/财务/法务要拆独立部署时数据模型不用重建 |
+| 审计要不要 Hash 链 + WORM？ | **现在不做**：追加式表 + 数据库权限隔离 + OSS 每日备份先顶上；等保/合规硬要求出现再加链式签名 |
+| Skill 的 `is_public` 字段要不要保留？ | **保留字段，语义收窄**：新加 `scope_type` 承担 personal/department/enterprise 三态，`is_public` 后续按 `scope_type == enterprise` 派生，不必现在删列 |
+
+下一步：从阶段 1 开始动手（模型加字段 + Alembic 迁移 + 数据回填/默认值），阶段 2-7
+排在后面，逐步来。

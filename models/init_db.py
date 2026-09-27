@@ -135,6 +135,8 @@ class Agent(Base):
     __tablename__ = "agent"
     __table_args__ = (
         Index("idx_agent_user_id_id", "user_id", "id"),
+        Index("idx_agent_org", "organization_id"),
+        Index("idx_agent_team", "team_id"),
     )
     id = Column(Integer,primary_key=True,autoincrement=True)
     user_id = Column(Integer,ForeignKey("user.id", name="fk_agent_user"),nullable=False)
@@ -150,6 +152,12 @@ class Agent(Base):
     kb_rerank_enabled = Column(Integer, nullable=False, default=0)
     kb_force_citation = Column(Integer, nullable=False, default=1)     # 回答强制带来源
     kb_refuse_when_empty = Column(Integer, nullable=False, default=1)  # 无命中时拒答
+    # ---- Phase 3D 阶段1：资源归属与密级（docs/enterprise-rbac-plan.md 9.5）----
+    # 由后端按当前用户/目标 team 计算写入，不接受前端传值。
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_agent_org"), nullable=True)
+    team_id = Column(Integer, ForeignKey("teams.id", name="fk_agent_team"), nullable=True)
+    scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
+    sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
     skills: Mapped[List["Skill"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="agents"
     )
@@ -257,6 +265,9 @@ class KnowledgeSpace(Base):
     vector_migrated = Column(Integer, nullable=False, default=1)   # 0=检索需双读 legacy collection
     team_id = Column(Integer, ForeignKey("teams.id", name="fk_kspace_team"), nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_kspace_org"), nullable=True)
+    # ---- Phase 3D 阶段1：密级（docs/enterprise-rbac-plan.md 9.5）----
+    scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
+    sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -639,6 +650,8 @@ class Skill(Base):
     __table_args__ = (
         Index("idx_skill_user_id", "user_id"),
         Index("idx_skill_public", "is_public"),
+        Index("idx_skill_org", "organization_id"),
+        Index("idx_skill_team", "team_id"),
     )
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)      # 创建者
@@ -647,6 +660,11 @@ class Skill(Base):
     config_file = Column(String(500), nullable=False)                     # YML路径
     is_public = Column(Integer, default=0)                                # 0=私有 1=公开
     created_at = Column(DateTime, default=utcnow)
+    # ---- Phase 3D 阶段1：资源归属与密级（docs/enterprise-rbac-plan.md 9.5）----
+    organization_id = Column(Integer, ForeignKey("organizations.id", name="fk_skill_org"), nullable=True)
+    team_id = Column(Integer, ForeignKey("teams.id", name="fk_skill_team"), nullable=True)
+    scope_type = Column(String(20), nullable=False, default="personal")   # personal/department/enterprise
+    sensitivity = Column(String(20), nullable=False, default="internal")  # public/internal/confidential/restricted
     # 被哪些Agent使用（多对多） ← 新增这 3 行
     agents: Mapped[List["Agent"]] = relationship(
         secondary="agent_skill", lazy=False, back_populates="skills"
