@@ -262,3 +262,52 @@ CRM 客户跟进闭环、`RealSapConnector`、Docker Compose 把 `enterprise-bus
 可以真的用中央 Agent 路由过去了——阶段3的路由规则本来就列了这个部门，不需要
 再改 `central_router.py`，只要真的创建一个 `agent_type="department"` +
 `department_code="procurement"` 的 Agent 并绑上这 6 个工具即可。
+
+## 14. 执行结果（CRM 客户跟进闭环，2026-09-27）
+
+三个业务域的最后一个，跟 OA/采购同一套骨架，比它们简单：**没有审批环节**——设计稿
+本来就没提"部门负责人审批"这一步，跟进记录只需要用户自己确认，商机没有状态机
+约束（哪个阶段能转到哪个阶段不做限制，销售自己判断）。
+
+### 数据模型（`V3__init_crm.sql`）
+
+`Customer`（客户，带 `teamId` 做部门隔离）、`Contact`（联系人）、`FollowUp`
+（跟进记录，`DRAFT → CONFIRMED` 两步，没有第三态）、`Opportunity`（商机，
+`stage`/`amount` 可重复更新，`updatedAt` 跟踪最后一次改动）。这次没有重复
+`PurchaseRequestLine` 那个 `@OneToMany` 坑——一开始就用平铺外键列
+（`Contact.customerId`/`FollowUp.customerId`/`Opportunity.customerId`）+
+独立 repository 按外键查，没有试图用 JPA 级联。
+
+### 部门数据隔离
+
+`CrmService.getCustomerInTeam()`：任何操作先查客户，校验
+`customer.teamId == RequestContext.teamId`，不一致直接 404（不区分"客户不存在"
+和"客户存在但不是你部门的"，跟 Python 侧 `access_control.py` 的隔离原则一样，
+不暴露资源存在性）。`CrmControllerIntegrationTest.differentTeam_customerNotFound`
+专门测了这条：同一个客户，用另一个部门的 `team_id` 去查会被当成不存在。
+
+### 流程
+
+`GET /crm/customers/{id}` 查摘要（联系人 + 最近 10 条跟进 + 全部商机，给销售
+Agent 生成摘要用，摘要文字本身由 Agent 自己生成，这里只管把数据给全）→
+`POST .../followups` 建草稿 → `POST /crm/followups/{id}/confirm` 确认 →
+`POST .../opportunities`（`opportunityId` 不填新建、填了更新那一条——
+`CrmControllerIntegrationTest` 里验证了更新同一条不会变成两条）。
+
+### 测试
+
+`CrmControllerIntegrationTest`（4个，真实HTTP+MySQL）：完整闭环（摘要→草稿→
+确认→建商机→更新商机）、跨部门查客户404、缺scope 403、幂等重放不重复建跟进。
+`service/tools/crm.py`（5个工具：get_customer_summary/create_followup_draft/
+submit_customer_followup/create_or_update_opportunity/get_opportunities）+
+`tests/test_crm_tools.py`（8个，mock网络层）。Java 15个测试全绿（OA6+采购5+
+CRM4），Python 774个测试全绿。
+
+### 三个业务域到这里全部做完，还剩
+
+`RealSapConnector`（等真实企业提供接口）、Docker Compose 把
+`enterprise-business-hub` 接进 `docker-compose.prod.yml`（本地一直是手动
+`mvn spring-boot:run` 起的，没有容器化和生产部署配置）、E2E/越权/重放/重复提交/
+事务测试（三个模块各自的集成测试已经覆盖了这些场景，按模块测的，没有再写一份
+跨模块的端到端测试）。销售部门（`department_code="sales"`）现在也能被中央
+Agent路由过去了，跟采购一样不用改路由代码，建一个绑好这5个工具的 Agent 即可。

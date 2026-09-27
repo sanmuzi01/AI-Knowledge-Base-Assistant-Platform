@@ -1,0 +1,219 @@
+"""销售 Agent 工具（Phase 5，docs/enterprise-business-hub-plan.md 第4/7节）。
+
+跟 oa_leave.py/procurement.py 是同一种薄工具层。CRM 跟采购一样要求 `team_id`
+（客户按部门隔离），比 OA/采购简单的地方是没有审批环节，只有草稿->确认两步。
+"""
+import json
+import uuid
+from typing import Optional
+
+from service import enterprise_hub_client as hub
+from service.tools.base import BaseTool, ToolRegistry
+
+
+def _resolve_team_id(user_id: int) -> Optional[int]:
+    from models.init_db import SessionLocal
+    from sqlalchemy import text
+
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text("SELECT team_id FROM team_members WHERE user_id=:u AND status='active' ORDER BY id LIMIT 1"),
+            {"u": user_id},
+        ).first()
+        return row[0] if row else None
+    finally:
+        db.close()
+
+
+def _require_user_and_team(ctx) -> tuple:
+    if not ctx or not ctx.user_id:
+        raise ValueError("缺少用户上下文，无法调用企业业务中心")
+    user_id = ctx.user_id
+    team_id = _resolve_team_id(user_id)
+    if team_id is None:
+        raise ValueError("当前用户不属于任何部门，无法进行 CRM 操作（客户按部门隔离）")
+    return user_id, team_id
+
+
+def _error_json(exc: hub.EnterpriseHubError) -> str:
+    return json.dumps({"error": exc.detail, "status_code": exc.status_code}, ensure_ascii=False)
+
+
+@ToolRegistry.register
+class GetCustomerSummaryTool(BaseTool):
+    requires_context = True
+
+    def get_name(self) -> str:
+        return "get_customer_summary"
+
+    def get_description(self) -> str:
+        return "查询客户摘要：基本信息、联系人、最近跟进记录、商机列表，用于生成客户摘要或准备拜访。"
+
+    def get_parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {"customer_id": {"type": "integer", "description": "客户 id"}},
+            "required": ["customer_id"],
+        }
+
+    def execute(self, **kwargs) -> str:
+        try:
+            user_id, team_id = _require_user_and_team(self._ctx)
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        customer_id = kwargs.get("customer_id")
+        try:
+            result = hub.call(
+                "GET", f"/crm/customers/{int(customer_id)}", user_id, team_id,
+                ["crm.read"], "get_customer_summary",
+            )
+        except hub.EnterpriseHubError as exc:
+            return _error_json(exc)
+        return json.dumps(result, ensure_ascii=False)
+
+
+@ToolRegistry.register
+class CreateFollowupDraftTool(BaseTool):
+    requires_context = True
+
+    def get_name(self) -> str:
+        return "create_followup_draft"
+
+    def get_description(self) -> str:
+        return "为某个客户创建一条跟进草稿（还没确认），用户确认无误后要调 submit_customer_followup。"
+
+    def get_parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "customer_id": {"type": "integer", "description": "客户 id"},
+                "content": {"type": "string", "description": "跟进内容"},
+            },
+            "required": ["customer_id", "content"],
+        }
+
+    def execute(self, **kwargs) -> str:
+        try:
+            user_id, team_id = _require_user_and_team(self._ctx)
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        customer_id = kwargs.get("customer_id")
+        try:
+            result = hub.call(
+                "POST", f"/crm/customers/{int(customer_id)}/followups", user_id, team_id,
+                ["crm.write"], "create_followup_draft",
+                json_body={"content": kwargs.get("content")}, idempotency_key=str(uuid.uuid4()),
+            )
+        except hub.EnterpriseHubError as exc:
+            return _error_json(exc)
+        return json.dumps(result, ensure_ascii=False)
+
+
+@ToolRegistry.register
+class SubmitCustomerFollowupTool(BaseTool):
+    requires_context = True
+
+    def get_name(self) -> str:
+        return "submit_customer_followup"
+
+    def get_description(self) -> str:
+        return "确认一条跟进草稿，确认后正式保存为跟进记录。"
+
+    def get_parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {"followup_id": {"type": "integer", "description": "跟进记录 id"}},
+            "required": ["followup_id"],
+        }
+
+    def execute(self, **kwargs) -> str:
+        try:
+            user_id, team_id = _require_user_and_team(self._ctx)
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        followup_id = kwargs.get("followup_id")
+        try:
+            result = hub.call(
+                "POST", f"/crm/followups/{int(followup_id)}/confirm", user_id, team_id,
+                ["crm.write"], "submit_customer_followup", idempotency_key=str(uuid.uuid4()),
+            )
+        except hub.EnterpriseHubError as exc:
+            return _error_json(exc)
+        return json.dumps(result, ensure_ascii=False)
+
+
+@ToolRegistry.register
+class CreateOrUpdateOpportunityTool(BaseTool):
+    requires_context = True
+
+    def get_name(self) -> str:
+        return "create_or_update_opportunity"
+
+    def get_description(self) -> str:
+        return "为客户创建新商机，或更新已有商机的阶段和金额（传 opportunity_id 就是更新，不传就新建）。"
+
+    def get_parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "customer_id": {"type": "integer", "description": "客户 id"},
+                "opportunity_id": {"type": "integer", "description": "要更新的商机 id，新建则不传"},
+                "stage": {"type": "string",
+                          "description": "商机阶段：LEAD/QUALIFIED/PROPOSAL/NEGOTIATION/WON/LOST"},
+                "amount": {"type": "number", "description": "商机金额"},
+            },
+            "required": ["customer_id", "stage", "amount"],
+        }
+
+    def execute(self, **kwargs) -> str:
+        try:
+            user_id, team_id = _require_user_and_team(self._ctx)
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        customer_id = kwargs.get("customer_id")
+        body = {"stage": kwargs.get("stage"), "amount": kwargs.get("amount")}
+        if kwargs.get("opportunity_id") is not None:
+            body["opportunityId"] = kwargs.get("opportunity_id")
+        try:
+            result = hub.call(
+                "POST", f"/crm/customers/{int(customer_id)}/opportunities", user_id, team_id,
+                ["crm.write"], "create_or_update_opportunity",
+                json_body=body, idempotency_key=str(uuid.uuid4()),
+            )
+        except hub.EnterpriseHubError as exc:
+            return _error_json(exc)
+        return json.dumps(result, ensure_ascii=False)
+
+
+@ToolRegistry.register
+class GetOpportunitiesTool(BaseTool):
+    requires_context = True
+
+    def get_name(self) -> str:
+        return "get_opportunities"
+
+    def get_description(self) -> str:
+        return "查询某个客户名下的所有商机。"
+
+    def get_parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {"customer_id": {"type": "integer", "description": "客户 id"}},
+            "required": ["customer_id"],
+        }
+
+    def execute(self, **kwargs) -> str:
+        try:
+            user_id, team_id = _require_user_and_team(self._ctx)
+        except ValueError as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        customer_id = kwargs.get("customer_id")
+        try:
+            result = hub.call(
+                "GET", f"/crm/customers/{int(customer_id)}/opportunities", user_id, team_id,
+                ["crm.read"], "get_opportunities",
+            )
+        except hub.EnterpriseHubError as exc:
+            return _error_json(exc)
+        return json.dumps(result, ensure_ascii=False)
