@@ -100,7 +100,10 @@
 - 压力测试：已提供轻量 HTTP 压测脚本和使用文档。
 - 监控基础：已提供 Prometheus `/metrics`、请求耗时/状态码指标、连接池/缓存状态指标（可接入现有 Prometheus/Grafana）。
 - 安全边界：已配置 CORS、Trusted Host、安全响应头、请求体大小限制和 Nginx 安全响应头。
-- 熔断/降级：LLM 与 Embedding HTTP 调用已统一超时、重试、指数退避和进程内熔断。
+- 熔断/降级：LLM 与 Embedding HTTP 调用已统一超时、重试、指数退避和熔断；熔断状态配了
+  `REDIS_URL` 时多个 API/Worker 实例共享同一份（`service/http_resilience.py::CircuitBreaker`，
+  跟 `utils/rate_limit.py` 一样的"Redis 优先、异常/未配置就掉回进程内 Map"模式），
+  没配或 Redis 不可用时退回原来的进程内状态，不是新增的硬依赖。
 - 配置校验：生产环境启动时会拦截占位密钥、缺 Redis、短信误配置、CORS/Host 未收紧等问题。
 - 自动化测试：单元测试覆盖缓存、验证码、模型 URL 适配、HTTP 重试熔断、生产配置校验，组件平台
   全链路（连接器 / 处理器 / 调度 / 退避 / 保留 / 形态识别 / 导出导入 / 同步异步边界守卫）；
@@ -172,7 +175,10 @@
   mixed-read 三场景零失败），见 [docs/production-readiness-verification.md](production-readiness-verification.md)。
   **仍待办**：这是开发机数字，不是生产容量规划依据，上线后要在真实服务器上照同一套命令
   重新跑一遍；`/metrics` 仍缺生产环境的告警规则阈值调优。
-- 外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断。
+- ~~外部服务熔断目前是进程内状态，多 API/Worker 实例不共享全局熔断~~：已接 Redis
+  共享（见上面"已完成能力"熔断/降级条目），本机没有真实 Redis 环境验证多实例场景，
+  用 `tests/test_http_resilience.py` 里的假 Redis 客户端验证了逻辑本身；生产部署后
+  应该拿两个进程实际验证一次"一个进程打开熔断，另一个进程立刻看到"。
 - ~~备份命令已给出，但还需在真实部署环境做恢复演练~~：本机已完整跑通一次
   "备份 → 还原到独立 scratch 库 → 校验表数量/行数一致 → 删除"，见
   [docs/production-readiness-verification.md](production-readiness-verification.md)。
@@ -196,4 +202,5 @@
 4. 真实服务器压力测试基准报告；告警规则接入。
 5. ~~拆分 ORM 模型定义与数据库启动初始化，完成 Alembic 全量接管~~ **完成**（Phase 3A，
    见 `docs/db-migration-plan.md`）。
-6. 多实例共享熔断状态（接 Redis）。
+6. ~~多实例共享熔断状态（接 Redis）~~ **完成**（`service/http_resilience.py::CircuitBreaker`，
+   2026-09-27）。

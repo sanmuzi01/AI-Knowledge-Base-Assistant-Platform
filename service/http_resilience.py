@@ -10,8 +10,11 @@ import httpx
 import requests
 
 from utils.logger_handler import get_logger
+from utils.redis_client import RedisClientManager
 
 logger = get_logger("http_resilience")
+
+_KNOWN_SERVICES_KEY = "circuit:known_services"
 
 
 class CircuitOpenError(Exception):
@@ -39,16 +42,36 @@ class CircuitState:
 
 
 class CircuitBreaker:
-    """简单进程内熔断器。
+    """熔断器：配了 `REDIS_URL` 时多个 API/Worker 进程共享同一份熔断状态
+    （Redis 不可用/未配置时退回进程内 Map），跟 `utils/rate_limit.py` 的限流器
+    是同一个"Redis 优先、异常/未配置就掉回内存"的模式，不是另起一套。
 
-    生产多实例时，每个 API/Worker 进程各自熔断；如果需要全局熔断，可后续接 Redis。
+    Redis key：`circuit:{name}:failures`（计数，TTL=冷却时长，冷却期内没有新失败就
+    自然清零）、`circuit:{name}:opened_until`（打开的熔断到什么时候，TTL=冷却时长）、
+    `circuit:known_services`（一个 Set，记录见过哪些服务名，只给 `stats()` 遍历用，
+    不参与熔断判断本身）。
     """
 
     def __init__(self):
         self._states: Dict[str, CircuitState] = {}
         self._lock = threading.RLock()
+        self._redis = RedisClientManager(decode_responses=True)
 
     def before_call(self, name: str) -> None:
+        client = self._redis.get_client()
+        if client:
+            try:
+                opened_until = client.get(f"circuit:{name}:opened_until")
+                if opened_until:
+                    remaining = float(opened_until) - time.time()
+                    if remaining > 0:
+                        raise CircuitOpenError(f"{name} 暂时不可用，熔断保护中，请 {int(remaining) or 1} 秒后重试")
+                return
+            except CircuitOpenError:
+                raise
+            except Exception:
+                self._redis.mark_failed()
+
         now = time.time()
         with self._lock:
             state = self._states.get(name)
@@ -57,12 +80,36 @@ class CircuitBreaker:
                 raise CircuitOpenError(f"{name} 暂时不可用，熔断保护中，请 {retry_after} 秒后重试")
 
     def record_success(self, name: str) -> None:
+        client = self._redis.get_client()
+        if client:
+            try:
+                client.delete(f"circuit:{name}:failures", f"circuit:{name}:opened_until")
+                return
+            except Exception:
+                self._redis.mark_failed()
+
         with self._lock:
             self._states.pop(name, None)
 
     def record_failure(self, name: str) -> None:
         threshold = _env_int("HTTP_CIRCUIT_FAILURE_THRESHOLD", 5)
         cooldown = _env_int("HTTP_CIRCUIT_COOLDOWN_SECONDS", 30)
+
+        client = self._redis.get_client()
+        if client:
+            try:
+                failures_key = f"circuit:{name}:failures"
+                failures = client.incr(failures_key)
+                if failures == 1:
+                    client.expire(failures_key, cooldown)
+                client.sadd(_KNOWN_SERVICES_KEY, name)
+                if threshold > 0 and failures >= threshold:
+                    client.set(f"circuit:{name}:opened_until", time.time() + cooldown, ex=cooldown)
+                    logger.warning(f"外部服务熔断打开: service={name}, failures={failures}, cooldown={cooldown}s")
+                return
+            except Exception:
+                self._redis.mark_failed()
+
         with self._lock:
             state = self._states.setdefault(name, CircuitState())
             state.failures += 1
@@ -72,6 +119,25 @@ class CircuitBreaker:
 
     def stats(self) -> Dict[str, Dict[str, int]]:
         """返回当前熔断状态，用于健康检查和排障。"""
+
+        client = self._redis.get_client()
+        if client:
+            try:
+                names = client.smembers(_KNOWN_SERVICES_KEY)
+                now = time.time()
+                result = {}
+                for name in names:
+                    failures = client.get(f"circuit:{name}:failures")
+                    opened_until_raw = client.get(f"circuit:{name}:opened_until")
+                    opened_until = float(opened_until_raw) if opened_until_raw else 0.0
+                    result[name] = {
+                        "failures": int(failures) if failures else 0,
+                        "open": opened_until > now,
+                        "retry_after": max(0, int(opened_until - now)),
+                    }
+                return result
+            except Exception:
+                self._redis.mark_failed()
 
         now = time.time()
         with self._lock:
